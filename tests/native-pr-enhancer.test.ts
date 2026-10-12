@@ -95,9 +95,15 @@ describe("NativePrEnhancer", () => {
     expect(document.querySelector("[data-adopp-native-toolbar]")?.parentElement?.classList.contains("file-tree-pane")).toBe(true);
     expect(document.querySelector("[data-adopp-native-toolbar]")?.nextElementSibling?.classList.contains("bolt-table-container")).toBe(true);
 
+    const filterTrigger = document.querySelector<HTMLButtonElement>(".adopp-native-filter-trigger");
+    filterTrigger?.click();
+    expect(filterTrigger?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector<HTMLElement>(".adopp-native-filter-menu")?.hidden).toBe(false);
+
     document.querySelector<HTMLButtonElement>('[data-toggle="viewed"]')?.click();
     expect(document.querySelector('[data-row="app"]')?.classList.contains("adopp-native-hidden")).toBe(true);
     expect(document.querySelector('[data-row="new"]')?.classList.contains("adopp-native-hidden")).toBe(false);
+    expect(document.querySelector(".adopp-native-filter-trigger")?.textContent).toContain("Filters (1)");
   });
 
   it("navigates to the next unreviewed file through the native link", () => {
@@ -139,6 +145,20 @@ describe("NativePrEnhancer", () => {
 
     expect(document.querySelector("[data-adopp-native-toolbar]")).toBeNull();
     expect(document.querySelectorAll("[data-adopp-inline-stat]")).toHaveLength(2);
+  });
+
+  it("preserves search focus during routine ADO rescans", () => {
+    enhancer = createEnhancer();
+    enhancer.start();
+    const search = document.querySelector<HTMLInputElement>(".adopp-native-search")!;
+    search.focus();
+    search.value = "app";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+
+    enhancer.refresh();
+
+    expect(document.activeElement).toBe(search);
+    expect(search.value).toBe("app");
   });
 });
 
