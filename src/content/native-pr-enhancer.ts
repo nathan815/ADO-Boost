@@ -159,19 +159,27 @@ export class NativePrEnhancer {
       mount.host.insertBefore(toolbar, mount.before);
     }
     const extensions = [...new Set(this.analysis.files.map((file) => extensionOf(file.path)).filter(Boolean))].sort();
+    const activeFilterCount = [this.hideViewed, this.hideGenerated, this.hideLockfiles].filter(Boolean).length;
     toolbar.innerHTML = `
       <div class="adopp-native-toolbar-row">
         <input class="adopp-native-search" type="search" value="${escapeHtml(this.query)}" placeholder="Search changed files" aria-label="Search changed files">
         <button class="adopp-native-nav" data-nav="previous" type="button" title="Previous file">↑</button>
         <button class="adopp-native-nav" data-nav="next" type="button" title="Next file">↓</button>
-        <button class="adopp-native-nav adopp-native-next-unreviewed" data-nav="unreviewed" type="button">Next unreviewed</button>
+        <button class="adopp-native-nav adopp-native-next-unreviewed" data-nav="unreviewed" type="button"><span class="adopp-native-next-long">Next unreviewed</span><span class="adopp-native-next-short">Next</span></button>
       </div>
       <div class="adopp-native-toolbar-row adopp-native-filters">
         <select class="adopp-native-change" aria-label="Filter by change kind"><option value="all">All changes</option>${["add", "edit", "delete", "rename"].map((kind) => `<option value="${kind}" ${this.changeKind === kind ? "selected" : ""}>${kind}</option>`).join("")}</select>
         <select class="adopp-native-extension" aria-label="Filter by extension"><option value="all">All types</option>${extensions.map((value) => `<option value="${escapeHtml(value)}" ${this.extension === value ? "selected" : ""}>.${escapeHtml(value)}</option>`).join("")}</select>
-        <button class="adopp-native-toggle" data-toggle="viewed" aria-pressed="${this.hideViewed}" type="button">Viewed</button>
-        <button class="adopp-native-toggle" data-toggle="generated" aria-pressed="${this.hideGenerated}" type="button">Generated</button>
-        <button class="adopp-native-toggle" data-toggle="lockfiles" aria-pressed="${this.hideLockfiles}" type="button">Lockfiles</button>
+        <div class="adopp-native-filter-wrap">
+          <button class="adopp-native-filter-trigger bolt-button enabled subtle" type="button" aria-expanded="false">Filters${activeFilterCount ? ` (${activeFilterCount})` : ""} <span aria-hidden="true">▾</span></button>
+          <div class="adopp-native-filter-menu bolt-callout bolt-callout-shadow" role="menu" hidden>
+            <div class="bolt-menu flex-column custom-scrollbar"><div class="bolt-list" role="presentation">
+              ${nativeToggleMenuItem("viewed", "Hide viewed files", this.hideViewed)}
+              ${nativeToggleMenuItem("generated", "Hide generated files", this.hideGenerated)}
+              ${nativeToggleMenuItem("lockfiles", "Hide lockfiles", this.hideLockfiles)}
+            </div></div>
+          </div>
+        </div>
         <span class="adopp-native-visible-count"></span>
       </div>`;
     toolbar.querySelector<HTMLInputElement>(".adopp-native-search")?.addEventListener("input", (event) => {
@@ -185,6 +193,13 @@ export class NativePrEnhancer {
     toolbar.querySelector<HTMLSelectElement>(".adopp-native-extension")?.addEventListener("change", (event) => {
       this.extension = (event.currentTarget as HTMLSelectElement).value;
       this.applyFilters();
+    });
+    const filterTrigger = toolbar.querySelector<HTMLButtonElement>(".adopp-native-filter-trigger");
+    const filterMenu = toolbar.querySelector<HTMLElement>(".adopp-native-filter-menu");
+    filterTrigger?.addEventListener("click", () => {
+      const opening = filterMenu?.hidden ?? false;
+      if (filterMenu) filterMenu.hidden = !opening;
+      filterTrigger.setAttribute("aria-expanded", String(opening));
     });
     for (const toggle of toolbar.querySelectorAll<HTMLButtonElement>("[data-toggle]")) {
       toggle.addEventListener("click", () => {
@@ -449,14 +464,19 @@ function nativeMenuItem(action: string, label: string): string {
   return `<div class="bolt-list-row bolt-menu-item" role="presentation"><div class="bolt-list-cell"><button class="bolt-button bolt-menu-button enabled subtle flex-row flex-center" type="button" role="menuitem" data-action="${action}"><span class="bolt-button-text">${label}</span></button></div></div>`;
 }
 
+function nativeToggleMenuItem(toggle: string, label: string, active: boolean): string {
+  return `<div class="bolt-list-row bolt-menu-item" role="presentation"><div class="bolt-list-cell"><button class="bolt-button bolt-menu-button enabled subtle flex-row flex-center adopp-native-toggle" type="button" role="menuitemcheckbox" aria-checked="${active}" aria-pressed="${active}" data-toggle="${toggle}"><span class="adopp-native-filter-check" aria-hidden="true">${active ? "✓" : ""}</span><span class="bolt-button-text">${label}</span></button></div></div>`;
+}
+
 const nativeStyles = `
 .adopp-native-stat{display:inline-flex;margin-left:8px;white-space:nowrap;font:600 11px/1.4 Consolas,"Cascadia Mono",monospace;color:var(--palette-neutral-60,#8a8886)}
 .adopp-native-stat[data-state="exact"]{color:var(--palette-neutral-70,#605e5c)}
 .adopp-native-stat-plus{color:var(--status-success-foreground,#107c10)}.adopp-native-stat-minus{color:var(--status-error-foreground,#a4262c)}
 .adopp-native-toolbar{display:grid;gap:6px;width:100%;box-sizing:border-box;padding:8px 10px;border-bottom:1px solid var(--palette-neutral-20,#edebe9);background:var(--background-color,#fff);font:12px "Segoe UI",sans-serif}
-.adopp-native-toolbar-row{display:flex;align-items:center;gap:5px;min-width:0}.adopp-native-search{min-width:80px;flex:1;padding:5px 7px;border:1px solid var(--palette-neutral-30,#c8c6c4);background:transparent;color:inherit}
+.adopp-native-toolbar-row{display:grid;grid-template-columns:minmax(0,1fr) 30px 30px auto;align-items:center;gap:5px;min-width:0}.adopp-native-search{min-width:0;width:100%;box-sizing:border-box;padding:5px 7px;border:1px solid var(--palette-neutral-30,#c8c6c4);background:transparent;color:inherit}
 .adopp-native-toolbar select,.adopp-native-toolbar button{min-height:28px;padding:4px 7px;border:1px solid var(--palette-neutral-30,#c8c6c4);border-radius:2px;background:transparent;color:inherit;font:inherit;cursor:pointer}
-.adopp-native-toolbar button:hover,.adopp-native-toolbar button[aria-pressed="true"]{background:var(--palette-neutral-10,#f3f2f1)}.adopp-native-next-unreviewed{white-space:nowrap}.adopp-native-visible-count{margin-left:auto;color:var(--palette-neutral-60,#8a8886);white-space:nowrap}
+.adopp-native-toolbar button:hover,.adopp-native-toolbar button[aria-pressed="true"]{background:var(--palette-neutral-10,#f3f2f1)}.adopp-native-next-unreviewed{white-space:nowrap}.adopp-native-next-short{display:none}.adopp-native-filters{grid-template-columns:minmax(92px,1fr) minmax(78px,1fr) auto auto}.adopp-native-filters select{min-width:0;width:100%;overflow:hidden;text-overflow:ellipsis}.adopp-native-filter-wrap{position:relative;min-width:0}.adopp-native-filter-trigger{white-space:nowrap}.adopp-native-filter-menu{position:absolute!important;z-index:1001;top:calc(100% + 3px);right:0;min-width:210px}.adopp-native-filter-menu[hidden]{display:none!important}.adopp-native-filter-menu .bolt-menu-button{width:100%;justify-content:flex-start!important;text-align:left}.adopp-native-filter-check{display:inline-flex;width:18px;flex:none}.adopp-native-filter-menu .bolt-button-text{text-align:left;white-space:nowrap}.adopp-native-visible-count{color:var(--palette-neutral-60,#8a8886);white-space:nowrap}
 .adopp-native-hidden{display:none!important}.adopp-action-group{position:relative;display:inline-flex;align-items:center;gap:0;margin-right:8px}.adopp-total-diff{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 9px;margin-right:8px;border:1px solid var(--palette-neutral-30,#c8c6c4);border-radius:2px;background:var(--background-color,#fff);font:600 12px Consolas,"Cascadia Mono",monospace;white-space:nowrap}.adopp-total-plus{color:var(--status-success-foreground,#107c10)}.adopp-total-minus{color:var(--status-error-foreground,#a4262c)}.adopp-total-partial{font:10px "Segoe UI",sans-serif;color:var(--palette-neutral-60,#8a8886)}.adopp-panel-button{margin-right:8px!important}.adopp-start-button{border-top-right-radius:0!important;border-bottom-right-radius:0!important}.adopp-action-menu-button{min-width:30px!important;padding-left:7px!important;padding-right:7px!important;border-left-width:1px!important;border-top-left-radius:0!important;border-bottom-left-radius:0!important}
 .adopp-action-menu{position:absolute!important;z-index:1000;top:calc(100% + 3px);right:0;min-width:240px}.adopp-action-menu .bolt-menu{width:100%}.adopp-action-menu .bolt-menu-button{width:100%;justify-content:flex-start!important;text-align:left}.adopp-action-menu .bolt-button-text{width:100%;text-align:left}
+@media(max-width:440px){.adopp-native-toolbar{padding-left:7px;padding-right:7px}.adopp-native-next-long{display:none}.adopp-native-next-short{display:inline}.adopp-native-visible-count{display:none}.adopp-native-filters{grid-template-columns:minmax(86px,1fr) minmax(72px,1fr) auto}}
 `;
