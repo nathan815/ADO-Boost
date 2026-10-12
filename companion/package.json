@@ -1,0 +1,31 @@
+{
+  "name": "azuredevops-plus-plus-companion",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "adoplusplus": "dist/cli.js"
+  },
+  "files": ["dist", "prebuilt-extension", "README.md"],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "pack:local": "npm pack"
+  },
+  "dependencies": {
+    "@github/copilot-sdk": "0.2.2",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^24.9.1",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.3"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "os": ["win32"],
+  "license": "MIT"
+}
