@@ -753,9 +753,11 @@ function nativeMenuItem(action: string, label: string): string {
 function sanitizeClonedNativeControl(element: HTMLElement): void {
   for (const candidate of [element, ...element.querySelectorAll<HTMLElement>("*")]) {
     candidate.removeAttribute("id");
+    candidate.removeAttribute("style");
     candidate.removeAttribute("aria-controls");
     candidate.removeAttribute("aria-owns");
     candidate.removeAttribute("aria-expanded");
+    candidate.removeAttribute("aria-pressed");
     for (const attribute of [...candidate.attributes]) {
       if (attribute.name.startsWith("data-")) candidate.removeAttribute(attribute.name);
     }
@@ -787,9 +789,9 @@ function nativeChoiceMenuItem(kind: string, value: string, label: string, select
 
 function nativeDropdownTrigger(reference: HTMLButtonElement | null, label: string, ariaLabel: string, extraClass = ""): string {
   const button = reference?.cloneNode(true) as HTMLButtonElement | undefined ?? document.createElement("button");
-  for (const element of [button, ...button.querySelectorAll<HTMLElement>("[id]")]) element.removeAttribute("id");
+  sanitizeClonedNativeControl(button);
   button.type = "button";
-  button.classList.add("adopp-native-dropdown-trigger");
+  button.className = "bolt-button enabled subtle flex-row flex-center bolt-focus-treatment body-s adopp-native-dropdown-trigger";
   for (const className of extraClass.split(/\s+/).filter(Boolean)) button.classList.add(className);
   button.setAttribute("aria-label", ariaLabel);
   button.setAttribute("aria-haspopup", "menu");
