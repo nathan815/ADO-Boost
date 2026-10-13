@@ -175,6 +175,27 @@ describe("NativePrEnhancer", () => {
     expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("1/2 reviewed");
   });
 
+  it("does not copy transient iteration-button styling into filter triggers", () => {
+    const nativeButton = document.querySelector<HTMLButtonElement>(".native-file-controls .bolt-button")!;
+    nativeButton.classList.add("active", "primary", "selected");
+    nativeButton.style.backgroundColor = "white";
+    nativeButton.style.color = "white";
+    nativeButton.setAttribute("aria-pressed", "true");
+    nativeButton.querySelector(".ms-Icon--ChevronDownSmall")?.remove();
+    enhancer = createEnhancer();
+    enhancer.start();
+
+    for (const trigger of document.querySelectorAll<HTMLButtonElement>(".adopp-native-dropdown-trigger")) {
+      expect(trigger.classList.contains("active")).toBe(false);
+      expect(trigger.classList.contains("primary")).toBe(false);
+      expect(trigger.classList.contains("selected")).toBe(false);
+      expect(trigger.getAttribute("style")).toBeNull();
+      expect(trigger.hasAttribute("aria-pressed")).toBe(false);
+      expect(trigger.classList.contains("subtle")).toBe(true);
+      expect(trigger.querySelector(".ms-Icon--ChevronDownSmall")).not.toBeNull();
+    }
+  });
+
   it("removes stale diff badges when ADO recycles a file row", () => {
     enhancer = createEnhancer();
     enhancer.start();
