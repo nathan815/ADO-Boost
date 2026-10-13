@@ -1,4 +1,4 @@
-const HOST_NAME = "com.azuredevopsplusplus.copilot";
+const HOST_NAME = "com.adoboost.copilot";
 const PROTOCOL_VERSION = 1;
 
 interface Pending {

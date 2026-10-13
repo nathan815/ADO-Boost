@@ -94,12 +94,12 @@ export class ReviewPanel {
     const analysis = this.dependencies.analysis;
     this.root.innerHTML = `
       <style>${panelStyles}</style>
-      <aside class="rail" data-open="${this.open}" aria-label="AzureDevOps++ review navigator">
+      <aside class="rail" data-open="${this.open}" aria-label="ADO Boost review navigator">
         <header class="header">
           <div class="header-line">
             <h2>PR discussions</h2>
             <div class="header-actions">
-              <button class="icon settings" type="button" title="Open AzureDevOps++ settings" aria-label="Open settings">⚙</button>
+              <button class="icon settings" type="button" title="Open ADO Boost settings" aria-label="Open settings">⚙</button>
               <button class="icon close" type="button" aria-label="Close review navigator">✕</button>
             </div>
           </div>
@@ -192,7 +192,7 @@ export class ReviewPanel {
     const candidates = this.dependencies.analysis.files.slice(0, MAX_COPILOT_FILES);
     const backdrop = document.createElement("div");
     backdrop.className = "dialog-backdrop";
-    backdrop.innerHTML = `<section class="dialog" role="dialog" aria-modal="true"><h3>Send bounded PR context to Copilot?</h3><p>AzureDevOps++ will send the PR title, comparison identity, all changed-file paths and counts, plus changed-line excerpts only for the selected files below. Excerpts are capped at 20 files, 200 changed lines per file, 32 KB per file, and 128 KB total. Unselected, binary, unavailable, and truncated content is marked omitted.</p><div class="context-files">${candidates.map((file) => `<label><input type="checkbox" data-context-path="${escapeHtml(file.path)}" ${file.generated || file.lockfile ? "" : "checked"}> ${escapeHtml(file.path)}</label>`).join("")}</div><div class="dialog-actions"><button class="secondary cancel" type="button">Cancel</button><button class="primary confirm-context" type="button">${action === "groups" ? "Send and group changes" : "Send and ask question"}</button></div></section>`;
+    backdrop.innerHTML = `<section class="dialog" role="dialog" aria-modal="true"><h3>Send bounded PR context to Copilot?</h3><p>ADO Boost will send the PR title, comparison identity, all changed-file paths and counts, plus changed-line excerpts only for the selected files below. Excerpts are capped at 20 files, 200 changed lines per file, 32 KB per file, and 128 KB total. Unselected, binary, unavailable, and truncated content is marked omitted.</p><div class="context-files">${candidates.map((file) => `<label><input type="checkbox" data-context-path="${escapeHtml(file.path)}" ${file.generated || file.lockfile ? "" : "checked"}> ${escapeHtml(file.path)}</label>`).join("")}</div><div class="dialog-actions"><button class="secondary cancel" type="button">Cancel</button><button class="primary confirm-context" type="button">${action === "groups" ? "Send and group changes" : "Send and ask question"}</button></div></section>`;
     this.root.append(backdrop);
     backdrop.querySelector(".cancel")?.addEventListener("click", () => backdrop.remove());
     backdrop.querySelector(".confirm-context")?.addEventListener("click", () => {
@@ -231,7 +231,7 @@ export class ReviewPanel {
       button.disabled = false;
       button.textContent = "Retry after checking";
       const text = backdrop.querySelector<HTMLElement>(".dialog p");
-      if (text) text.textContent = error instanceof Error ? `${error.message}. AzureDevOps++ will check the PR before retrying to prevent a duplicate.` : "Announcement failed.";
+      if (text) text.textContent = error instanceof Error ? `${error.message}. ADO Boost will check the PR before retrying to prevent a duplicate.` : "Announcement failed.";
     }
   }
 

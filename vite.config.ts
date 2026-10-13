@@ -3,7 +3,7 @@ import { defineConfig } from "vite";
 export default defineConfig({
   build: {
     target: "chrome114",
-    sourcemap: true,
+    sourcemap: false,
     emptyOutDir: false,
     rollupOptions: {
       input: {

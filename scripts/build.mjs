@@ -2,7 +2,6 @@ import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
 
-const root = new URL("../", import.meta.url);
 const dist = new URL("../dist/", import.meta.url);
 
 await rm(dist, { recursive: true, force: true });
@@ -12,7 +11,7 @@ await build({
   configFile: false,
   build: {
     target: "chrome114",
-    sourcemap: true,
+    sourcemap: false,
     emptyOutDir: false,
     outDir: fileURLToPath(dist),
     rollupOptions: {
@@ -26,6 +25,11 @@ await build({
   }
 });
 await cp(new URL("../public/", import.meta.url), dist, { recursive: true });
+await mkdir(new URL("licenses/", dist), { recursive: true });
+await cp(new URL("../LICENSE", import.meta.url), new URL("LICENSE", dist));
+for (const [name, license] of [["diff", "LICENSE"], ["dompurify", "LICENSE"], ["dompurify", "LICENSE-MPL"], ["marked", "LICENSE.md"], ["zod", "LICENSE"]]) {
+  await cp(new URL(`../node_modules/${name}/${license}`, import.meta.url), new URL(`licenses/${name}-${license}`, dist));
+}
 
 const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url), "utf8"));
 await writeFile(new URL("manifest.json", dist), JSON.stringify(manifest, null, 2));

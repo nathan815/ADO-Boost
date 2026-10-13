@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { assertOwnedMarker, assertOwnedRegistry, createMarker, extensionIdFromManifestKey } from "../src/ownership.js";
 
 const id = "oldakfajnbllipnfdaghapeiofnciopo";
-const host = "com.azuredevopsplusplus.copilot";
+const host = "com.adoboost.copilot";
 
 describe("companion installation ownership", () => {
   it("accepts only matching ownership markers", () => {

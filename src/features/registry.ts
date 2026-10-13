@@ -31,7 +31,7 @@ export interface FeatureDefinition {
 export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
   { id: "prOverview", group: "overview", label: "PR size summary", description: "Show reliable overall and per-file line counts on pull request pages.", defaultEnabled: true, dependencies: [] },
   { id: "prListBadges", group: "overview", label: "PR list size badges", description: "Analyze visible pull requests with a bounded background queue.", defaultEnabled: true, dependencies: [] },
-  { id: "groupedNavigation", group: "navigation", label: "Native file-tree enhancements", description: "Add AzureDevOps++ counts and review controls directly to the Azure DevOps file tree.", defaultEnabled: true, dependencies: ["prOverview"] },
+  { id: "groupedNavigation", group: "navigation", label: "Native file-tree enhancements", description: "Add ADO Boost counts and review controls directly to the Azure DevOps file tree.", defaultEnabled: true, dependencies: ["prOverview"] },
   { id: "fileSearch", group: "navigation", label: "Native file search", description: "Search changed files directly above the Azure DevOps file tree.", defaultEnabled: true, dependencies: ["groupedNavigation"] },
   { id: "fileFilters", group: "navigation", label: "Native file filters", description: "Filter the Azure DevOps tree by change kind, extension, reviewed state, and optional noise heuristics.", defaultEnabled: true, dependencies: ["groupedNavigation"] },
   { id: "reviewProgress", group: "review", label: "Azure DevOps reviewed state", description: "Use the native Azure DevOps reviewed checkboxes as the authoritative server-backed state.", defaultEnabled: true, dependencies: ["prOverview"] },
@@ -89,7 +89,7 @@ export function migrateSettings(value: unknown): FeatureSettings {
 }
 
 export function resolveFeature(settings: FeatureSettings, id: FeatureId): { enabled: boolean; reason?: string } {
-  if (!settings.masterEnabled) return { enabled: false, reason: "AzureDevOps++ is disabled" };
+  if (!settings.masterEnabled) return { enabled: false, reason: "ADO Boost is disabled" };
   if (!settings.features[id]) return { enabled: false, reason: "Disabled in settings" };
   const definition = FEATURE_BY_ID.get(id);
   const missing = definition?.dependencies.find((dependency) => !resolveFeature(settings, dependency).enabled);

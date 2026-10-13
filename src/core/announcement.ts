@@ -9,7 +9,7 @@ export class AnnouncementService {
   ) {}
 
   body(context: PullRequestContext): string {
-    return `${context.reviewer.displayName} has started reviewing this PR.\n\nPosted via AzureDevOps++ Browser Extension`;
+    return `${context.reviewer.displayName} has started reviewing this PR.\n\nPosted via ADO Boost Browser Extension`;
   }
 
   key(context: PullRequestContext): string {

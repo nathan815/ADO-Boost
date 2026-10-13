@@ -25,7 +25,7 @@ export function validateSemanticGroups(files: FileStat[], proposals: SemanticGro
     groups.push({
       id: "copilot:omitted",
       title: "Unassigned changes",
-      rationale: "Copilot omitted these changed files, so AzureDevOps++ kept them visible.",
+      rationale: "Copilot omitted these changed files, so ADO Boost kept them visible.",
       source: "local",
       files: omitted
     });

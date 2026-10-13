@@ -1,17 +1,17 @@
 {
-  "name": "azuredevops-plus-plus-companion",
+  "name": "ado-boost-companion",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "bin": {
-    "adoplusplus": "dist/cli.js"
+    "ado-boost": "dist/cli.js"
   },
-  "files": ["dist", "prebuilt-extension", "README.md"],
+  "files": ["dist/*.js", "dist/*.exe", "dist/protocol-version.txt", "dist/Go-LICENSE.txt", "prebuilt-extension", "README.md", "LICENSE"],
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "pack:local": "npm pack"
+    "pack:local": "node ../scripts/check-release.mjs && npm pack"
   },
   "dependencies": {
     "@github/copilot-sdk": "0.2.2",

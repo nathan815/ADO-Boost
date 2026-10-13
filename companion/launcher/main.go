@@ -76,9 +76,9 @@ func main() {
 
 func fail(message string, err error) {
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "AzureDevOps++ launcher: %s: %v\n", message, err)
+		fmt.Fprintf(os.Stderr, "ADO Boost launcher: %s: %v\n", message, err)
 	} else {
-		fmt.Fprintf(os.Stderr, "AzureDevOps++ launcher: %s\n", message)
+		fmt.Fprintf(os.Stderr, "ADO Boost launcher: %s\n", message)
 	}
 	os.Exit(1)
 }

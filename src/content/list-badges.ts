@@ -57,7 +57,7 @@ export class PullRequestListBadges {
       this.attach(link, cached, "Cached immutable PR iteration result");
       return;
     }
-    const pending = this.attach(link, "…", "AzureDevOps++ is calculating changed lines");
+    const pending = this.attach(link, "…", "ADO Boost is calculating changed lines");
     try {
       const analysis = await this.analyzer.analyze(route, this.controller.signal);
       const totals = totalStats(analysis.files);

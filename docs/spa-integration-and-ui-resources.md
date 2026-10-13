@@ -1,6 +1,6 @@
 # SPA integration and Azure DevOps UI resources
 
-This page records architectural guidance for AzureDevOps++ and public resource links. It is not a claim that the current implementation satisfies every recommendation.
+This page records architectural guidance for ADO Boost and public resource links. It is not a claim that the current implementation satisfies every recommendation.
 
 ## Browser extension and SPA boundaries
 
@@ -21,7 +21,7 @@ Prefer small, extension-owned additions next to native controls rather than rewr
 
 These are design and review criteria, not guarantees about all existing code paths.
 
-## AzureDevOps++ native UI ownership
+## ADO Boost native UI ownership
 
 Retain Azure DevOps' native file selection, reviewed checkboxes and server persistence, and navigation. Augment the native changed-file tree with diff counts, filtering, and search controls, and place appropriate actions alongside the native toolbar. Keep the comments panel extension-owned rather than taking ownership of host discussion markup.
 
@@ -35,7 +35,7 @@ Prefer native app navigation controls when selecting files or moving through a r
 | --- | --- |
 | [Official Azure DevOps UI documentation and component explorer](https://developer.microsoft.com/azure-devops) | Public UI documentation and component exploration; the rendered title was **Formula Design System**. Use it to understand native control patterns and styling rather than assuming every Bolt-related resource uses the same name. |
 | [`azure-devops-ui` on npm](https://www.npmjs.com/package/azure-devops-ui) | The published React UI library. Consult the package and official documentation when evaluating components and styles. |
-| [Official Azure DevOps extension sample](https://github.com/microsoft/azure-devops-extension-sample) | A sample for the supported Azure DevOps extension SDK and contribution model. That model is distinct from AzureDevOps++'s browser-extension approach of augmenting the host DOM; the sample does not make host DOM hooks supported APIs. |
+| [Official Azure DevOps extension sample](https://github.com/microsoft/azure-devops-extension-sample) | A sample for the supported Azure DevOps extension SDK and contribution model. That model is distinct from ADO Boost's browser-extension approach of augmenting the host DOM; the sample does not make host DOM hooks supported APIs. |
 | [`azure-devops-ui-public`](https://github.com/microsoft/azure-devops-ui-public) | The fetched README points to the official documentation and an issue-reporting portal. It was not established as a full component-source repository; do not use that description. |
 
 ## Practical investigation sequence

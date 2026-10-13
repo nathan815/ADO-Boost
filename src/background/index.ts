@@ -60,7 +60,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
   if (!isWriteMessage(message)) return;
   void handleWrite(message.kind, message.payload, sender)
     .then((data) => sendResponse({ ok: true, data }))
-    .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "AzureDevOps++ write failed" }));
+    .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "ADO Boost write failed" }));
   return true;
 });
 

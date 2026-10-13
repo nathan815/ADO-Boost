@@ -11,17 +11,17 @@ import { withStagingDirectory } from "./staging.js";
 
 const exec = promisify(execFile);
 const EXTENSION_ID = "oldakfajnbllipnfdaghapeiofnciopo";
-const HOST_NAME = "com.azuredevopsplusplus.copilot";
+const HOST_NAME = "com.adoboost.copilot";
 const root = dirname(fileURLToPath(import.meta.url));
 const packageRoot = dirname(root);
 const localAppData = process.env.LOCALAPPDATA;
 if (!localAppData) throw new Error("LOCALAPPDATA is not available");
-const installRoot = join(localAppData, "AzureDevOps++");
+const installRoot = join(localAppData, "ADO Boost");
 const extensionDir = join(installRoot, "extension");
 const hostDir = join(installRoot, "host");
 const manifestPath = join(hostDir, `${HOST_NAME}.json`);
 const registryKey = `HKCU\\Software\\Microsoft\\Edge\\NativeMessagingHosts\\${HOST_NAME}`;
-const markerName = ".adoplusplus-owner.json";
+const markerName = ".ado-boost-owner.json";
 const args = process.argv.slice(2);
 
 switch (args[0]) {
@@ -38,7 +38,7 @@ switch (args[0]) {
     await uninstall(args.includes("--yes"));
     break;
   default:
-    console.log("Usage: adoplusplus <setup|doctor|login|uninstall-host> [--yes]");
+    console.log("Usage: ado-boost <setup|doctor|login|uninstall-host> [--yes]");
 }
 
 async function setup(confirmed: boolean): Promise<void> {
@@ -68,14 +68,14 @@ async function setup(confirmed: boolean): Promise<void> {
   await withStagingDirectory(stageRoot, async () => {
     await cp(join(packageRoot, "prebuilt-extension"), stageExtension, { recursive: true });
     await mkdir(stageHost, { recursive: true });
-    await cp(join(root, "adoplusplus-native-host.exe"), join(stageHost, "adoplusplus-native-host.exe"));
+    await cp(join(root, "ado-boost-native-host.exe"), join(stageHost, "ado-boost-native-host.exe"));
     const stageConfigPath = join(stageHost, "host-config.json");
     await writeFile(join(stageHost, "launcher.json"), JSON.stringify({ nodePath, hostPath: join(root, "host.js"), configPath: join(hostDir, "host-config.json") }, null, 2));
     await writeFile(stageConfigPath, JSON.stringify({ allowedOrigins: [`chrome-extension://${EXTENSION_ID}/`], cliPath: copilotPath }, null, 2));
     await writeFile(join(stageHost, `${HOST_NAME}.json`), JSON.stringify({
       name: HOST_NAME,
-      description: "AzureDevOps++ local Copilot native host",
-      path: join(hostDir, "adoplusplus-native-host.exe"),
+      description: "ADO Boost local Copilot native host",
+      path: join(hostDir, "ado-boost-native-host.exe"),
       type: "stdio",
       allowed_origins: [`chrome-extension://${EXTENSION_ID}/`]
     }, null, 2));
@@ -130,7 +130,7 @@ async function uninstall(confirmed: boolean): Promise<void> {
   assertOwnedRegistry(currentRegistry, manifestPath);
   console.log(`Remove registry key: ${registryKey}`);
   console.log(`Remove host folder: ${hostDir}`);
-  if (!confirmed && !await confirm("Unregister and remove the AzureDevOps++ native host?")) return;
+  if (!confirmed && !await confirm("Unregister and remove the ADO Boost native host?")) return;
   await exec("reg.exe", ["delete", registryKey, "/f"]);
   await rm(hostDir, { recursive: true, force: true });
   console.log("Native host removed. The unpacked extension folder was preserved.");

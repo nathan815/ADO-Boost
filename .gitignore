@@ -2,3 +2,14 @@ node_modules/
 dist/
 coverage/
 *.log
+companion/prebuilt-extension/
+*.tgz
+release/
+.impeccable/
+.env
+.env.*
+!.env.example
+.npmrc
+*.pem
+*.pfx
+*.key
