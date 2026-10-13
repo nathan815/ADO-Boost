@@ -90,8 +90,13 @@ export class NativePrEnhancer {
     window.removeEventListener("adopp:announcement-changed", this.onAnnouncementChanged);
     closeAllNativeMenus();
     closeActionMenu();
+    closeTotalDiffPopover();
     document.querySelector("[data-adopp-native-toolbar]")?.remove();
     document.querySelector("[data-adopp-action-group]")?.remove();
+    document.querySelector("[data-adopp-total-diff]")?.remove();
+    for (const phrase of document.querySelectorAll<HTMLElement>("[data-adopp-merge-proposal-text]")) {
+      phrase.replaceWith(document.createTextNode(phrase.dataset.adoppOriginalText ?? ""));
+    }
     for (const stat of document.querySelectorAll("[data-adopp-inline-stat]")) stat.remove();
     for (const row of document.querySelectorAll(".adopp-native-hidden")) row.classList.remove("adopp-native-hidden");
   }
@@ -109,6 +114,7 @@ export class NativePrEnhancer {
     this.rows = this.findFileRows();
     this.renderInlineStats();
     this.renderToolbar(forceToolbar);
+    this.renderHeaderMetadata();
     this.renderActionGroup();
     this.applyFilters();
   }
@@ -283,27 +289,12 @@ export class NativePrEnhancer {
     }
     closeActionMenu();
     group.innerHTML = "";
-    const totals = totalStats(this.analysis.files);
-    const total = document.createElement("span");
-    total.className = "adopp-total-diff";
-    total.dataset.exact = String(totals.exact);
-    total.title = totals.exact
-      ? `Merge-base comparison across ${this.analysis.files.length} files`
-      : `Known merge-base comparison totals. ${totals.incomplete} file counts are incomplete.`;
-    total.innerHTML = `<span class="adopp-total-plus">+${totals.additions}</span><span class="adopp-total-minus">−${totals.deletions}</span>${totals.exact ? "" : '<span class="adopp-total-partial">partial</span>'}`;
-    const panel = document.createElement("button");
-    panel.type = "button";
-    panel.className = stableNativeClassName(approve);
-    panel.classList.add("adopp-panel-button");
-    panel.textContent = this.analysis.threads.active > 0 ? `ADO++ (${this.analysis.threads.active})` : "ADO++";
-    panel.title = "Open AzureDevOps++ discussions and review tools";
-    panel.addEventListener("click", () => this.actions.openDiscussions());
     const startEnabled = resolveFeature(this.settings, "startReviewing").enabled;
     const start = document.createElement("button");
     start.type = "button";
     start.className = stableNativeClassName(approve);
     start.classList.add("adopp-start-button");
-    start.textContent = this.actions.isReviewAnnounced() ? "Review started" : "Start Reviewing";
+    start.textContent = this.actions.isReviewAnnounced() ? "Review started" : "Start Review";
     start.disabled = this.actions.isReviewAnnounced();
     start.hidden = !startEnabled;
     start.addEventListener("click", () => this.actions.startReviewing());
@@ -354,9 +345,41 @@ export class NativePrEnhancer {
       .filter((className) => className !== "repos-pr-header-vote-button")
       .concat("adopp-start-split")
       .join(" ");
+    if (nativeMenuButton) {
+      startSplit.style.setProperty("--adopp-split-border-color", nativeSplitDividerColor(nativeMenuButton));
+    }
     startSplit.append(start, menuButton);
-    group.append(total, panel, startSplit);
+    group.append(startSplit);
     this.configureHeaderWrapping(actionHost);
+  }
+
+  private renderHeaderMetadata(): void {
+    const status = findHeaderStatus();
+    if (!status) {
+      document.querySelector("[data-adopp-total-diff]")?.remove();
+      return;
+    }
+    const totals = totalStats(this.analysis.files);
+    let total = document.querySelector<HTMLElement>("[data-adopp-total-diff]");
+    if (!total) {
+      total = document.createElement("span");
+      total.dataset.adoppTotalDiff = "true";
+      total.className = "adopp-total-diff";
+    }
+    total.dataset.exact = String(totals.exact);
+    const comparisonDescription = totals.exact
+      ? `Merge-base comparison across ${this.analysis.files.length} files`
+      : `Known merge-base comparison totals. ${totals.incomplete} file counts are incomplete.`;
+    total.removeAttribute("title");
+    total.tabIndex = 0;
+    total.setAttribute("aria-label", `Pull request diff: ${totals.additions} lines added, ${totals.deletions} lines removed. ${comparisonDescription}`);
+    total.innerHTML = `<span class="adopp-total-plus">+${totals.additions}</span><span class="adopp-total-minus">−${totals.deletions}</span>${totals.exact ? "" : '<span class="adopp-total-partial">partial</span>'}`;
+    total.onmouseenter = () => openTotalDiffPopover(total!, this.analysis.files);
+    total.onmouseleave = closeTotalDiffPopover;
+    total.onfocus = () => openTotalDiffPopover(total!, this.analysis.files);
+    total.onblur = closeTotalDiffPopover;
+    if (status.nextElementSibling !== total) status.insertAdjacentElement("afterend", total);
+    hideMergeProposalText(status);
   }
 
   private applyFilters(): void {
@@ -582,6 +605,102 @@ function findHeaderLayout(
   return null;
 }
 
+function findHeaderStatus(): HTMLElement | null {
+  const title = document.querySelector<HTMLInputElement>('input[aria-label="Pull request title"]');
+  if (!title) return null;
+  for (let container = title.parentElement; container && container !== document.body; container = container.parentElement) {
+    const status = [...container.querySelectorAll<HTMLElement>("span,button,div")]
+      .find((element) =>
+        normalize(element.textContent) === "active"
+        && !element.closest("[data-adopp-action-group],[data-adopp-native-toolbar]")
+      );
+    if (status) return status;
+  }
+  return null;
+}
+
+function hideMergeProposalText(status: HTMLElement): void {
+  if (document.querySelector("[data-adopp-merge-proposal-text]")) return;
+  const title = document.querySelector<HTMLInputElement>('input[aria-label="Pull request title"]');
+  const scope = title ? lowestCommonAncestor(title, status) : null;
+  if (!scope) return;
+  const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const node = walker.currentNode as Text;
+    const match = /proposes to merge/i.exec(node.data);
+    if (!match) continue;
+    const phrase = document.createElement("span");
+    phrase.dataset.adoppMergeProposalText = "true";
+    phrase.dataset.adoppOriginalText = match[0];
+    phrase.className = "adopp-merge-proposal-text";
+    phrase.textContent = "·";
+    const before = node.data.slice(0, match.index);
+    const after = node.data.slice(match.index + match[0].length);
+    node.replaceWith(document.createTextNode(before), phrase, document.createTextNode(after));
+    return;
+  }
+}
+
+function openTotalDiffPopover(anchor: HTMLElement, files: FileStat[]): void {
+  closeTotalDiffPopover();
+  const counts = {
+    added: 0,
+    removed: 0,
+    edited: 0,
+    renamed: 0,
+    generated: 0,
+    lockfiles: 0,
+    binary: 0,
+    incomplete: 0
+  };
+  for (const file of files) {
+    const changeType = file.changeType.toLowerCase();
+    if (changeType.includes("rename")) counts.renamed++;
+    else if (changeType.includes("delete")) counts.removed++;
+    else if (changeType.includes("add")) counts.added++;
+    else counts.edited++;
+    if (file.generated) counts.generated++;
+    if (file.lockfile) counts.lockfiles++;
+    if (file.state === "binary") counts.binary++;
+    else if (file.state !== "exact") counts.incomplete++;
+  }
+  const detailRows = [
+    counts.generated ? totalDiffPopoverRow("Generated", counts.generated) : "",
+    counts.lockfiles ? totalDiffPopoverRow("Lockfiles", counts.lockfiles) : "",
+    counts.binary ? totalDiffPopoverRow("Binary", counts.binary) : "",
+    counts.incomplete ? totalDiffPopoverRow("Incomplete stats", counts.incomplete) : ""
+  ].join("");
+  const popover = document.createElement("div");
+  popover.dataset.adoppTotalDiffPopover = "true";
+  popover.className = "adopp-total-popover bolt-callout bolt-callout-shadow";
+  popover.id = "adopp-total-diff-popover";
+  popover.setAttribute("role", "tooltip");
+  popover.innerHTML = `
+    <div class="bolt-callout-content adopp-total-popover-content">
+      <div class="adopp-total-popover-title">${files.length} files changed</div>
+      ${totalDiffPopoverRow("Added", counts.added)}
+      ${totalDiffPopoverRow("Removed", counts.removed)}
+      ${totalDiffPopoverRow("Edited", counts.edited)}
+      ${totalDiffPopoverRow("Renamed", counts.renamed)}
+      ${detailRows ? `<div class="adopp-total-popover-divider"></div>${detailRows}` : ""}
+    </div>`;
+  document.body.append(popover);
+  anchor.setAttribute("aria-describedby", popover.id);
+  const rect = anchor.getBoundingClientRect();
+  const width = popover.offsetWidth || 176;
+  popover.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`;
+  popover.style.top = `${Math.min(rect.bottom + 6, window.innerHeight - popover.offsetHeight - 8)}px`;
+}
+
+function totalDiffPopoverRow(label: string, count: number): string {
+  return `<div class="adopp-total-popover-row"><span>${label}</span><strong>${count}</strong></div>`;
+}
+
+function closeTotalDiffPopover(): void {
+  document.querySelector("[data-adopp-total-diff-popover]")?.remove();
+  document.querySelector("[data-adopp-total-diff]")?.removeAttribute("aria-describedby");
+}
+
 function measureInputTextWidth(input: HTMLInputElement): number {
   const style = getComputedStyle(input);
   const probe = document.createElement("span");
@@ -755,7 +874,7 @@ function escapeHtml(value: string): string {
 
 function isOwnedMutation(target: Node): boolean {
   const element = target instanceof Element ? target : target.parentElement;
-  return Boolean(element?.closest("[data-adopp-native-toolbar],[data-adopp-action-group],[data-adopp-inline-stat],.adopp-native-menu,.adopp-action-menu"));
+  return Boolean(element?.closest("[data-adopp-native-toolbar],[data-adopp-action-group],[data-adopp-total-diff],[data-adopp-total-diff-popover],[data-adopp-merge-proposal-text],[data-adopp-inline-stat],.adopp-native-menu,.adopp-action-menu"));
 }
 
 function isOwnedMutationRecord(record: MutationRecord): boolean {
@@ -791,6 +910,32 @@ function stableNativeClassName(element: HTMLElement): string {
 
 function stableNativeClassNames(element: HTMLElement): string[] {
   return [...element.classList].filter((className) => !isTransientNativeClass(className));
+}
+
+function nativeSplitDividerColor(button: HTMLElement): string {
+  if (!navigator.userAgent.toLowerCase().includes("jsdom")) {
+    for (const pseudo of ["::before", "::after"]) {
+      const style = getComputedStyle(button, pseudo);
+      const width = Number.parseFloat(style.width);
+      if (style.content !== "none"
+        && style.content !== "normal"
+        && Number.isFinite(width)
+        && width <= 2
+        && isVisibleCssColor(style.backgroundColor)) {
+        return style.backgroundColor;
+      }
+    }
+  }
+  const style = getComputedStyle(button);
+  return isVisibleCssColor(style.borderLeftColor)
+    ? style.borderLeftColor
+    : "var(--palette-neutral-30,#c8c6c4)";
+}
+
+function isVisibleCssColor(color: string): boolean {
+  return Boolean(color)
+    && color !== "transparent"
+    && color !== "rgba(0, 0, 0, 0)";
 }
 
 function isTransientNativeClass(className: string): boolean {
@@ -914,7 +1059,7 @@ const nativeStyles = `
 .adopp-native-toolbar{display:grid;gap:6px;width:100%;box-sizing:border-box;padding:8px 10px;border-bottom:1px solid var(--palette-neutral-20,#edebe9);background:var(--background-color,#fff);font:12px "Segoe UI",sans-serif}
 .adopp-native-toolbar-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:5px;min-width:0}.adopp-native-search{min-width:0;width:100%;box-sizing:border-box;padding:5px 7px;border:1px solid var(--palette-neutral-30,#c8c6c4);background:transparent;color:inherit}.adopp-native-nav-controls{display:flex;align-items:center;gap:2px}
 .adopp-native-nav{width:30px;min-width:30px;min-height:28px;padding:4px 7px;border:1px solid var(--palette-neutral-30,#c8c6c4);border-radius:2px;background:transparent;color:inherit;font:inherit;cursor:pointer}.adopp-native-nav:hover{background:var(--palette-neutral-10,#f3f2f1)}.adopp-nav-icon{display:block;width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;overflow:visible}.adopp-nav-double-icon{height:16px}.adopp-native-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.78fr) minmax(76px,.72fr);align-items:center;gap:5px}.adopp-native-dropdown{position:relative;min-width:0}.adopp-native-dropdown-trigger{width:100%;min-width:0;justify-content:space-between!important;gap:8px!important}.adopp-native-dropdown-trigger .bolt-button-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.adopp-native-dropdown-chevron{display:block;width:12px;height:12px;flex:none;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round}.adopp-native-menu{z-index:100000;box-sizing:border-box!important;overflow:hidden!important}.adopp-native-menu[data-adopp-filter-portal="true"]{position:fixed!important}.adopp-native-menu[hidden]{display:none!important}.adopp-native-menu .bolt-callout-content,.adopp-native-menu .bolt-menu,.adopp-native-menu .bolt-list,.adopp-native-menu .bolt-list-row,.adopp-native-menu .bolt-list-cell{box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important}.adopp-native-menu .bolt-list-row,.adopp-native-menu .bolt-list-cell{display:block!important}.adopp-native-menu .bolt-menu-button{box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important;overflow:hidden!important}.adopp-native-menu-check{display:inline-flex;width:16px;flex:none;visibility:hidden}.adopp-native-menu-check[data-active="true"]{visibility:visible}.adopp-native-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:1px 2px 0;color:var(--palette-neutral-60,#8a8886);white-space:nowrap}.adopp-native-visible-count,.adopp-native-reviewed-count{white-space:nowrap}
-.adopp-native-hidden{display:none!important}.adopp-header-action-item{white-space:nowrap}.adopp-header-wrap.adopp-header-actions-wrapped{flex-wrap:wrap!important}.adopp-header-wrap.adopp-header-actions-wrapped>.adopp-header-action-item{display:flex!important;flex:0 0 100%!important;width:100%!important;max-width:100%!important;justify-content:flex-end!important;margin-left:0!important;padding-top:8px}.adopp-action-group{position:relative;display:inline-flex;align-items:center;gap:0;margin-right:8px}.adopp-total-diff{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 9px;margin-right:8px;border:1px solid var(--palette-neutral-30,#c8c6c4);border-radius:2px;background:var(--background-color,#fff);font:600 12px Consolas,"Cascadia Mono",monospace;white-space:nowrap}.adopp-total-plus{color:var(--status-success-foreground,#107c10)}.adopp-total-minus{color:var(--status-error-foreground,#a4262c)}.adopp-total-partial{font:10px "Segoe UI",sans-serif;color:var(--palette-neutral-60,#8a8886)}.adopp-panel-button{margin-right:8px!important}.adopp-start-split .adopp-action-menu-button{border-left:1px solid var(--palette-neutral-60,#8a8886)!important}
+.adopp-native-hidden{display:none!important}.adopp-header-action-item{white-space:nowrap}.adopp-header-wrap.adopp-header-actions-wrapped{flex-wrap:wrap!important}.adopp-header-wrap.adopp-header-actions-wrapped>.adopp-header-action-item{display:flex!important;flex:0 0 100%!important;width:100%!important;max-width:100%!important;justify-content:flex-end!important;margin-left:0!important;padding-top:8px}.adopp-action-group{position:relative;display:inline-flex;align-items:center;gap:0;margin-right:8px}.adopp-total-diff{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 8px;margin-left:8px;border:1px solid var(--palette-neutral-30,#c8c6c4);border-radius:5px;background:var(--background-color,#fff);font:600 12px Consolas,"Cascadia Mono",monospace;white-space:nowrap;vertical-align:middle;cursor:default}.adopp-total-diff:focus-visible{outline:2px solid var(--communication-background,#0078d4);outline-offset:1px}.adopp-total-plus{color:var(--status-success-foreground,#107c10)}.adopp-total-minus{color:var(--status-error-foreground,#a4262c)}.adopp-total-partial{font:10px "Segoe UI",sans-serif;color:var(--palette-neutral-60,#8a8886)}.adopp-total-popover{position:fixed!important;z-index:2147483647;box-sizing:border-box;width:176px}.adopp-total-popover-content{box-sizing:border-box;padding:10px 12px;font:12px "Segoe UI",sans-serif}.adopp-total-popover-title{margin-bottom:7px;font-weight:600}.adopp-total-popover-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:2px 0;color:var(--palette-neutral-80,#323130)}.adopp-total-popover-row strong{font-weight:600;font-variant-numeric:tabular-nums}.adopp-total-popover-divider{height:1px;margin:7px 0 5px;background:var(--palette-neutral-20,#edebe9)}.adopp-merge-proposal-text{display:inline-block;margin:0 6px;color:var(--palette-neutral-60,#8a8886);font-weight:600}.adopp-start-split .adopp-action-menu-button{position:relative!important;border-left:0!important}.adopp-start-split .adopp-action-menu-button::before{content:"";position:absolute;inset:0 auto 0 0;width:1px;background:var(--adopp-split-border-color,var(--palette-neutral-30,#c8c6c4));pointer-events:none}
 .adopp-action-menu{position:fixed!important}.adopp-action-menu .bolt-menu-button,.adopp-native-menu .bolt-menu-button{width:100%;justify-content:flex-start!important}.adopp-action-menu .bolt-button-text,.adopp-native-menu .bolt-button-text{min-width:0;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media(max-width:440px){.adopp-native-toolbar{padding-left:7px;padding-right:7px}}
 `;
