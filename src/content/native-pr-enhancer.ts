@@ -135,8 +135,11 @@ export class NativePrEnhancer {
   private renderInlineStats(): void {
     if (!resolveFeature(this.settings, "prOverview").enabled) return;
     for (const { file, row, label } of this.rows) {
-      const existing = [...row.querySelectorAll<HTMLElement>("[data-adopp-inline-stat]")]
-        .find((candidate) => candidate.dataset.adoppInlineStat === file.path);
+      const stats = [...row.querySelectorAll<HTMLElement>("[data-adopp-inline-stat]")];
+      const existing = stats.find((candidate) => candidate.dataset.adoppInlineStat === file.path);
+      for (const stat of stats) {
+        if (stat !== existing) stat.remove();
+      }
       if (existing) {
         renderStat(existing, file);
         existing.dataset.state = file.state;
