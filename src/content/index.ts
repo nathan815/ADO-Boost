@@ -26,6 +26,9 @@ class ContentApp {
   private currentUrl = "";
   private currentRouteKey = "";
   private unsubscribe: (() => void) | null = null;
+  private readonly openSettings = (): void => {
+    void requestOpenOptions();
+  };
 
   async start(): Promise<void> {
     this.settings = await this.settingsService.load();
@@ -82,13 +85,14 @@ class ContentApp {
           settings: this.settings,
           writes: this.writes,
           copilot: this.copilot,
-          reviewKey: this.analyzer.reviewKey(analysis.context)
+          reviewKey: this.analyzer.reviewKey(analysis.context),
+          openSettings: this.openSettings
         });
         this.enhancer = new NativePrEnhancer(analysis, this.settings, {
           openDiscussions: () => this.panel?.openDiscussions(),
           startReviewing: () => this.panel?.startReviewing(),
           isReviewAnnounced: () => this.panel?.isReviewAnnounced() ?? false,
-          openSettings: () => chrome.runtime.openOptionsPage()
+          openSettings: this.openSettings
         });
         this.enhancer.start();
         this.currentRouteKey = routeKey;
@@ -100,6 +104,15 @@ class ContentApp {
       this.badges = new PullRequestListBadges(this.analyzer);
       this.badges.start();
     }
+  }
+}
+
+async function requestOpenOptions(): Promise<void> {
+  try {
+    const response = await chrome.runtime.sendMessage({ channel: "adopp-ui", kind: "open-options" }) as { ok: true } | { ok: false; error: string };
+    if (!response?.ok) console.error("AzureDevOps++ could not open settings", response?.error ?? "No response from extension service worker");
+  } catch (error) {
+    console.error("AzureDevOps++ could not open settings", error);
   }
 }
 

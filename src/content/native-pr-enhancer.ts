@@ -377,12 +377,33 @@ export class NativePrEnhancer {
       }
     }
     updateTreeStructureVisibility(this.rows, visibleRows);
+    const comparisonTotal = this.rows.length;
+    const prTotal = this.analysis.files.length;
+    const hasActiveFilters = Boolean(this.query)
+      || this.changeKind !== "all"
+      || this.extension !== "all"
+      || this.hideViewed
+      || this.hideGenerated
+      || this.hideLockfiles;
     const count = document.querySelector<HTMLElement>(".adopp-native-visible-count");
-    if (count) count.textContent = `${visible}/${this.analysis.files.length} files`;
+    if (count) {
+      if (comparisonTotal < prTotal) {
+        count.textContent = hasActiveFilters
+          ? `${visible}/${comparisonTotal} shown · ${prTotal} PR`
+          : `${comparisonTotal} comparison · ${prTotal} PR`;
+        count.title = hasActiveFilters
+          ? `${visible} of ${comparisonTotal} files in the selected ADO comparison match AzureDevOps++ filters; ${prTotal} files changed across the full pull request.`
+          : `${comparisonTotal} files are in the selected ADO comparison; ${prTotal} files changed across the full pull request.`;
+      } else {
+        count.textContent = `${visible}/${comparisonTotal} files`;
+        count.removeAttribute("title");
+      }
+    }
     const reviewedCount = document.querySelector<HTMLElement>(".adopp-native-reviewed-count");
     if (reviewedCount) {
       const reviewed = this.rows.filter((item) => isReviewed(item.row)).length;
-      reviewedCount.textContent = `${reviewed}/${this.analysis.files.length} reviewed`;
+      reviewedCount.textContent = `${reviewed}/${comparisonTotal} reviewed`;
+      reviewedCount.title = `${reviewed} of ${comparisonTotal} files in the selected ADO comparison are marked reviewed.`;
     }
   }
 
@@ -753,9 +774,11 @@ function nativeMenuItem(action: string, label: string): string {
 function sanitizeClonedNativeControl(element: HTMLElement): void {
   for (const candidate of [element, ...element.querySelectorAll<HTMLElement>("*")]) {
     candidate.removeAttribute("id");
+    candidate.removeAttribute("style");
     candidate.removeAttribute("aria-controls");
     candidate.removeAttribute("aria-owns");
     candidate.removeAttribute("aria-expanded");
+    candidate.removeAttribute("aria-pressed");
     for (const attribute of [...candidate.attributes]) {
       if (attribute.name.startsWith("data-")) candidate.removeAttribute(attribute.name);
     }
@@ -787,9 +810,9 @@ function nativeChoiceMenuItem(kind: string, value: string, label: string, select
 
 function nativeDropdownTrigger(reference: HTMLButtonElement | null, label: string, ariaLabel: string, extraClass = ""): string {
   const button = reference?.cloneNode(true) as HTMLButtonElement | undefined ?? document.createElement("button");
-  for (const element of [button, ...button.querySelectorAll<HTMLElement>("[id]")]) element.removeAttribute("id");
+  sanitizeClonedNativeControl(button);
   button.type = "button";
-  button.classList.add("adopp-native-dropdown-trigger");
+  button.className = "bolt-button enabled subtle flex-row flex-center bolt-focus-treatment body-s adopp-native-dropdown-trigger";
   for (const className of extraClass.split(/\s+/).filter(Boolean)) button.classList.add(className);
   button.setAttribute("aria-label", ariaLabel);
   button.setAttribute("aria-haspopup", "menu");
@@ -798,6 +821,12 @@ function nativeDropdownTrigger(reference: HTMLButtonElement | null, label: strin
     ?? [...button.querySelectorAll<HTMLElement>("span,div")].find((element) => normalize(element.textContent) === "all changes");
   if (text) text.textContent = label;
   else button.prepend(Object.assign(document.createElement("span"), { className: "bolt-button-text", textContent: label }));
+  if (!button.querySelector(".ms-Icon--ChevronDownSmall")) {
+    const chevron = document.createElement("span");
+    chevron.className = "fabric-icon ms-Icon--ChevronDownSmall";
+    chevron.setAttribute("aria-hidden", "true");
+    button.append(chevron);
+  }
   return button.outerHTML;
 }
 

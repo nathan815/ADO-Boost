@@ -175,6 +175,48 @@ describe("NativePrEnhancer", () => {
     expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("1/2 reviewed");
   });
 
+  it("does not copy transient iteration-button styling into filter triggers", () => {
+    const nativeButton = document.querySelector<HTMLButtonElement>(".native-file-controls .bolt-button")!;
+    nativeButton.classList.add("active", "primary", "selected");
+    nativeButton.style.backgroundColor = "white";
+    nativeButton.style.color = "white";
+    nativeButton.setAttribute("aria-pressed", "true");
+    nativeButton.querySelector(".ms-Icon--ChevronDownSmall")?.remove();
+    enhancer = createEnhancer();
+    enhancer.start();
+
+    for (const trigger of document.querySelectorAll<HTMLButtonElement>(".adopp-native-dropdown-trigger")) {
+      expect(trigger.classList.contains("active")).toBe(false);
+      expect(trigger.classList.contains("primary")).toBe(false);
+      expect(trigger.classList.contains("selected")).toBe(false);
+      expect(trigger.getAttribute("style")).toBeNull();
+      expect(trigger.hasAttribute("aria-pressed")).toBe(false);
+      expect(trigger.classList.contains("subtle")).toBe(true);
+      expect(trigger.querySelector(".ms-Icon--ChevronDownSmall")).not.toBeNull();
+    }
+  });
+
+  it("distinguishes selected-comparison files from full pull-request files", () => {
+    const comparisonAnalysis: PullRequestAnalysis = {
+      ...analysis,
+      files: [
+        ...analysis.files,
+        { trackingId: 3, path: "/src/later.ts", changeType: "add", additions: 4, deletions: 0, state: "exact", generated: false, lockfile: false }
+      ]
+    };
+    enhancer = new NativePrEnhancer(comparisonAnalysis, defaultSettings(), {
+      openDiscussions: vi.fn(),
+      startReviewing: vi.fn(),
+      isReviewAnnounced: () => false,
+      openSettings: vi.fn()
+    });
+    enhancer.start();
+
+    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("2 comparison · 3 PR");
+    expect(document.querySelector(".adopp-native-visible-count")?.getAttribute("title")).toContain("selected ADO comparison");
+    expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("1/2 reviewed");
+  });
+
   it("removes stale diff badges when ADO recycles a file row", () => {
     enhancer = createEnhancer();
     enhancer.start();
