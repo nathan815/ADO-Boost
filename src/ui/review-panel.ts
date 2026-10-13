@@ -23,6 +23,7 @@ interface ReviewPanelDependencies {
   reviewKey: string;
   writes: WriteGateway;
   copilot: CopilotGateway;
+  openSettings: () => void;
   synthetic?: boolean;
 }
 
@@ -120,7 +121,7 @@ export class ReviewPanel {
 
   private bind(): void {
     this.root.querySelector(".close")?.addEventListener("click", () => { this.open = false; this.render(); });
-    this.root.querySelector(".settings")?.addEventListener("click", () => chrome.runtime.openOptionsPage());
+    this.root.querySelector(".settings")?.addEventListener("click", this.dependencies.openSettings);
     this.discussion.bind(this.root);
     this.root.querySelector(".copilot-health")?.addEventListener("click", () => void this.checkCopilot());
     this.root.querySelector(".copilot-groups")?.addEventListener("click", () => this.showCopilotPrivacy("groups"));
