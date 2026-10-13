@@ -38,10 +38,13 @@ describe("NativePrEnhancer", () => {
     history.replaceState({}, "", "/org/project/_git/repo/pullrequest/7?_a=files");
     document.head.innerHTML = "";
     document.body.innerHTML = `
-      <div class="actions">
-        <div class="repos-pr-header-vote-button bolt-split-button flex-stretch inline-flex-row">
-          <button class="bolt-button enabled bolt-focus-treatment"><span class="bolt-button-text">Approve</span></button>
-          <button class="bolt-split-button-option bolt-button bolt-icon-button enabled icon-only bolt-focus-treatment" aria-label="More vote options" aria-controls="approve-menu" data-command="approve-options"><span class="fabric-icon ms-Icon--ChevronDownSmall"></span></button>
+      <div class="pr-header-row">
+        <div class="title-slot"><input aria-label="Pull request title" value="PR title"></div>
+        <div class="actions">
+          <div class="repos-pr-header-vote-button bolt-split-button flex-stretch inline-flex-row">
+            <button class="bolt-button enabled bolt-focus-treatment"><span class="bolt-button-text">Approve</span></button>
+            <button class="bolt-split-button-option bolt-button bolt-icon-button enabled icon-only bolt-focus-treatment" aria-label="More vote options" aria-controls="approve-menu" data-command="approve-options"><span class="fabric-icon ms-Icon--ChevronDownSmall"></span></button>
+          </div>
         </div>
       </div>
       <div class="page-layout">
@@ -105,6 +108,26 @@ describe("NativePrEnhancer", () => {
     expect(startSplit.querySelector(".adopp-start-button")?.classList.contains("active")).toBe(false);
     expect(startSplit.querySelector(".adopp-action-menu-button")?.classList.contains("active")).toBe(true);
     expect(startSplit.querySelector(".adopp-action-menu-button")?.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("moves the complete action bar to a second row when the title cannot fit", () => {
+    const header = document.querySelector<HTMLElement>(".pr-header-row")!;
+    const title = document.querySelector<HTMLInputElement>('[aria-label="Pull request title"]')!;
+    const titleSlot = document.querySelector<HTMLElement>(".title-slot")!;
+    const actions = document.querySelector<HTMLElement>(".actions")!;
+    Object.defineProperty(header, "clientWidth", { configurable: true, value: 700 });
+    Object.defineProperty(title, "scrollWidth", { configurable: true, value: 420 });
+    Object.defineProperty(titleSlot, "scrollWidth", { configurable: true, value: 420 });
+    Object.defineProperty(actions, "scrollWidth", { configurable: true, value: 360 });
+
+    enhancer = createEnhancer();
+    enhancer.start();
+
+    expect(header.classList.contains("adopp-header-wrap")).toBe(true);
+    expect(header.classList.contains("adopp-header-actions-wrapped")).toBe(true);
+    expect(actions.classList.contains("adopp-header-action-item")).toBe(true);
+    expect(actions.querySelector("[data-adopp-action-group]")).not.toBeNull();
+    expect(actions.querySelector(".repos-pr-header-vote-button")).not.toBeNull();
   });
 
   it("adds per-file counts once and filters using native reviewed checkboxes", () => {

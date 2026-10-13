@@ -29,6 +29,9 @@ export class NativePrEnhancer {
   private observer: MutationObserver | null = null;
   private scheduled = 0;
   private reviewRefreshScheduled = 0;
+  private headerWrapContainer: HTMLElement | null = null;
+  private headerActionItem: HTMLElement | null = null;
+  private headerTitleInput: HTMLInputElement | null = null;
   private query = "";
   private changeKind = "all";
   private extension = "all";
@@ -56,6 +59,7 @@ export class NativePrEnhancer {
     document.addEventListener("pointerdown", this.onPointerDown, true);
     document.addEventListener("change", this.onNativeTreeInteraction, true);
     document.addEventListener("click", this.onNativeTreeInteraction, true);
+    window.addEventListener("resize", this.onHeaderLayoutChanged);
     window.addEventListener("adopp:announcement-changed", this.onAnnouncementChanged);
     this.scan();
   }
@@ -80,6 +84,9 @@ export class NativePrEnhancer {
     document.removeEventListener("pointerdown", this.onPointerDown, true);
     document.removeEventListener("change", this.onNativeTreeInteraction, true);
     document.removeEventListener("click", this.onNativeTreeInteraction, true);
+    window.removeEventListener("resize", this.onHeaderLayoutChanged);
+    this.headerTitleInput?.removeEventListener("input", this.onHeaderLayoutChanged);
+    this.clearHeaderWrapping();
     window.removeEventListener("adopp:announcement-changed", this.onAnnouncementChanged);
     closeAllNativeMenus();
     closeActionMenu();
@@ -339,6 +346,7 @@ export class NativePrEnhancer {
       .join(" ");
     startSplit.append(start, menuButton);
     group.append(total, panel, startSplit);
+    this.configureHeaderWrapping(actionHost);
   }
 
   private applyFilters(): void {
@@ -420,6 +428,50 @@ export class NativePrEnhancer {
     }, 0);
   };
 
+  private readonly onHeaderLayoutChanged = (): void => {
+    window.requestAnimationFrame(() => {
+      const actionHost = document.querySelector<HTMLElement>("[data-adopp-action-group]")?.parentElement;
+      if (actionHost) this.configureHeaderWrapping(actionHost);
+    });
+  };
+
+  private configureHeaderWrapping(actionHost: HTMLElement): void {
+    const title = document.querySelector<HTMLInputElement>('input[aria-label="Pull request title"]');
+    const layout = title ? findHeaderLayout(title, actionHost) : null;
+    if (!title || !layout) {
+      this.clearHeaderWrapping();
+      return;
+    }
+    if (this.headerTitleInput !== title) {
+      this.headerTitleInput?.removeEventListener("input", this.onHeaderLayoutChanged);
+      this.headerTitleInput = title;
+      title.addEventListener("input", this.onHeaderLayoutChanged);
+    }
+    if (this.headerWrapContainer !== layout.container || this.headerActionItem !== layout.actionItem) {
+      this.clearHeaderWrapping(false);
+      this.headerWrapContainer = layout.container;
+      this.headerActionItem = layout.actionItem;
+      layout.container.classList.add("adopp-header-wrap");
+      layout.actionItem.classList.add("adopp-header-action-item");
+    }
+    const availableWidth = layout.container.clientWidth || layout.container.getBoundingClientRect().width;
+    const titleWidth = Math.max(title.scrollWidth, layout.titleItem.scrollWidth, layout.titleItem.getBoundingClientRect().width);
+    const actionWidth = Math.max(layout.actionItem.scrollWidth, layout.actionItem.getBoundingClientRect().width);
+    const shouldWrap = availableWidth > 0 && titleWidth + actionWidth + 24 > availableWidth;
+    layout.container.classList.toggle("adopp-header-actions-wrapped", shouldWrap);
+  }
+
+  private clearHeaderWrapping(clearTitle = true): void {
+    this.headerWrapContainer?.classList.remove("adopp-header-wrap", "adopp-header-actions-wrapped");
+    this.headerActionItem?.classList.remove("adopp-header-action-item");
+    this.headerWrapContainer = null;
+    this.headerActionItem = null;
+    if (clearTitle) {
+      this.headerTitleInput?.removeEventListener("input", this.onHeaderLayoutChanged);
+      this.headerTitleInput = null;
+    }
+  }
+
   private ensureStyles(): void {
     if (document.getElementById(STYLE_ID)) return;
     const style = document.createElement("style");
@@ -471,6 +523,19 @@ function findToolbarMount(tree: HTMLElement): { host: HTMLElement; before: HTMLE
     if (branch && isFilePaneSized(ancestor, tree)) candidate = { host: ancestor, before: branch };
   }
   return candidate;
+}
+
+function findHeaderLayout(
+  title: HTMLInputElement,
+  actionHost: HTMLElement
+): { container: HTMLElement; titleItem: HTMLElement; actionItem: HTMLElement } | null {
+  for (let container = title.parentElement; container; container = container.parentElement) {
+    if (!container.contains(actionHost)) continue;
+    const titleItem = directChildContaining(container, title);
+    const actionItem = directChildContaining(container, actionHost);
+    if (titleItem && actionItem && titleItem !== actionItem) return { container, titleItem, actionItem };
+  }
+  return null;
 }
 
 function lowestCommonAncestor(first: HTMLElement, second: HTMLElement): HTMLElement | null {
@@ -785,7 +850,7 @@ const nativeStyles = `
 .adopp-native-toolbar{display:grid;gap:6px;width:100%;box-sizing:border-box;padding:8px 10px;border-bottom:1px solid var(--palette-neutral-20,#edebe9);background:var(--background-color,#fff);font:12px "Segoe UI",sans-serif}
 .adopp-native-toolbar-row{display:grid;grid-template-columns:minmax(0,1fr) 30px 30px auto;align-items:center;gap:5px;min-width:0}.adopp-native-search{min-width:0;width:100%;box-sizing:border-box;padding:5px 7px;border:1px solid var(--palette-neutral-30,#c8c6c4);background:transparent;color:inherit}
 .adopp-native-nav{min-height:28px;padding:4px 7px;border:1px solid var(--palette-neutral-30,#c8c6c4);border-radius:2px;background:transparent;color:inherit;font:inherit;cursor:pointer}.adopp-native-nav:hover{background:var(--palette-neutral-10,#f3f2f1)}.adopp-nav-chevron{position:relative;display:block;width:12px;height:8px}.adopp-nav-chevron::before,.adopp-nav-chevron::after{content:"";position:absolute;width:7.5px;height:1px;border-radius:1px;background:currentColor}.adopp-nav-chevron::before{left:0;transform-origin:left center}.adopp-nav-chevron::after{right:0;transform-origin:right center}.adopp-nav-chevron-up::before{top:6px;transform:rotate(-35deg)}.adopp-nav-chevron-up::after{top:6px;transform:rotate(35deg)}.adopp-nav-chevron-down::before{top:1px;transform:rotate(35deg)}.adopp-nav-chevron-down::after{top:1px;transform:rotate(-35deg)}.adopp-native-next-unreviewed{white-space:nowrap}.adopp-native-next-short{display:none}.adopp-native-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) max-content;align-items:center;gap:5px}.adopp-native-dropdown{position:relative;min-width:0}.adopp-native-dropdown-trigger{width:100%;min-width:0;justify-content:space-between!important;gap:8px!important}.adopp-native-dropdown-trigger .bolt-button-text{overflow:visible;text-overflow:clip;white-space:nowrap}.adopp-native-dropdown-trigger .ms-Icon--ChevronDownSmall{flex:none}.adopp-native-menu{z-index:100000;box-sizing:border-box!important;overflow:hidden!important}.adopp-native-menu[data-adopp-filter-portal="true"]{position:fixed!important}.adopp-native-menu[hidden]{display:none!important}.adopp-native-menu .bolt-callout-content,.adopp-native-menu .bolt-menu,.adopp-native-menu .bolt-list,.adopp-native-menu .bolt-list-row,.adopp-native-menu .bolt-list-cell{box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important}.adopp-native-menu .bolt-list-row,.adopp-native-menu .bolt-list-cell{display:block!important}.adopp-native-menu .bolt-menu-button{box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important;overflow:hidden!important}.adopp-native-menu-check{display:inline-flex;width:16px;flex:none;visibility:hidden}.adopp-native-menu-check[data-active="true"]{visibility:visible}.adopp-native-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:1px 2px 0;color:var(--palette-neutral-60,#8a8886);white-space:nowrap}.adopp-native-visible-count,.adopp-native-reviewed-count{white-space:nowrap}
-.adopp-native-hidden{display:none!important}.adopp-action-group{position:relative;display:inline-flex;align-items:center;gap:0;margin-right:8px}.adopp-total-diff{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 9px;margin-right:8px;border:1px solid var(--palette-neutral-30,#c8c6c4);border-radius:2px;background:var(--background-color,#fff);font:600 12px Consolas,"Cascadia Mono",monospace;white-space:nowrap}.adopp-total-plus{color:var(--status-success-foreground,#107c10)}.adopp-total-minus{color:var(--status-error-foreground,#a4262c)}.adopp-total-partial{font:10px "Segoe UI",sans-serif;color:var(--palette-neutral-60,#8a8886)}.adopp-panel-button{margin-right:8px!important}.adopp-start-split .adopp-action-menu-button{border-left:1px solid var(--palette-neutral-60,#8a8886)!important}
+.adopp-native-hidden{display:none!important}.adopp-header-action-item{white-space:nowrap}.adopp-header-wrap.adopp-header-actions-wrapped{flex-wrap:wrap!important}.adopp-header-wrap.adopp-header-actions-wrapped>.adopp-header-action-item{display:flex!important;flex:0 0 100%!important;width:100%!important;max-width:100%!important;justify-content:flex-end!important;margin-left:0!important;padding-top:8px}.adopp-action-group{position:relative;display:inline-flex;align-items:center;gap:0;margin-right:8px}.adopp-total-diff{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 9px;margin-right:8px;border:1px solid var(--palette-neutral-30,#c8c6c4);border-radius:2px;background:var(--background-color,#fff);font:600 12px Consolas,"Cascadia Mono",monospace;white-space:nowrap}.adopp-total-plus{color:var(--status-success-foreground,#107c10)}.adopp-total-minus{color:var(--status-error-foreground,#a4262c)}.adopp-total-partial{font:10px "Segoe UI",sans-serif;color:var(--palette-neutral-60,#8a8886)}.adopp-panel-button{margin-right:8px!important}.adopp-start-split .adopp-action-menu-button{border-left:1px solid var(--palette-neutral-60,#8a8886)!important}
 .adopp-action-menu{position:fixed!important}.adopp-action-menu .bolt-menu-button,.adopp-native-menu .bolt-menu-button{width:100%;justify-content:flex-start!important}.adopp-action-menu .bolt-button-text,.adopp-native-menu .bolt-button-text{min-width:0;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media(max-width:440px){.adopp-native-toolbar{padding-left:7px;padding-right:7px}.adopp-native-next-long{display:none}.adopp-native-next-short{display:inline}}
 `;
