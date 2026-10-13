@@ -38,13 +38,20 @@ describe("NativePrEnhancer", () => {
     history.replaceState({}, "", "/org/project/_git/repo/pullrequest/7?_a=files");
     document.head.innerHTML = "";
     document.body.innerHTML = `
-      <div class="pr-header-row">
-        <div class="title-slot"><input aria-label="Pull request title" value="PR title"></div>
-        <div class="actions">
-          <div class="repos-pr-header-vote-button bolt-split-button flex-stretch inline-flex-row">
-            <button class="bolt-button enabled bolt-focus-treatment"><span class="bolt-button-text">Approve</span></button>
-            <button class="bolt-split-button-option bolt-button bolt-icon-button enabled icon-only bolt-focus-treatment" aria-label="More vote options" aria-controls="approve-menu" data-command="approve-options"><span class="fabric-icon ms-Icon--ChevronDownSmall"></span></button>
+      <div class="pr-header-shell">
+        <div class="pr-header-row">
+          <div class="title-slot"><input aria-label="Pull request title" value="PR title"></div>
+          <div class="actions">
+            <div class="repos-pr-header-vote-button bolt-split-button flex-stretch inline-flex-row">
+              <button class="bolt-button enabled bolt-focus-treatment"><span class="bolt-button-text">Approve</span></button>
+              <button class="bolt-split-button-option bolt-button bolt-icon-button enabled icon-only bolt-focus-treatment" style="border-left-color: rgb(91, 95, 102)" aria-label="More vote options" aria-controls="approve-menu" data-command="approve-options"><span class="fabric-icon ms-Icon--ChevronDownSmall"></span></button>
+            </div>
           </div>
+        </div>
+        <div class="pr-metadata">
+          <span class="status">Active</span>
+          <span class="pr-id">!7</span>
+          <span class="proposal">Me proposes to merge source into main</span>
         </div>
       </div>
       <div class="page-layout">
@@ -76,25 +83,42 @@ describe("NativePrEnhancer", () => {
     enhancer = null;
   });
 
-  it("integrates overall totals and the panel trigger beside Approve", () => {
+  it("integrates totals into PR metadata and review actions beside Approve", () => {
     const openDiscussions = vi.fn();
     enhancer = createEnhancer({ openDiscussions });
     enhancer.start();
 
     const actions = document.querySelector(".actions")!;
-    expect(actions.textContent).toContain("+8");
-    expect(actions.textContent).toContain("−3");
-    expect(actions.textContent).toContain("ADO++ (2)");
-    expect(actions.textContent).toContain("Start Reviewing");
+    const status = document.querySelector(".status")!;
+    const total = document.querySelector("[data-adopp-total-diff]")!;
+    expect(total.previousElementSibling).toBe(status);
+    expect(total.textContent).toContain("+8");
+    expect(total.textContent).toContain("−3");
+    expect(getComputedStyle(total).borderRadius).toBe("5px");
+    (total as HTMLElement).getBoundingClientRect = () => ({ x: 80, y: 40, top: 40, right: 148, bottom: 64, left: 80, width: 68, height: 24, toJSON: () => ({}) });
+    total.dispatchEvent(new MouseEvent("mouseenter"));
+    const diffPopover = document.querySelector<HTMLElement>("[data-adopp-total-diff-popover]")!;
+    expect(diffPopover.textContent).toContain("2 files changed");
+    expect(diffPopover.textContent).toContain("Added");
+    expect(diffPopover.textContent).toContain("1");
+    expect(diffPopover.textContent).toContain("Removed");
+    expect(diffPopover.textContent).toContain("0");
+    expect(diffPopover.textContent).toContain("Edited");
+    expect(diffPopover.getAttribute("role")).toBe("tooltip");
+    total.dispatchEvent(new MouseEvent("mouseleave"));
+    expect(document.querySelector("[data-adopp-total-diff-popover]")).toBeNull();
+    expect(actions.textContent).not.toContain("ADO++");
+    expect(actions.textContent).toContain("Start Review");
     expect([...actions.children].at(-1)?.textContent?.trim()).toBe("Approve");
+    const hiddenProposalText = document.querySelector<HTMLElement>("[data-adopp-merge-proposal-text]")!;
+    expect(hiddenProposalText.textContent).toBe("proposes to merge");
+    expect(getComputedStyle(hiddenProposalText).display).toBe("none");
     expect(document.querySelector(".adopp-start-split")?.classList.contains("bolt-split-button")).toBe(true);
     expect(document.querySelector(".adopp-start-split")?.classList.contains("repos-pr-header-vote-button")).toBe(false);
+    expect((document.querySelector(".adopp-start-split") as HTMLElement).style.getPropertyValue("--adopp-split-border-color")).toBe("rgb(91, 95, 102)");
     expect(document.querySelector(".adopp-action-menu-button .ms-Icon--ChevronDownSmall")).not.toBeNull();
     expect(document.querySelector(".adopp-action-menu-button")?.hasAttribute("aria-controls")).toBe(false);
     expect(document.querySelector(".adopp-action-menu-button")?.hasAttribute("data-command")).toBe(false);
-
-    document.querySelector<HTMLButtonElement>(".adopp-panel-button")?.click();
-    expect(openDiscussions).toHaveBeenCalledOnce();
 
     const startSplit = document.querySelector<HTMLElement>(".adopp-start-split")!;
     startSplit.getBoundingClientRect = () => ({ x: 100, y: 50, top: 50, right: 333, bottom: 98, left: 100, width: 233, height: 48, toJSON: () => ({}) });
