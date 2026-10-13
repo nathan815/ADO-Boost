@@ -161,3 +161,7 @@ Semantic-group responses reject unknown and duplicate paths, keep omitted files 
 ## Development safety
 
 The repository intentionally contains no ICO files. No commits are created by the build scripts. No script installs the extension, writes the Windows registry, posts to a real PR, publishes npm packages, or submits to a browser store.
+
+## Integration guidance and UI resources
+
+See [SPA integration and Azure DevOps UI resources](docs/spa-integration-and-ui-resources.md) for content-script lifecycle guidance, native UI ownership boundaries, and public Bolt UI resources.
