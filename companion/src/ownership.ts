@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export const OWNER_PRODUCT = "AzureDevOps++";
+export const OWNER_PRODUCT = "ADO Boost";
 
 export interface OwnershipMarker {
   product: typeof OWNER_PRODUCT;
@@ -14,10 +14,10 @@ export function createMarker(extensionId: string, hostName: string): OwnershipMa
 }
 
 export function assertOwnedMarker(value: unknown, extensionId: string, hostName: string): asserts value is OwnershipMarker {
-  if (!value || typeof value !== "object") throw new Error("Existing installation has no valid AzureDevOps++ ownership marker");
+  if (!value || typeof value !== "object") throw new Error("Existing installation has no valid ADO Boost ownership marker");
   const marker = value as Partial<OwnershipMarker>;
   if (marker.product !== OWNER_PRODUCT || marker.extensionId !== extensionId || marker.hostName !== hostName || marker.version !== 1) {
-    throw new Error("Existing installation is not owned by this AzureDevOps++ package");
+    throw new Error("Existing installation is not owned by this ADO Boost package");
   }
 }
 

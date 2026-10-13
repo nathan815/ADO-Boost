@@ -314,7 +314,7 @@ export class DiscussionController {
   }
 
   private exportMarkdown(): string {
-    const lines = [`# AzureDevOps++ review feedback`, "", `PR: ${this.analysis.context.title}`, `Comparison: ${this.analysis.context.mergeBaseCommit}…${this.analysis.context.sourceCommit}`, ""];
+    const lines = [`# ADO Boost review feedback`, "", `PR: ${this.analysis.context.title}`, `Comparison: ${this.analysis.context.mergeBaseCommit}…${this.analysis.context.sourceCommit}`, ""];
     for (const draft of this.drafts) {
       lines.push(`## ${draft.path ? `${draft.path}${draft.line ? `:${draft.line}` : ""}` : draft.kind === "reply" ? `Reply to thread ${draft.threadId}` : "General feedback"}`, "", draft.body, "", `Status: ${draft.delivery}`, "");
     }

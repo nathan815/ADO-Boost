@@ -6,7 +6,7 @@ import { withStagingDirectory } from "../src/staging.js";
 
 describe("setup staging", () => {
   it("cleans a partial staging directory without changing the owned install", async () => {
-    const root = await mkdtemp(join(tmpdir(), "adoplusplus-staging-"));
+    const root = await mkdtemp(join(tmpdir(), "ado-boost-staging-"));
     const installed = join(root, "extension", "marker.txt");
     const stage = join(root, ".staging-test");
     await writeFile(installed, "owned", { flag: "wx" }).catch(async () => {

@@ -1,13 +1,18 @@
 {
-  "name": "azuredevops-plus-plus",
+  "name": "ado-boost",
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "scripts": {
     "dev": "vite --open /demo.html",
     "build": "node scripts/build.mjs",
     "build:companion": "npm --prefix companion run build",
     "pack:companion": "npm run build && npm run build:companion && npm --prefix companion run pack:local",
+    "release:check": "node scripts/check-release.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"

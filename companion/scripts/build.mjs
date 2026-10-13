@@ -2,6 +2,7 @@ import { cp, mkdir, rm, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { join } from "node:path";
 import { build } from "esbuild";
 
 const exec = promisify(execFile);
@@ -24,7 +25,10 @@ await build({
   packages: "external",
   banner: { js: "#!/usr/bin/env node" }
 });
-await exec("go", ["build", "-trimpath", "-ldflags=-s -w", "-o", fileURLToPath(new URL("adoplusplus-native-host.exe", dist)), fileURLToPath(new URL("../launcher/main.go", import.meta.url))]);
+await exec("go", ["build", "-trimpath", "-ldflags=-s -w", "-o", fileURLToPath(new URL("ado-boost-native-host.exe", dist)), fileURLToPath(new URL("../launcher/main.go", import.meta.url))]);
+const { stdout: goRoot } = await exec("go", ["env", "GOROOT"]);
+await cp(join(goRoot.trim(), "LICENSE"), new URL("Go-LICENSE.txt", dist));
 await cp(new URL("../../dist/", import.meta.url), extension, { recursive: true });
+await cp(new URL("../../LICENSE", import.meta.url), new URL("../LICENSE", import.meta.url));
 await writeFile(new URL("protocol-version.txt", dist), "1\n");
 console.log("Built companion host and prebuilt extension");

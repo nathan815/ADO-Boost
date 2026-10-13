@@ -97,7 +97,7 @@ class ContentApp {
         this.enhancer.start();
         this.currentRouteKey = routeKey;
       } catch (error) {
-        if (!this.routeController.signal.aborted) console.error("AzureDevOps++ failed to analyze this PR", error);
+        if (!this.routeController.signal.aborted) console.error("ADO Boost failed to analyze this PR", error);
       }
     } else if (resolveFeature(this.settings, "prListBadges").enabled) {
       this.currentRouteKey = "";
@@ -110,9 +110,9 @@ class ContentApp {
 async function requestOpenOptions(): Promise<void> {
   try {
     const response = await chrome.runtime.sendMessage({ channel: "adopp-ui", kind: "open-options" }) as { ok: true } | { ok: false; error: string };
-    if (!response?.ok) console.error("AzureDevOps++ could not open settings", response?.error ?? "No response from extension service worker");
+    if (!response?.ok) console.error("ADO Boost could not open settings", response?.error ?? "No response from extension service worker");
   } catch (error) {
-    console.error("AzureDevOps++ could not open settings", error);
+    console.error("ADO Boost could not open settings", error);
   }
 }
 

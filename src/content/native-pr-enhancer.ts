@@ -367,7 +367,7 @@ export class NativePrEnhancer {
       startSplit.append(menuButton);
     }
     menuButton.classList.add("adopp-action-menu-button");
-    menuButton.setAttribute("aria-label", "More AzureDevOps++ actions");
+    menuButton.setAttribute("aria-label", "More ADO Boost actions");
     for (const eventName of ["pointerdown", "mousedown"]) {
       menuButton.addEventListener(eventName, (event) => event.stopPropagation());
     }
@@ -381,7 +381,7 @@ export class NativePrEnhancer {
       const menu = document.createElement("div");
       menu.className = "adopp-action-menu adopp-native-menu bolt-callout bolt-callout-shadow";
       menu.setAttribute("role", "menu");
-      menu.innerHTML = nativeMenuContent(`${nativeMenuItem("discussions", "Open discussion sidebar")}${nativeMenuItem("unreviewed", "Next unreviewed file")}${nativeMenuItem("settings", "AzureDevOps++ settings")}`);
+      menu.innerHTML = nativeMenuContent(`${nativeMenuItem("discussions", "Open discussion sidebar")}${nativeMenuItem("unreviewed", "Next unreviewed file")}${nativeMenuItem("settings", "ADO Boost settings")}`);
       menu.querySelector('[data-action="discussions"]')?.addEventListener("click", () => {
         closeActionMenu();
         this.actions.openDiscussions();
@@ -463,7 +463,7 @@ export class NativePrEnhancer {
       if (comparisonTotal < prTotal) {
         count.textContent = `${visible}/${comparisonTotal} files · ${prTotal} total in PR`;
         count.title = hasActiveFilters
-          ? `${visible} of ${comparisonTotal} files in the selected ADO comparison match AzureDevOps++ filters; ${prTotal} files changed across the full pull request.`
+          ? `${visible} of ${comparisonTotal} files in the selected ADO comparison match ADO Boost filters; ${prTotal} files changed across the full pull request.`
           : `${comparisonTotal} files are in the selected ADO comparison; ${prTotal} files changed across the full pull request.`;
       } else {
         count.textContent = `${visible}/${comparisonTotal} files`;

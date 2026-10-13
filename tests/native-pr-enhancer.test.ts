@@ -119,7 +119,7 @@ describe("NativePrEnhancer", () => {
     expect(diffPopover.getAttribute("role")).toBe("tooltip");
     total.dispatchEvent(new MouseEvent("mouseleave"));
     expect(document.querySelector("[data-adopp-total-diff-popover]")).toBeNull();
-    expect(actions.textContent).not.toContain("ADO++");
+    expect(actions.textContent).not.toContain("ADO Boost");
     expect(actions.textContent).toContain("Start Review");
     expect(document.querySelector(".adopp-start-split")?.getAttribute("data-review-started")).toBe("false");
     expect(document.querySelectorAll(".adopp-start-review-icon path")).toHaveLength(1);
