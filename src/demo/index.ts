@@ -73,6 +73,7 @@ new ReviewPanel({
   store,
   settingsService,
   settings: fixtureSettings,
+  openSettings: () => undefined,
   writes: {
     postAnnouncement: async () => { throw new Error("Synthetic fixture does not perform writes"); },
     submitReview: async () => { throw new Error("Synthetic fixture does not perform writes"); },

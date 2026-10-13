@@ -11,7 +11,7 @@ import { ChromeSettingsStorage, SettingsService } from "../features/settings-ser
 import { NativeCopilotClient } from "./native-copilot";
 
 chrome.action.onClicked.addListener(() => {
-  void chrome.runtime.openOptionsPage();
+  void openExtensionOptions();
 });
 
 const api = new AdoApi(new FetchHttpClient());
@@ -24,6 +24,16 @@ settings.subscribe((current) => {
 });
 
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+  if (isUiMessage(message)) {
+    if (sender.id !== chrome.runtime.id) {
+      sendResponse({ ok: false, error: "UI requests are accepted only from this extension" });
+      return;
+    }
+    void openExtensionOptions()
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Unable to open extension settings" }));
+    return true;
+  }
   if (isCopilotMessage(message)) {
     void handleCopilot(message.kind, message.payload, sender)
       .then((data) => sendResponse({ ok: true, data }))
@@ -160,6 +170,21 @@ function parseDecision(value: unknown): ReviewDecision {
 function requireFeature(current: Awaited<ReturnType<SettingsService["load"]>>, id: "startReviewing" | "submitReview" | "threadNavigator" | "draftQueue" | "copilotSemanticGroups" | "copilotChat"): void {
   const resolved = resolveFeature(current, id);
   if (!resolved.enabled) throw new Error(resolved.reason ?? "Feature is disabled");
+}
+
+async function openExtensionOptions(): Promise<void> {
+  const runtime = chrome.runtime as typeof chrome.runtime & { openOptionsPage?: () => Promise<void> };
+  if (typeof runtime.openOptionsPage === "function") {
+    await runtime.openOptionsPage();
+    return;
+  }
+  await chrome.tabs.create({ url: chrome.runtime.getURL("options.html") });
+}
+
+function isUiMessage(value: unknown): value is { channel: "adopp-ui"; kind: "open-options" } {
+  if (!value || typeof value !== "object") return false;
+  const message = value as Record<string, unknown>;
+  return message.channel === "adopp-ui" && message.kind === "open-options";
 }
 
 function isWriteMessage(value: unknown): value is { channel: "adopp-write"; kind: string; payload: Record<string, unknown> } {
