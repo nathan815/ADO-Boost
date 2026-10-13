@@ -171,6 +171,22 @@ describe("NativePrEnhancer", () => {
     expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("1/2 reviewed");
   });
 
+  it("removes stale diff badges when ADO recycles a file row", () => {
+    enhancer = createEnhancer();
+    enhancer.start();
+    const row = document.querySelector<HTMLElement>('[data-row="new"]')!;
+    const stale = document.createElement("span");
+    stale.dataset.adoppInlineStat = "/src/previous.ts";
+    stale.textContent = "+99 −4";
+    row.querySelector("button")?.after(stale);
+
+    enhancer.refresh();
+
+    expect(row.querySelectorAll("[data-adopp-inline-stat]")).toHaveLength(1);
+    expect(row.querySelector("[data-adopp-inline-stat]")?.getAttribute("data-adopp-inline-stat")).toBe("/src/new.ts");
+    expect(row.textContent).not.toContain("+99");
+  });
+
   it("hides empty folders and annotations when their files are filtered out", () => {
     const appRow = document.querySelector<HTMLElement>('[data-row="app"]')!;
     const newRow = document.querySelector<HTMLElement>('[data-row="new"]')!;
