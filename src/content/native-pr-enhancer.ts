@@ -199,7 +199,7 @@ export class NativePrEnhancer {
         <div class="adopp-native-dropdown" data-dropdown="change">
           ${nativeDropdownTrigger(dropdownButton, changeKindLabel(this.changeKind), "Filter by change kind")}
           ${nativeMenuShell("adopp-native-change-menu", [
-            nativeChoiceMenuItem("change", "all", "All changes", this.changeKind === "all"),
+            nativeChoiceMenuItem("change", "all", "Any change", this.changeKind === "all"),
             ...["add", "edit", "delete", "rename"].map((kind) => nativeChoiceMenuItem("change", kind, capitalize(kind), this.changeKind === kind))
           ].join(""))}
         </div>
@@ -383,7 +383,8 @@ export class NativePrEnhancer {
     const candidates = direction === "unreviewed" ? visible.filter((item) => !isReviewed(item.row)) : visible;
     if (!candidates.length) return;
     const currentPath = new URL(location.href).searchParams.get("path");
-    const currentIndex = candidates.findIndex((item) => item.file.path === currentPath);
+    const pathIndex = candidates.findIndex((item) => item.file.path === currentPath);
+    const currentIndex = pathIndex >= 0 ? pathIndex : candidates.findIndex((item) => isSelectedFileRow(item.row));
     const index = direction === "previous"
       ? Math.max(0, currentIndex <= 0 ? candidates.length - 1 : currentIndex - 1)
       : Math.min(candidates.length - 1, currentIndex < 0 || currentIndex === candidates.length - 1 ? 0 : currentIndex + 1);
@@ -497,6 +498,12 @@ function isReviewed(row: HTMLElement): boolean {
   if (input) return input.checked;
   const checkbox = row.querySelector<HTMLElement>('[role="checkbox"]');
   return checkbox?.getAttribute("aria-checked") === "true";
+}
+
+function isSelectedFileRow(row: HTMLElement): boolean {
+  return row.getAttribute("aria-selected") === "true"
+    || Boolean(row.querySelector('[aria-selected="true"]'))
+    || row.classList.contains("selected");
 }
 
 function findNativeFileTree(files: FileStat[]): HTMLElement | null {
@@ -865,7 +872,7 @@ function findNativeDropdownButton(): HTMLButtonElement | null {
 }
 
 function changeKindLabel(kind: string): string {
-  return kind === "all" ? "All changes" : capitalize(kind);
+  return kind === "all" ? "Change type" : capitalize(kind);
 }
 
 function capitalize(value: string): string {
