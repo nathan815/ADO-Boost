@@ -342,6 +342,9 @@ export class NativePrEnhancer {
     startSplit.className = stableNativeClassNames(approveSplit)
       .concat("adopp-start-split")
       .join(" ");
+    for (const control of [startSplit, ...startSplit.querySelectorAll<HTMLElement>(".primary")]) {
+      control.classList.remove("primary");
+    }
     const clonedButtons = [...startSplit.querySelectorAll<HTMLButtonElement>("button")];
     const start = clonedButtons[0] ?? document.createElement("button");
     if (!clonedButtons[0]) startSplit.prepend(start);
@@ -1186,6 +1189,7 @@ function capitalize(value: string): string {
 }
 
 const nativeStyles = `
+.adopp-start-split>.bolt-split-button-divider{background:rgba(var(--palette-neutral-100,0,0,0),.18) !important;opacity:1 !important}
 .adopp-native-stat{display:inline-flex;margin-left:8px;white-space:nowrap;font:600 11px/1.4 Consolas,"Cascadia Mono",monospace;color:var(--palette-neutral-60,#8a8886)}
 .adopp-native-stat[data-state="exact"]{color:var(--palette-neutral-70,#605e5c)}
 .adopp-native-stat-plus{color:var(--status-success-foreground,#107c10)}.adopp-native-stat-minus{color:var(--status-error-foreground,#a4262c)}

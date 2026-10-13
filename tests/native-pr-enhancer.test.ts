@@ -167,6 +167,25 @@ describe("NativePrEnhancer", () => {
     expect(staleStyle.textContent).toContain(".adopp-total-diff");
   });
 
+  it("overrides the native blue divider with a theme-aware neutral color", () => {
+    const nativeDivider = document.querySelector<HTMLElement>(".bolt-split-button-divider")!;
+    nativeDivider.style.backgroundColor = "rgb(0, 120, 212)";
+    enhancer = createEnhancer();
+    enhancer.start();
+
+    const style = document.querySelector<HTMLStyleElement>("#adopp-native-styles")!;
+    const dividerRule = [...style.sheet!.cssRules].find((rule): rule is CSSStyleRule =>
+      rule instanceof CSSStyleRule
+      && rule.selectorText === ".adopp-start-split>.bolt-split-button-divider"
+      && rule.style.getPropertyValue("background") !== ""
+    )!;
+    expect(dividerRule.style.getPropertyValue("background")).toBe("rgba(var(--palette-neutral-100,0,0,0),.18)");
+    expect(style.textContent).toContain("background:rgba(var(--palette-neutral-100,0,0,0),.18) !important");
+    expect(dividerRule.style.getPropertyValue("opacity")).toBe("1");
+    expect(dividerRule.style.getPropertyPriority("opacity")).toBe("important");
+    expect(nativeDivider.style.backgroundColor).toBe("rgb(0, 120, 212)");
+  });
+
   it("shows renamed files and relevant review-risk details in the diff popover", () => {
     const detailedAnalysis: PullRequestAnalysis = {
       ...analysis,
@@ -546,6 +565,23 @@ describe("NativePrEnhancer", () => {
     expect(document.querySelector(".adopp-start-button")?.classList.contains("active")).toBe(false);
     expect(document.querySelector(".adopp-start-button")?.classList.contains("selected")).toBe(false);
     expect(document.querySelector(".adopp-action-menu-button")?.classList.contains("active")).toBe(false);
+  });
+
+  it.each([false, true])("keeps Start Review neutral when Approve is primary=%s", (primary) => {
+    const approveSplit = document.querySelector<HTMLElement>(".repos-pr-header-vote-button")!;
+    for (const control of [approveSplit, ...approveSplit.querySelectorAll<HTMLElement>("button")]) {
+      control.classList.toggle("primary", primary);
+    }
+    enhancer = createEnhancer();
+    enhancer.start();
+
+    const startSplit = document.querySelector<HTMLElement>(".adopp-start-split")!;
+    expect(startSplit.classList.contains("primary")).toBe(false);
+    expect(startSplit.querySelector(".primary")).toBeNull();
+    expect(approveSplit.classList.contains("primary")).toBe(primary);
+    for (const button of approveSplit.querySelectorAll("button")) {
+      expect(button.classList.contains("primary")).toBe(primary);
+    }
   });
 
   it("prefers the verified ADO file tree over unrelated tables with matching text", () => {
