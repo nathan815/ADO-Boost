@@ -114,6 +114,7 @@ export class NativePrEnhancer {
     this.rows = this.findFileRows();
     this.renderInlineStats();
     this.renderToolbar(forceToolbar);
+    this.renderNextUnreviewedAction();
     this.renderHeaderMetadata();
     this.renderActionGroup();
     this.applyFilters();
@@ -173,6 +174,7 @@ export class NativePrEnhancer {
       || resolveFeature(this.settings, "fileFilters").enabled;
     if (!enabled || !this.rows.length) {
       document.querySelector("[data-adopp-native-toolbar]")?.remove();
+      document.querySelector("[data-adopp-next-unreviewed]")?.remove();
       return;
     }
     const tree = this.rows[0]?.row.closest<HTMLElement>(`${ADO_FILE_TREE_SELECTOR},table,[role="treegrid"],[role="tree"]`);
@@ -202,11 +204,6 @@ export class NativePrEnhancer {
     toolbar.innerHTML = `
       <div class="adopp-native-toolbar-row">
         <input class="adopp-native-search" type="search" value="${escapeHtml(this.query)}" placeholder="Search changed files" aria-label="Search changed files">
-        <div class="adopp-native-nav-controls">
-          <button class="adopp-native-nav bolt-button bolt-icon-button enabled icon-only bolt-focus-treatment" data-nav="previous" type="button" title="Previous file" aria-label="Previous file"><svg class="adopp-nav-icon" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 8.5 6 4.5 10 8.5"></path></svg></button>
-          <button class="adopp-native-nav bolt-button bolt-icon-button enabled icon-only bolt-focus-treatment" data-nav="next" type="button" title="Next file" aria-label="Next file"><svg class="adopp-nav-icon" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 3.5 6 7.5 10 3.5"></path></svg></button>
-          <button class="adopp-native-nav bolt-button bolt-icon-button enabled icon-only bolt-focus-treatment" data-nav="unreviewed" type="button" title="Next unreviewed file" aria-label="Next unreviewed file"><svg class="adopp-nav-icon adopp-nav-double-icon" viewBox="0 0 12 15" aria-hidden="true"><path d="M2 2.5 6 6.5 10 2.5"></path><path d="M2 7.5 6 11.5 10 7.5"></path></svg></button>
-        </div>
       </div>
       <div class="adopp-native-toolbar-row adopp-native-filters">
         <div class="adopp-native-dropdown" data-dropdown="change">
@@ -264,8 +261,39 @@ export class NativePrEnhancer {
         this.applyFilters();
       });
     }
-    for (const button of toolbar.querySelectorAll<HTMLButtonElement>("[data-nav]")) {
-      button.addEventListener("click", () => this.navigate(button.dataset.nav as "previous" | "next" | "unreviewed"));
+  }
+
+  private renderNextUnreviewedAction(): void {
+    const nativeNext = findNativeDifferenceButton("next");
+    if (!nativeNext) {
+      document.querySelector("[data-adopp-next-unreviewed]")?.remove();
+      return;
+    }
+    let button = document.querySelector<HTMLButtonElement>("[data-adopp-next-unreviewed]");
+    if (!button) {
+      button = nativeNext.cloneNode(true) as HTMLButtonElement;
+      sanitizeClonedNativeControl(button);
+      button.dataset.adoppNextUnreviewed = "true";
+      button.classList.add("adopp-native-next-unreviewed");
+      button.type = "button";
+      button.title = "Next unreviewed file";
+      button.setAttribute("aria-label", "Next unreviewed file");
+      const icon = button.querySelector<HTMLElement>(".fabric-icon,[class*='Chevron'],svg");
+      const doubleChevron = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      doubleChevron.setAttribute("class", "adopp-nav-icon adopp-nav-double-icon");
+      doubleChevron.setAttribute("viewBox", "0 0 12 15");
+      doubleChevron.setAttribute("aria-hidden", "true");
+      doubleChevron.innerHTML = '<path d="M2 2.5 6 6.5 10 2.5"></path><path d="M2 7.5 6 11.5 10 7.5"></path>';
+      if (icon) icon.replaceWith(doubleChevron);
+      else button.replaceChildren(doubleChevron);
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        this.navigateToNextUnreviewed();
+      });
+    }
+    if (button.parentElement !== nativeNext.parentElement || button.previousElementSibling !== nativeNext) {
+      nativeNext.insertAdjacentElement("afterend", button);
     }
   }
 
@@ -349,7 +377,7 @@ export class NativePrEnhancer {
       });
       menu.querySelector('[data-action="unreviewed"]')?.addEventListener("click", () => {
         closeActionMenu();
-        this.navigate("unreviewed");
+        this.navigateToNextUnreviewed();
       });
       menu.querySelector('[data-action="settings"]')?.addEventListener("click", () => {
         closeActionMenu();
@@ -439,16 +467,14 @@ export class NativePrEnhancer {
     }
   }
 
-  private navigate(direction: "previous" | "next" | "unreviewed"): void {
+  private navigateToNextUnreviewed(): void {
     const visible = this.rows.filter((item) => !item.row.classList.contains("adopp-native-hidden"));
-    const candidates = direction === "unreviewed" ? visible.filter((item) => !isReviewed(item.row)) : visible;
+    const candidates = visible.filter((item) => !isReviewed(item.row));
     if (!candidates.length) return;
     const currentPath = new URL(location.href).searchParams.get("path");
     const pathIndex = candidates.findIndex((item) => item.file.path === currentPath);
     const currentIndex = pathIndex >= 0 ? pathIndex : candidates.findIndex((item) => isSelectedFileRow(item.row));
-    const index = direction === "previous"
-      ? Math.max(0, currentIndex <= 0 ? candidates.length - 1 : currentIndex - 1)
-      : Math.min(candidates.length - 1, currentIndex < 0 || currentIndex === candidates.length - 1 ? 0 : currentIndex + 1);
+    const index = Math.min(candidates.length - 1, currentIndex < 0 || currentIndex === candidates.length - 1 ? 0 : currentIndex + 1);
     const target = candidates[index];
     if (!target) return;
     const nativeTarget = target.label.closest<HTMLElement>('[role="row"]')
@@ -466,9 +492,9 @@ export class NativePrEnhancer {
     }
     if (!resolveFeature(this.settings, "keyboardShortcuts").enabled || isTyping(event.target)) return;
     const key = event.key.toLowerCase();
-    if (!["j", "k", "n"].includes(key)) return;
+    if (key !== "n") return;
     event.preventDefault();
-    this.navigate(key === "k" ? "previous" : key === "n" ? "unreviewed" : "next");
+    this.navigateToNextUnreviewed();
   };
 
   private readonly onAnnouncementChanged = (): void => {
@@ -633,6 +659,15 @@ function findHeaderStatus(): HTMLElement | null {
     if (status) return status;
   }
   return null;
+}
+
+function findNativeDifferenceButton(direction: "previous" | "next"): HTMLButtonElement | null {
+  return [...document.querySelectorAll<HTMLButtonElement>("button")]
+    .find((button) => {
+      if (button.hasAttribute("data-adopp-next-unreviewed")) return false;
+      const label = normalize(button.getAttribute("aria-label") ?? button.title ?? button.textContent);
+      return label.includes(direction) && (label.includes("difference") || label.includes("change"));
+    }) ?? null;
 }
 
 function hideMergeProposalText(status: HTMLElement): void {
@@ -890,7 +925,7 @@ function escapeHtml(value: string): string {
 
 function isOwnedMutation(target: Node): boolean {
   const element = target instanceof Element ? target : target.parentElement;
-  return Boolean(element?.closest("[data-adopp-native-toolbar],[data-adopp-action-group],[data-adopp-total-diff],[data-adopp-total-diff-popover],[data-adopp-merge-proposal-text],[data-adopp-inline-stat],.adopp-native-menu,.adopp-action-menu"));
+  return Boolean(element?.closest("[data-adopp-native-toolbar],[data-adopp-action-group],[data-adopp-next-unreviewed],[data-adopp-total-diff],[data-adopp-total-diff-popover],[data-adopp-merge-proposal-text],[data-adopp-inline-stat],.adopp-native-menu,.adopp-action-menu"));
 }
 
 function isOwnedMutationRecord(record: MutationRecord): boolean {
@@ -1043,7 +1078,7 @@ const nativeStyles = `
 .adopp-native-stat[data-state="exact"]{color:var(--palette-neutral-70,#605e5c)}
 .adopp-native-stat-plus{color:var(--status-success-foreground,#107c10)}.adopp-native-stat-minus{color:var(--status-error-foreground,#a4262c)}
 .adopp-native-toolbar{display:grid;gap:6px;width:100%;box-sizing:border-box;padding:8px 10px;border-bottom:1px solid var(--palette-neutral-20,#edebe9);background:var(--background-color,#fff);font:12px "Segoe UI",sans-serif}
-.adopp-native-toolbar-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:5px;min-width:0}.adopp-native-search{min-width:0;width:100%;box-sizing:border-box;padding:5px 7px;border:1px solid var(--palette-neutral-30,#c8c6c4);background:transparent;color:inherit}.adopp-native-nav-controls{display:flex;align-items:center;gap:2px}
+.adopp-native-toolbar-row{display:grid;grid-template-columns:minmax(0,1fr);align-items:center;gap:5px;min-width:0}.adopp-native-search{min-width:0;width:100%;box-sizing:border-box;padding:5px 7px;border:1px solid var(--palette-neutral-30,#c8c6c4);background:transparent;color:inherit}
 .adopp-native-nav{width:30px;min-width:30px;min-height:28px;padding:4px 7px;border:1px solid var(--palette-neutral-30,#c8c6c4);border-radius:2px;background:transparent;color:inherit;font:inherit;cursor:pointer}.adopp-native-nav:hover{background:var(--palette-neutral-10,#f3f2f1)}.adopp-nav-icon{display:block;width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;overflow:visible}.adopp-nav-double-icon{height:16px}.adopp-native-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.78fr) minmax(76px,.72fr);align-items:center;gap:5px}.adopp-native-dropdown{position:relative;min-width:0}.adopp-native-dropdown-trigger{width:100%;min-width:0;justify-content:space-between!important;gap:8px!important}.adopp-native-dropdown-trigger .bolt-button-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.adopp-native-dropdown-chevron{display:block;width:12px;height:12px;flex:none;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round}.adopp-native-menu{z-index:100000;box-sizing:border-box!important;overflow:hidden!important}.adopp-native-menu[data-adopp-filter-portal="true"]{position:fixed!important}.adopp-native-menu[hidden]{display:none!important}.adopp-native-menu .bolt-callout-content,.adopp-native-menu .bolt-menu,.adopp-native-menu .bolt-list,.adopp-native-menu .bolt-list-row,.adopp-native-menu .bolt-list-cell{box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important}.adopp-native-menu .bolt-list-row,.adopp-native-menu .bolt-list-cell{display:block!important}.adopp-native-menu .bolt-menu-button{box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important;overflow:hidden!important}.adopp-native-menu-check{display:inline-flex;width:16px;flex:none;visibility:hidden}.adopp-native-menu-check[data-active="true"]{visibility:visible}.adopp-native-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:1px 2px 0;color:var(--palette-neutral-60,#8a8886);white-space:nowrap}.adopp-native-visible-count,.adopp-native-reviewed-count{white-space:nowrap}
 .adopp-native-hidden{display:none!important}.adopp-header-action-item{white-space:nowrap}.adopp-header-wrap.adopp-header-actions-wrapped{flex-wrap:wrap!important}.adopp-header-wrap.adopp-header-actions-wrapped>.adopp-header-action-item{display:flex!important;flex:0 0 100%!important;width:100%!important;max-width:100%!important;justify-content:flex-end!important;margin-left:0!important;padding-top:8px}.adopp-action-group{position:relative;display:inline-flex;align-items:center;gap:0;margin-right:8px}.adopp-total-diff{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 8px;margin-left:8px;border:1px solid var(--palette-neutral-30,#c8c6c4);border-radius:5px;background:var(--background-color,#fff);font:600 12px Consolas,"Cascadia Mono",monospace;white-space:nowrap;vertical-align:middle;cursor:default}.adopp-total-diff:focus-visible{outline:2px solid var(--communication-background,#0078d4);outline-offset:1px}.adopp-total-plus{color:var(--status-success-foreground,#107c10)}.adopp-total-minus{color:var(--status-error-foreground,#a4262c)}.adopp-total-partial{font:10px "Segoe UI",sans-serif;color:var(--palette-neutral-60,#8a8886)}.adopp-total-popover{position:fixed!important;z-index:2147483647;box-sizing:border-box;width:176px}.adopp-total-popover-content{box-sizing:border-box;padding:10px 12px;font:12px "Segoe UI",sans-serif}.adopp-total-popover-title{margin-bottom:7px;font-weight:600}.adopp-total-popover-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:2px 0;color:var(--palette-neutral-80,#323130)}.adopp-total-popover-row strong{font-weight:600;font-variant-numeric:tabular-nums}.adopp-total-popover-divider{height:1px;margin:7px 0 5px;background:var(--palette-neutral-20,#edebe9)}.adopp-merge-proposal-text{display:inline-block;margin:0 6px;color:var(--palette-neutral-60,#8a8886);font-weight:600}.adopp-start-split{border-radius:2px;overflow:hidden}.adopp-start-split[data-review-started="false"]{box-shadow:0 1px 2px var(--callout-shadow-color,rgba(0,0,0,.22)),inset 0 0 0 1px rgba(var(--palette-neutral-100),.18)}.adopp-start-split[data-review-started="false"]>.adopp-start-button,.adopp-start-split[data-review-started="false"]>.inline-flex-row>.adopp-action-menu-button{background:rgba(var(--palette-neutral-100),.08)!important;color:var(--text-primary-color)!important;transition:background-color 120ms ease}.adopp-start-split[data-review-started="false"]>.adopp-start-button:hover,.adopp-start-split[data-review-started="false"]>.inline-flex-row>.adopp-action-menu-button:hover{background:rgba(var(--palette-neutral-100),.14)!important}.adopp-start-review-icon{display:block;width:15px;height:15px;margin-right:7px;flex:none;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round}.adopp-start-split>.adopp-start-button{border-right:0!important}.adopp-start-split>.bolt-split-button-divider{width:.5px!important;min-width:.5px!important;max-width:.5px!important;flex:0 0 .5px!important}.adopp-start-split>.inline-flex-row>.adopp-action-menu-button{border-left:0!important}
 .adopp-action-menu{position:fixed!important}.adopp-action-menu .bolt-menu-button,.adopp-native-menu .bolt-menu-button{width:100%;justify-content:flex-start!important}.adopp-action-menu .bolt-button-text,.adopp-native-menu .bolt-button-text{min-width:0;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
