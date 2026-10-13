@@ -113,6 +113,9 @@ describe("NativePrEnhancer", () => {
     expect(document.querySelector("[data-adopp-total-diff-popover]")).toBeNull();
     expect(actions.textContent).not.toContain("ADO++");
     expect(actions.textContent).toContain("Start Review");
+    expect(document.querySelector(".adopp-start-split")?.getAttribute("data-review-started")).toBe("false");
+    expect(document.querySelectorAll(".adopp-start-review-icon path")).toHaveLength(1);
+    expect(document.querySelectorAll(".adopp-start-review-icon circle")).toHaveLength(1);
     expect([...actions.children].at(-1)?.textContent?.trim()).toBe("Approve");
     const hiddenProposalText = document.querySelector<HTMLElement>("[data-adopp-merge-proposal-text]")!;
     expect(hiddenProposalText.textContent).toBe("·");
