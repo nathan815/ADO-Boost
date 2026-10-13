@@ -203,8 +203,6 @@ export class NativePrEnhancer {
       <div class="adopp-native-toolbar-row">
         <input class="adopp-native-search" type="search" value="${escapeHtml(this.query)}" placeholder="Search changed files" aria-label="Search changed files">
         <div class="adopp-native-nav-controls">
-          <button class="adopp-native-nav bolt-button bolt-icon-button enabled icon-only bolt-focus-treatment" data-nav="previous" type="button" title="Previous file" aria-label="Previous file"><svg class="adopp-nav-icon" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 8.5 6 4.5 10 8.5"></path></svg></button>
-          <button class="adopp-native-nav bolt-button bolt-icon-button enabled icon-only bolt-focus-treatment" data-nav="next" type="button" title="Next file" aria-label="Next file"><svg class="adopp-nav-icon" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 3.5 6 7.5 10 3.5"></path></svg></button>
           <button class="adopp-native-nav bolt-button bolt-icon-button enabled icon-only bolt-focus-treatment" data-nav="unreviewed" type="button" title="Next unreviewed file" aria-label="Next unreviewed file"><svg class="adopp-nav-icon adopp-nav-double-icon" viewBox="0 0 12 15" aria-hidden="true"><path d="M2 2.5 6 6.5 10 2.5"></path><path d="M2 7.5 6 11.5 10 7.5"></path></svg></button>
         </div>
       </div>
@@ -265,7 +263,7 @@ export class NativePrEnhancer {
       });
     }
     for (const button of toolbar.querySelectorAll<HTMLButtonElement>("[data-nav]")) {
-      button.addEventListener("click", () => this.navigate(button.dataset.nav as "previous" | "next" | "unreviewed"));
+      button.addEventListener("click", () => this.navigateToNextUnreviewed());
     }
   }
 
@@ -349,7 +347,7 @@ export class NativePrEnhancer {
       });
       menu.querySelector('[data-action="unreviewed"]')?.addEventListener("click", () => {
         closeActionMenu();
-        this.navigate("unreviewed");
+        this.navigateToNextUnreviewed();
       });
       menu.querySelector('[data-action="settings"]')?.addEventListener("click", () => {
         closeActionMenu();
@@ -439,16 +437,14 @@ export class NativePrEnhancer {
     }
   }
 
-  private navigate(direction: "previous" | "next" | "unreviewed"): void {
+  private navigateToNextUnreviewed(): void {
     const visible = this.rows.filter((item) => !item.row.classList.contains("adopp-native-hidden"));
-    const candidates = direction === "unreviewed" ? visible.filter((item) => !isReviewed(item.row)) : visible;
+    const candidates = visible.filter((item) => !isReviewed(item.row));
     if (!candidates.length) return;
     const currentPath = new URL(location.href).searchParams.get("path");
     const pathIndex = candidates.findIndex((item) => item.file.path === currentPath);
     const currentIndex = pathIndex >= 0 ? pathIndex : candidates.findIndex((item) => isSelectedFileRow(item.row));
-    const index = direction === "previous"
-      ? Math.max(0, currentIndex <= 0 ? candidates.length - 1 : currentIndex - 1)
-      : Math.min(candidates.length - 1, currentIndex < 0 || currentIndex === candidates.length - 1 ? 0 : currentIndex + 1);
+    const index = Math.min(candidates.length - 1, currentIndex < 0 || currentIndex === candidates.length - 1 ? 0 : currentIndex + 1);
     const target = candidates[index];
     if (!target) return;
     const nativeTarget = target.label.closest<HTMLElement>('[role="row"]')
@@ -466,9 +462,9 @@ export class NativePrEnhancer {
     }
     if (!resolveFeature(this.settings, "keyboardShortcuts").enabled || isTyping(event.target)) return;
     const key = event.key.toLowerCase();
-    if (!["j", "k", "n"].includes(key)) return;
+    if (key !== "n") return;
     event.preventDefault();
-    this.navigate(key === "k" ? "previous" : key === "n" ? "unreviewed" : "next");
+    this.navigateToNextUnreviewed();
   };
 
   private readonly onAnnouncementChanged = (): void => {

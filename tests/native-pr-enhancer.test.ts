@@ -231,12 +231,12 @@ describe("NativePrEnhancer", () => {
     expect(document.querySelector('[data-dropdown="change"] .adopp-native-dropdown-trigger')?.getAttribute("title")).toBe("Change type");
     expect(document.querySelector('[data-choice-kind="change"][data-choice-value="all"]')?.textContent).toContain("Any change");
     expect(document.querySelectorAll('[data-dropdown="change"] .adopp-native-dropdown-chevron')).toHaveLength(1);
-    expect(document.querySelector('[data-nav="previous"] path')?.getAttribute("d")).toBe("M2 8.5 6 4.5 10 8.5");
-    expect(document.querySelector('[data-nav="next"] path')?.getAttribute("d")).toBe("M2 3.5 6 7.5 10 3.5");
+    expect(document.querySelector('[data-nav="previous"]')).toBeNull();
+    expect(document.querySelector('[data-nav="next"]')).toBeNull();
     expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("2/2 files");
     expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("1/2 reviewed");
     expect(document.querySelector(".adopp-native-summary")?.parentElement).toBe(document.querySelector("[data-adopp-native-toolbar]"));
-    expect([...document.querySelectorAll<HTMLElement>("[data-nav]")].map((button) => button.dataset.nav)).toEqual(["previous", "next", "unreviewed"]);
+    expect([...document.querySelectorAll<HTMLElement>("[data-nav]")].map((button) => button.dataset.nav)).toEqual(["unreviewed"]);
     expect(document.querySelectorAll('[data-nav="unreviewed"] .adopp-nav-double-icon path')).toHaveLength(2);
 
     const filterTrigger = document.querySelector<HTMLButtonElement>(".adopp-native-filter-trigger");
@@ -352,37 +352,33 @@ describe("NativePrEnhancer", () => {
     expect(navigated).toHaveBeenCalledOnce();
   });
 
-  it("uses the native selected row when the URL has no file path", () => {
+  it("uses the native selected row when finding the next unreviewed file", () => {
     const appRow = document.querySelector<HTMLElement>('[data-row="app"]')!;
     const newRow = document.querySelector<HTMLElement>('[data-row="new"]')!;
     const nextNavigated = vi.fn();
-    const previousNavigated = vi.fn();
+    const appCheckbox = appRow.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    appCheckbox.checked = false;
     appRow.setAttribute("aria-selected", "true");
     newRow.querySelector<HTMLElement>('[role="row"]')?.addEventListener("click", nextNavigated);
-    appRow.querySelector<HTMLElement>('[role="row"]')?.addEventListener("click", previousNavigated);
     enhancer = createEnhancer();
     enhancer.start();
 
-    document.querySelector<HTMLButtonElement>('[data-nav="next"]')?.click();
+    document.querySelector<HTMLButtonElement>('[data-nav="unreviewed"]')?.click();
     expect(nextNavigated).toHaveBeenCalledOnce();
-
-    appRow.removeAttribute("aria-selected");
-    newRow.setAttribute("aria-selected", "true");
-    document.querySelector<HTMLButtonElement>('[data-nav="previous"]')?.click();
-    expect(previousNavigated).toHaveBeenCalledOnce();
   });
 
   it("navigates in the file tree's rendered order instead of API order", () => {
     const appRow = document.querySelector<HTMLElement>('[data-row="app"]')!;
     const newRow = document.querySelector<HTMLElement>('[data-row="new"]')!;
     const appNavigated = vi.fn();
+    appRow.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked = false;
     newRow.after(appRow);
     newRow.setAttribute("aria-selected", "true");
     appRow.querySelector<HTMLElement>('[role="row"]')?.addEventListener("click", appNavigated);
     enhancer = createEnhancer();
     enhancer.start();
 
-    document.querySelector<HTMLButtonElement>('[data-nav="next"]')?.click();
+    document.querySelector<HTMLButtonElement>('[data-nav="unreviewed"]')?.click();
 
     expect(appNavigated).toHaveBeenCalledOnce();
   });
