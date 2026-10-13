@@ -199,7 +199,7 @@ export class NativePrEnhancer {
         <div class="adopp-native-dropdown" data-dropdown="change">
           ${nativeDropdownTrigger(dropdownButton, changeKindLabel(this.changeKind), "Filter by change kind")}
           ${nativeMenuShell("adopp-native-change-menu", [
-            nativeChoiceMenuItem("change", "all", "All changes", this.changeKind === "all"),
+            nativeChoiceMenuItem("change", "all", "All change types", this.changeKind === "all"),
             ...["add", "edit", "delete", "rename"].map((kind) => nativeChoiceMenuItem("change", kind, capitalize(kind), this.changeKind === kind))
           ].join(""))}
         </div>
@@ -865,7 +865,7 @@ function findNativeDropdownButton(): HTMLButtonElement | null {
 }
 
 function changeKindLabel(kind: string): string {
-  return kind === "all" ? "All changes" : capitalize(kind);
+  return kind === "all" ? "Change type" : capitalize(kind);
 }
 
 function capitalize(value: string): string {

@@ -145,6 +145,8 @@ describe("NativePrEnhancer", () => {
     expect(document.querySelector("select.adopp-native-change")).toBeNull();
     expect(document.querySelector('[data-dropdown="change"] .bolt-button')).not.toBeNull();
     expect(document.querySelector('[data-dropdown="extension"] .bolt-button')).not.toBeNull();
+    expect(document.querySelector('[data-dropdown="change"] .adopp-native-dropdown-trigger')?.textContent).toContain("Change type");
+    expect(document.querySelector('[data-choice-kind="change"][data-choice-value="all"]')?.textContent).toContain("All change types");
     expect(document.querySelector('[data-dropdown="change"] .native-chevron')).not.toBeNull();
     expect(document.querySelector('[data-nav="previous"] .adopp-nav-chevron-up')).not.toBeNull();
     expect(document.querySelector('[data-nav="next"] .adopp-nav-chevron-down')).not.toBeNull();
