@@ -145,12 +145,16 @@ describe("NativePrEnhancer", () => {
     expect(document.querySelector("select.adopp-native-change")).toBeNull();
     expect(document.querySelector('[data-dropdown="change"] .bolt-button')).not.toBeNull();
     expect(document.querySelector('[data-dropdown="extension"] .bolt-button')).not.toBeNull();
+    expect(document.querySelector('[data-dropdown="change"] .adopp-native-dropdown-trigger')?.textContent).toContain("Change type");
+    expect(document.querySelector('[data-choice-kind="change"][data-choice-value="all"]')?.textContent).toContain("Any change");
     expect(document.querySelector('[data-dropdown="change"] .native-chevron')).not.toBeNull();
     expect(document.querySelector('[data-nav="previous"] .adopp-nav-chevron-up')).not.toBeNull();
     expect(document.querySelector('[data-nav="next"] .adopp-nav-chevron-down')).not.toBeNull();
     expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("2/2 files");
     expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("1/2 reviewed");
     expect(document.querySelector(".adopp-native-summary")?.parentElement).toBe(document.querySelector("[data-adopp-native-toolbar]"));
+    expect([...document.querySelectorAll<HTMLElement>("[data-nav]")].map((button) => button.dataset.nav)).toEqual(["previous", "next", "unreviewed"]);
+    expect(document.querySelectorAll('[data-nav="unreviewed"] .adopp-nav-chevron-down')).toHaveLength(2);
 
     const filterTrigger = document.querySelector<HTMLButtonElement>(".adopp-native-filter-trigger");
     filterTrigger!.getBoundingClientRect = () => ({ x: 100, y: 50, top: 50, right: 218, bottom: 94, left: 100, width: 118, height: 44, toJSON: () => ({}) });
@@ -166,7 +170,7 @@ describe("NativePrEnhancer", () => {
     document.querySelector<HTMLButtonElement>('[data-toggle="viewed"]')?.click();
     expect(document.querySelector('[data-row="app"]')?.classList.contains("adopp-native-hidden")).toBe(true);
     expect(document.querySelector('[data-row="new"]')?.classList.contains("adopp-native-hidden")).toBe(false);
-    expect(document.querySelector(".adopp-native-filter-trigger")?.textContent).toContain("Filters (1)");
+    expect(document.querySelector(".adopp-native-filter-trigger")?.textContent).toContain("More (1)");
     expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("1/2 files");
     expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("1/2 reviewed");
   });
@@ -221,6 +225,26 @@ describe("NativePrEnhancer", () => {
     document.querySelector<HTMLButtonElement>('[data-nav="unreviewed"]')?.click();
 
     expect(navigated).toHaveBeenCalledOnce();
+  });
+
+  it("uses the native selected row when the URL has no file path", () => {
+    const appRow = document.querySelector<HTMLElement>('[data-row="app"]')!;
+    const newRow = document.querySelector<HTMLElement>('[data-row="new"]')!;
+    const nextNavigated = vi.fn();
+    const previousNavigated = vi.fn();
+    appRow.setAttribute("aria-selected", "true");
+    newRow.querySelector<HTMLElement>('[role="row"]')?.addEventListener("click", nextNavigated);
+    appRow.querySelector<HTMLElement>('[role="row"]')?.addEventListener("click", previousNavigated);
+    enhancer = createEnhancer();
+    enhancer.start();
+
+    document.querySelector<HTMLButtonElement>('[data-nav="next"]')?.click();
+    expect(nextNavigated).toHaveBeenCalledOnce();
+
+    appRow.removeAttribute("aria-selected");
+    newRow.setAttribute("aria-selected", "true");
+    document.querySelector<HTMLButtonElement>('[data-nav="previous"]')?.click();
+    expect(previousNavigated).toHaveBeenCalledOnce();
   });
 
   it("dismisses native menus on outside pointer input and Escape", () => {
