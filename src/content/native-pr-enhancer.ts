@@ -192,7 +192,6 @@ export class NativePrEnhancer {
     }
     const extensions = [...new Set(this.analysis.files.map((file) => extensionOf(file.path)).filter(Boolean))].sort();
     const activeFilterCount = [this.hideViewed, this.hideGenerated, this.hideLockfiles].filter(Boolean).length;
-    const dropdownButton = findNativeDropdownButton();
     document.querySelector('[data-adopp-filter-portal="true"]')?.remove();
     toolbar.innerHTML = `
       <div class="adopp-native-toolbar-row">
@@ -205,21 +204,21 @@ export class NativePrEnhancer {
       </div>
       <div class="adopp-native-toolbar-row adopp-native-filters">
         <div class="adopp-native-dropdown" data-dropdown="change">
-          ${nativeDropdownTrigger(dropdownButton, changeKindLabel(this.changeKind), "Filter by change kind")}
+          ${nativeDropdownTrigger(changeKindLabel(this.changeKind), "Filter by change kind")}
           ${nativeMenuShell("adopp-native-change-menu", [
             nativeChoiceMenuItem("change", "all", "Any change", this.changeKind === "all"),
             ...["add", "edit", "delete", "rename"].map((kind) => nativeChoiceMenuItem("change", kind, capitalize(kind), this.changeKind === kind))
           ].join(""))}
         </div>
         <div class="adopp-native-dropdown" data-dropdown="extension">
-          ${nativeDropdownTrigger(dropdownButton, this.extension === "all" ? "File type" : `.${this.extension}`, "Filter by extension")}
+          ${nativeDropdownTrigger(this.extension === "all" ? "File type" : `.${this.extension}`, "Filter by extension")}
           ${nativeMenuShell("adopp-native-extension-menu", [
             nativeChoiceMenuItem("extension", "all", "All types", this.extension === "all"),
             ...extensions.map((value) => nativeChoiceMenuItem("extension", value, `.${value}`, this.extension === value))
           ].join(""))}
         </div>
         <div class="adopp-native-dropdown" data-dropdown="filters">
-          ${nativeDropdownTrigger(dropdownButton, `More${activeFilterCount ? ` (${activeFilterCount})` : ""}`, "Additional file options", "adopp-native-filter-trigger")}
+          ${nativeDropdownTrigger(`More${activeFilterCount ? ` (${activeFilterCount})` : ""}`, "Additional file options", "adopp-native-filter-trigger")}
           ${nativeMenuShell("adopp-native-filter-menu", `
               ${nativeToggleMenuItem("viewed", "Hide viewed files", this.hideViewed)}
               ${nativeToggleMenuItem("generated", "Hide generated files", this.hideGenerated)}
@@ -377,12 +376,31 @@ export class NativePrEnhancer {
       }
     }
     updateTreeStructureVisibility(this.rows, visibleRows);
+    const comparisonTotal = this.rows.length;
+    const prTotal = this.analysis.files.length;
+    const hasActiveFilters = Boolean(this.query)
+      || this.changeKind !== "all"
+      || this.extension !== "all"
+      || this.hideViewed
+      || this.hideGenerated
+      || this.hideLockfiles;
     const count = document.querySelector<HTMLElement>(".adopp-native-visible-count");
-    if (count) count.textContent = `${visible}/${this.analysis.files.length} files`;
+    if (count) {
+      if (comparisonTotal < prTotal) {
+        count.textContent = `${visible}/${comparisonTotal} files · ${prTotal} total in PR`;
+        count.title = hasActiveFilters
+          ? `${visible} of ${comparisonTotal} files in the selected ADO comparison match AzureDevOps++ filters; ${prTotal} files changed across the full pull request.`
+          : `${comparisonTotal} files are in the selected ADO comparison; ${prTotal} files changed across the full pull request.`;
+      } else {
+        count.textContent = `${visible}/${comparisonTotal} files`;
+        count.removeAttribute("title");
+      }
+    }
     const reviewedCount = document.querySelector<HTMLElement>(".adopp-native-reviewed-count");
     if (reviewedCount) {
       const reviewed = this.rows.filter((item) => isReviewed(item.row)).length;
-      reviewedCount.textContent = `${reviewed}/${this.analysis.files.length} reviewed`;
+      reviewedCount.textContent = `${reviewed}/${comparisonTotal} reviewed`;
+      reviewedCount.title = `${reviewed} of ${comparisonTotal} files in the selected ADO comparison are marked reviewed.`;
     }
   }
 
@@ -753,9 +771,11 @@ function nativeMenuItem(action: string, label: string): string {
 function sanitizeClonedNativeControl(element: HTMLElement): void {
   for (const candidate of [element, ...element.querySelectorAll<HTMLElement>("*")]) {
     candidate.removeAttribute("id");
+    candidate.removeAttribute("style");
     candidate.removeAttribute("aria-controls");
     candidate.removeAttribute("aria-owns");
     candidate.removeAttribute("aria-expanded");
+    candidate.removeAttribute("aria-pressed");
     for (const attribute of [...candidate.attributes]) {
       if (attribute.name.startsWith("data-")) candidate.removeAttribute(attribute.name);
     }
@@ -785,19 +805,23 @@ function nativeChoiceMenuItem(kind: string, value: string, label: string, select
   return `<div class="bolt-list-row bolt-menu-item" role="presentation"><div class="bolt-list-cell"><button class="bolt-button bolt-menu-button enabled subtle flex-row flex-center bolt-focus-treatment body-m" type="button" role="menuitemradio" aria-checked="${selected}" data-choice-kind="${kind}" data-choice-value="${escapeHtml(value)}"><span class="fabric-icon ms-Icon--CheckMark adopp-native-menu-check" data-active="${selected}" aria-hidden="true"></span><span class="bolt-button-text">${escapeHtml(label)}</span></button></div></div>`;
 }
 
-function nativeDropdownTrigger(reference: HTMLButtonElement | null, label: string, ariaLabel: string, extraClass = ""): string {
-  const button = reference?.cloneNode(true) as HTMLButtonElement | undefined ?? document.createElement("button");
-  for (const element of [button, ...button.querySelectorAll<HTMLElement>("[id]")]) element.removeAttribute("id");
+function nativeDropdownTrigger(label: string, ariaLabel: string, extraClass = ""): string {
+  const button = document.createElement("button");
   button.type = "button";
-  button.classList.add("adopp-native-dropdown-trigger");
+  button.className = "bolt-button enabled subtle flex-row flex-center bolt-focus-treatment body-s adopp-native-dropdown-trigger";
   for (const className of extraClass.split(/\s+/).filter(Boolean)) button.classList.add(className);
   button.setAttribute("aria-label", ariaLabel);
   button.setAttribute("aria-haspopup", "menu");
   button.setAttribute("aria-expanded", "false");
-  const text = button.querySelector<HTMLElement>(".bolt-button-text")
-    ?? [...button.querySelectorAll<HTMLElement>("span,div")].find((element) => normalize(element.textContent) === "all changes");
-  if (text) text.textContent = label;
-  else button.prepend(Object.assign(document.createElement("span"), { className: "bolt-button-text", textContent: label }));
+  button.append(Object.assign(document.createElement("span"), { className: "bolt-button-text", textContent: label }));
+  const chevron = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  chevron.setAttribute("class", "adopp-native-dropdown-chevron");
+  chevron.setAttribute("viewBox", "0 0 12 12");
+  chevron.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", "M2 3.5 6 7.5 10 3.5");
+  chevron.append(path);
+  button.append(chevron);
   return button.outerHTML;
 }
 
@@ -874,11 +898,6 @@ function preferredMenuWidth(menu: HTMLElement, triggerWidth: number): number {
   return Math.min(320, viewportLimit, Math.max(1, triggerWidth, estimatedLabelWidth));
 }
 
-function findNativeDropdownButton(): HTMLButtonElement | null {
-  return [...document.querySelectorAll<HTMLButtonElement>("button")]
-    .find((button) => !button.closest("[data-adopp-native-toolbar]") && normalize(button.textContent) === "all changes") ?? null;
-}
-
 function changeKindLabel(kind: string): string {
   return kind === "all" ? "Change type" : capitalize(kind);
 }
@@ -893,7 +912,7 @@ const nativeStyles = `
 .adopp-native-stat-plus{color:var(--status-success-foreground,#107c10)}.adopp-native-stat-minus{color:var(--status-error-foreground,#a4262c)}
 .adopp-native-toolbar{display:grid;gap:6px;width:100%;box-sizing:border-box;padding:8px 10px;border-bottom:1px solid var(--palette-neutral-20,#edebe9);background:var(--background-color,#fff);font:12px "Segoe UI",sans-serif}
 .adopp-native-toolbar-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:5px;min-width:0}.adopp-native-search{min-width:0;width:100%;box-sizing:border-box;padding:5px 7px;border:1px solid var(--palette-neutral-30,#c8c6c4);background:transparent;color:inherit}.adopp-native-nav-controls{display:flex;align-items:center;gap:2px}
-.adopp-native-nav{width:30px;min-width:30px;min-height:28px;padding:4px 7px;border:1px solid var(--palette-neutral-30,#c8c6c4);border-radius:2px;background:transparent;color:inherit;font:inherit;cursor:pointer}.adopp-native-nav:hover{background:var(--palette-neutral-10,#f3f2f1)}.adopp-nav-icon{display:block;width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;overflow:visible}.adopp-nav-double-icon{height:16px}.adopp-native-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.78fr) minmax(76px,.72fr);align-items:center;gap:5px}.adopp-native-dropdown{position:relative;min-width:0}.adopp-native-dropdown-trigger{width:100%;min-width:0;justify-content:space-between!important;gap:8px!important}.adopp-native-dropdown-trigger .bolt-button-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.adopp-native-dropdown-trigger .ms-Icon--ChevronDownSmall{flex:none}.adopp-native-menu{z-index:100000;box-sizing:border-box!important;overflow:hidden!important}.adopp-native-menu[data-adopp-filter-portal="true"]{position:fixed!important}.adopp-native-menu[hidden]{display:none!important}.adopp-native-menu .bolt-callout-content,.adopp-native-menu .bolt-menu,.adopp-native-menu .bolt-list,.adopp-native-menu .bolt-list-row,.adopp-native-menu .bolt-list-cell{box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important}.adopp-native-menu .bolt-list-row,.adopp-native-menu .bolt-list-cell{display:block!important}.adopp-native-menu .bolt-menu-button{box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important;overflow:hidden!important}.adopp-native-menu-check{display:inline-flex;width:16px;flex:none;visibility:hidden}.adopp-native-menu-check[data-active="true"]{visibility:visible}.adopp-native-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:1px 2px 0;color:var(--palette-neutral-60,#8a8886);white-space:nowrap}.adopp-native-visible-count,.adopp-native-reviewed-count{white-space:nowrap}
+.adopp-native-nav{width:30px;min-width:30px;min-height:28px;padding:4px 7px;border:1px solid var(--palette-neutral-30,#c8c6c4);border-radius:2px;background:transparent;color:inherit;font:inherit;cursor:pointer}.adopp-native-nav:hover{background:var(--palette-neutral-10,#f3f2f1)}.adopp-nav-icon{display:block;width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;overflow:visible}.adopp-nav-double-icon{height:16px}.adopp-native-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.78fr) minmax(76px,.72fr);align-items:center;gap:5px}.adopp-native-dropdown{position:relative;min-width:0}.adopp-native-dropdown-trigger{width:100%;min-width:0;justify-content:space-between!important;gap:8px!important}.adopp-native-dropdown-trigger .bolt-button-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.adopp-native-dropdown-chevron{display:block;width:12px;height:12px;flex:none;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round}.adopp-native-menu{z-index:100000;box-sizing:border-box!important;overflow:hidden!important}.adopp-native-menu[data-adopp-filter-portal="true"]{position:fixed!important}.adopp-native-menu[hidden]{display:none!important}.adopp-native-menu .bolt-callout-content,.adopp-native-menu .bolt-menu,.adopp-native-menu .bolt-list,.adopp-native-menu .bolt-list-row,.adopp-native-menu .bolt-list-cell{box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important}.adopp-native-menu .bolt-list-row,.adopp-native-menu .bolt-list-cell{display:block!important}.adopp-native-menu .bolt-menu-button{box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important;overflow:hidden!important}.adopp-native-menu-check{display:inline-flex;width:16px;flex:none;visibility:hidden}.adopp-native-menu-check[data-active="true"]{visibility:visible}.adopp-native-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:1px 2px 0;color:var(--palette-neutral-60,#8a8886);white-space:nowrap}.adopp-native-visible-count,.adopp-native-reviewed-count{white-space:nowrap}
 .adopp-native-hidden{display:none!important}.adopp-header-action-item{white-space:nowrap}.adopp-header-wrap.adopp-header-actions-wrapped{flex-wrap:wrap!important}.adopp-header-wrap.adopp-header-actions-wrapped>.adopp-header-action-item{display:flex!important;flex:0 0 100%!important;width:100%!important;max-width:100%!important;justify-content:flex-end!important;margin-left:0!important;padding-top:8px}.adopp-action-group{position:relative;display:inline-flex;align-items:center;gap:0;margin-right:8px}.adopp-total-diff{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 9px;margin-right:8px;border:1px solid var(--palette-neutral-30,#c8c6c4);border-radius:2px;background:var(--background-color,#fff);font:600 12px Consolas,"Cascadia Mono",monospace;white-space:nowrap}.adopp-total-plus{color:var(--status-success-foreground,#107c10)}.adopp-total-minus{color:var(--status-error-foreground,#a4262c)}.adopp-total-partial{font:10px "Segoe UI",sans-serif;color:var(--palette-neutral-60,#8a8886)}.adopp-panel-button{margin-right:8px!important}.adopp-start-split .adopp-action-menu-button{border-left:1px solid var(--palette-neutral-60,#8a8886)!important}
 .adopp-action-menu{position:fixed!important}.adopp-action-menu .bolt-menu-button,.adopp-native-menu .bolt-menu-button{width:100%;justify-content:flex-start!important}.adopp-action-menu .bolt-button-text,.adopp-native-menu .bolt-button-text{min-width:0;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media(max-width:440px){.adopp-native-toolbar{padding-left:7px;padding-right:7px}}
