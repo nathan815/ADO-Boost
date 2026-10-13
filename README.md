@@ -25,6 +25,7 @@ Live read-only Azure DevOps page testing has been performed with a user-loaded u
 
 - Full-path search, change and extension filters, reviewed-file filtering, and opt-in generated/lockfile hiding are inserted above Azure DevOps' native file tree.
 - Hiding noise never changes the reported overall totals.
+- With no extension filters active, every native tree row stays visible, including collapsed folders and files the extension cannot identify. Tree counters cover recognized rendered files, not necessarily every file in the selected comparison.
 - Previous, next, next-unreviewed, and keyboard navigation reuse Azure DevOps' SPA file links without forcing a full page reload.
 - Azure DevOps' existing server-backed reviewed checkboxes remain authoritative. AzureDevOps++ does not render or synchronize a second reviewed-state system.
 - A native-looking `ADO++` button beside the PR action buttons opens the discussions and review-tools side panel.

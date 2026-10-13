@@ -38,6 +38,7 @@ export class NativePrEnhancer {
   private hideViewed = false;
   private hideGenerated: boolean;
   private hideLockfiles: boolean;
+  private fileTree: HTMLElement | null = null;
   private rows: NativeFileRow[] = [];
 
   constructor(
@@ -123,17 +124,24 @@ export class NativePrEnhancer {
 
   private findFileRows(): NativeFileRow[] {
     const tree = findNativeFileTree(this.analysis.files);
+    this.fileTree = tree;
     if (!tree) return [];
     const found = new Map<string, NativeFileRow>();
     const rows = [...tree.querySelectorAll<HTMLElement>('tr,[role="row"]')];
+    const rowPaths = nativeTreeRowPaths(rows);
     for (const file of this.analysis.files) {
       const basename = basenameOf(file.path);
       const matching = rows.filter((row) => rowMatchesFile(row, basename));
       const rootMatches = matching.filter((row) =>
         !matching.some((candidate) => candidate !== row && candidate.contains(row))
       );
-      if (rootMatches.length !== 1) continue;
-      const row = rootMatches[0]!;
+      const pathMatches = rootMatches.filter((row) => rowPaths.get(row) === normalizeFilePath(file.path));
+      const candidates = pathMatches.length ? pathMatches : rootMatches;
+      const uniqueBasename = this.analysis.files.filter((candidate) =>
+        basenameOf(candidate.path).toLowerCase() === basename.toLowerCase()
+      ).length === 1;
+      if (candidates.length !== 1 || (!pathMatches.length && !uniqueBasename)) continue;
+      const row = candidates[0]!;
       const label = findRowLabel(row, basename) ?? row;
       found.set(file.path, { file, row, label });
     }
@@ -434,6 +442,12 @@ export class NativePrEnhancer {
   }
 
   private applyFilters(): void {
+    const hasActiveFilters = Boolean(this.query)
+      || this.changeKind !== "all"
+      || this.extension !== "all"
+      || this.hideViewed
+      || this.hideGenerated
+      || this.hideLockfiles;
     let visible = 0;
     const visibleRows = new Set<HTMLElement>();
     for (const item of this.rows) {
@@ -449,22 +463,29 @@ export class NativePrEnhancer {
         visibleRows.add(item.row);
       }
     }
-    updateTreeStructureVisibility(this.rows, visibleRows);
+    if (this.fileTree) {
+      const matchedRows = new Set(this.rows.map((item) => item.row));
+      const basenames = new Set(this.analysis.files.map((file) => basenameOf(file.path)));
+      for (const row of this.fileTree.querySelectorAll<HTMLElement>('tr,[role="row"]')) {
+        if (row.parentElement?.closest('tr,[role="row"]') || matchedRows.has(row)) continue;
+        if ([...basenames].some((basename) => rowMatchesFile(row, basename))) {
+          row.classList.remove("adopp-native-hidden");
+          visibleRows.add(row);
+        }
+      }
+      updateTreeStructureVisibility(this.fileTree, this.rows, visibleRows, hasActiveFilters);
+    }
     const comparisonTotal = this.rows.length;
     const prTotal = this.analysis.files.length;
-    const hasActiveFilters = Boolean(this.query)
-      || this.changeKind !== "all"
-      || this.extension !== "all"
-      || this.hideViewed
-      || this.hideGenerated
-      || this.hideLockfiles;
     const count = document.querySelector<HTMLElement>(".adopp-native-visible-count");
     if (count) {
       if (comparisonTotal < prTotal) {
-        count.textContent = `${visible}/${comparisonTotal} files · ${prTotal} total in PR`;
+        count.textContent = hasActiveFilters
+          ? `${visible}/${comparisonTotal} recognized · ${prTotal} total in PR`
+          : `${comparisonTotal} recognized · ${prTotal} total in PR`;
         count.title = hasActiveFilters
-          ? `${visible} of ${comparisonTotal} files in the selected ADO comparison match AzureDevOps++ filters; ${prTotal} files changed across the full pull request.`
-          : `${comparisonTotal} files are in the selected ADO comparison; ${prTotal} files changed across the full pull request.`;
+          ? `${visible} of ${comparisonTotal} recognized files in the rendered ADO tree match AzureDevOps++ filters; ${prTotal} files changed across the full pull request.`
+          : `${comparisonTotal} files are recognized in the rendered ADO tree; ${prTotal} files changed across the full pull request. Unrecognized and collapsed files are not counted here.`;
       } else {
         count.textContent = `${visible}/${comparisonTotal} files`;
         count.removeAttribute("title");
@@ -474,7 +495,7 @@ export class NativePrEnhancer {
     if (reviewedCount) {
       const reviewed = this.rows.filter((item) => isReviewed(item.row)).length;
       reviewedCount.textContent = `${reviewed}/${comparisonTotal} reviewed`;
-      reviewedCount.title = `${reviewed} of ${comparisonTotal} files in the selected ADO comparison are marked reviewed.`;
+      reviewedCount.title = `${reviewed} of ${comparisonTotal} recognized files in the rendered ADO tree are marked reviewed.`;
     }
   }
 
@@ -614,6 +635,7 @@ function findNativeFileTree(files: FileStat[]): HTMLElement | null {
   for (const tree of nativeTrees) {
     if (scoreFileTree(tree, basenames) > 0) return tree;
   }
+  if (nativeTrees.length) return nativeTrees[0]!;
 
   let best: { element: HTMLElement; score: number } | null = null;
   for (const element of document.querySelectorAll<HTMLElement>('table,[role="treegrid"],[role="tree"]')) {
@@ -861,23 +883,57 @@ function findRowLabel(row: HTMLElement, basename: string): HTMLElement | null {
   const normalizedName = basename.toLowerCase();
   const candidates = [...row.querySelectorAll<HTMLElement>("button,[role=button],span,div")];
   for (const candidate of candidates.reverse()) {
-    if (normalize(candidate.textContent).replace(/\s+\+$/, "") === normalizedName) return candidate;
+    if (normalize(candidate.textContent).replace(/\s+\+$/, "") === normalizedName
+      || ["title", "aria-label", "data-path"].some((attribute) => {
+        const value = candidate.getAttribute(attribute);
+        return value !== null && basenameOf(value.replace(/\\/g, "/")).toLowerCase() === normalizedName;
+      })) return candidate;
   }
   return null;
 }
 
-function updateTreeStructureVisibility(fileRows: NativeFileRow[], visibleFileRows: Set<HTMLElement>): void {
-  const tree = fileRows[0]?.row.closest<HTMLElement>(ADO_FILE_TREE_SELECTOR);
-  if (!tree) return;
-  const fileRowSet = new Set(fileRows.map((item) => item.row));
+function normalizeFilePath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/^\/|\/$/g, "").toLowerCase();
+}
+
+function nativeTreeRowPaths(rows: HTMLElement[]): Map<HTMLElement, string> {
+  const paths = new Map<HTMLElement, string>();
+  const folders: Array<{ level: number; path: string }> = [];
+  for (const row of rows) {
+    if (row.parentElement?.closest('tr,[role="row"]')) continue;
+    const level = treeRowLevel(row);
+    if (level === null) continue;
+    while (folders.length && folders.at(-1)!.level >= level) folders.pop();
+    const label = nativeRowText(row).replace(/^[⌄>]+\s*/, "").replace(/\s+\+$/, "");
+    const path = normalizeFilePath([folders.at(-1)?.path, label].filter(Boolean).join("/"));
+    paths.set(row, path);
+    for (const nested of row.querySelectorAll<HTMLElement>('[role="row"]')) paths.set(nested, path);
+    if (isFolderRow(row)) folders.push({ level, path });
+  }
+  for (const row of rows) {
+    const elements = [row, ...row.querySelectorAll<HTMLElement>("[title],[aria-label],[data-path]")];
+    for (const element of elements) {
+      const path = ["data-path", "title", "aria-label"]
+        .map((attribute) => element.getAttribute(attribute))
+        .find((value) => value && /[/\\]/.test(value));
+      if (path) {
+        paths.set(row, normalizeFilePath(path));
+        break;
+      }
+    }
+  }
+  return paths;
+}
+
+function updateTreeStructureVisibility(tree: HTMLElement, fileRows: NativeFileRow[], visibleFileRows: Set<HTMLElement>, hasActiveFilters: boolean): void {
+  const fileRowSet = new Set([...fileRows.map((item) => item.row), ...visibleFileRows]);
   const outerRows = [...tree.querySelectorAll<HTMLElement>('tr,[role="row"]')]
     .filter((row) => !row.parentElement?.closest('tr,[role="row"]'));
-  const levels = outerRows.map((row) => treeRowLevel(row));
-
-  if (visibleFileRows.size === 0) {
-    for (const row of outerRows) row.classList.add("adopp-native-hidden");
+  if (!hasActiveFilters) {
+    for (const row of tree.querySelectorAll(".adopp-native-hidden")) row.classList.remove("adopp-native-hidden");
     return;
   }
+  const levels = outerRows.map((row) => treeRowLevel(row));
 
   let precedingFileVisible: boolean | null = null;
   for (let index = 0; index < outerRows.length; index++) {
@@ -889,9 +945,11 @@ function updateTreeStructureVisibility(fileRows: NativeFileRow[], visibleFileRow
     if (isFolderRow(row)) {
       precedingFileVisible = null;
       const level = levels[index] ?? null;
-      const hasVisibleDescendant = level === null
-        ? folderMatchesVisiblePath(row, fileRows, visibleFileRows)
-        : hasVisibleTreeDescendant(outerRows, levels, index, level, visibleFileRows);
+      const hasVisibleDescendant = row.getAttribute("aria-expanded") === "false"
+        || Boolean(row.querySelector('[aria-expanded="false"]'))
+        || (level === null
+          ? folderMatchesVisiblePath(row, fileRows, visibleFileRows)
+          : hasVisibleTreeDescendant(outerRows, levels, index, level, visibleFileRows));
       row.classList.toggle("adopp-native-hidden", !hasVisibleDescendant);
       continue;
     }

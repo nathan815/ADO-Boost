@@ -296,7 +296,7 @@ describe("NativePrEnhancer", () => {
     }
   });
 
-  it("distinguishes selected-comparison files from full pull-request files", () => {
+  it("distinguishes recognized rendered files from full pull-request files", () => {
     const comparisonAnalysis: PullRequestAnalysis = {
       ...analysis,
       files: [
@@ -312,9 +312,116 @@ describe("NativePrEnhancer", () => {
     });
     enhancer.start();
 
-    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("2/2 files · 3 total in PR");
-    expect(document.querySelector(".adopp-native-visible-count")?.getAttribute("title")).toContain("selected ADO comparison");
+    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("2 recognized · 3 total in PR");
+    expect(document.querySelector(".adopp-native-visible-count")?.getAttribute("title")).toContain("recognized in the rendered ADO tree");
     expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("1/2 reviewed");
+  });
+
+  it("leaves unmatched files, their discussions, and collapsed folders visible without filters", () => {
+    const appRow = document.querySelector<HTMLElement>('[data-row="app"]')!;
+    appRow.insertAdjacentHTML("afterend", `
+      <tr role="row" aria-level="2" aria-expanded="true" data-row="unmatched"><td>main.yml</td></tr>
+      <tr role="row" aria-level="3" data-annotation="unmatched"><td>Review discussion</td></tr>
+      <tr role="row" aria-level="1" aria-expanded="false" data-folder="collapsed"><td>other</td></tr>
+    `);
+    const otherFiles = Array.from({ length: 7 }, (_, index) => ({
+      ...analysis.files[0]!, trackingId: index + 3, path: `/src/file${index}.ts`
+    }));
+    document.querySelector("tbody")!.insertAdjacentHTML("beforeend", otherFiles.map((file) =>
+      `<tr role="row"><td><button>${file.path.split("/").at(-1)}</button></td></tr>`
+    ).join(""));
+    document.querySelector("tbody")!.insertAdjacentHTML("beforeend", Array.from({ length: 4 }, () =>
+      '<tr role="row" aria-level="2" aria-expanded="true"><td><button>main.yml</button></td></tr>'
+    ).join(""));
+    const unmatchedAnalysis: PullRequestAnalysis = {
+      ...analysis,
+      files: [
+        ...analysis.files,
+        ...otherFiles,
+        ...["one", "two", "three", "four", "five"].map((folder, index) => ({
+          ...analysis.files[0]!, trackingId: index + 10, path: `/${folder}/main.yml`
+        }))
+      ]
+    };
+    enhancer = new NativePrEnhancer(unmatchedAnalysis, defaultSettings(), {
+      openDiscussions: vi.fn(), startReviewing: vi.fn(), isReviewAnnounced: () => false, openSettings: vi.fn()
+    });
+    enhancer.start();
+    expect(document.querySelectorAll(".adopp-native-hidden")).toHaveLength(0);
+    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("9 recognized · 14 total in PR");
+
+    const search = document.querySelector<HTMLInputElement>(".adopp-native-search")!;
+    search.value = "no-match";
+    search.dispatchEvent(new Event("input"));
+    expect(document.querySelector('[data-row="unmatched"]')?.classList.contains("adopp-native-hidden")).toBe(false);
+    expect(document.querySelector('[data-folder="collapsed"]')?.classList.contains("adopp-native-hidden")).toBe(false);
+    search.value = "";
+    search.dispatchEvent(new Event("input"));
+    enhancer.refresh();
+    expect(document.querySelectorAll(".adopp-native-hidden")).toHaveLength(0);
+  });
+
+  it("restores the native tree when refreshed rows can no longer be recognized", () => {
+    enhancer = createEnhancer();
+    enhancer.start();
+    const search = document.querySelector<HTMLInputElement>(".adopp-native-search")!;
+    search.value = "no-match";
+    search.dispatchEvent(new Event("input"));
+    for (const button of document.querySelectorAll("tbody button")) button.textContent = "unknown";
+    search.value = "";
+    search.dispatchEvent(new Event("input"));
+    enhancer.refresh();
+    expect(document.querySelectorAll(".adopp-native-hidden")).toHaveLength(0);
+  });
+
+  it("matches repeated filenames by their native folder hierarchy", () => {
+    document.querySelector("tbody")!.innerHTML = `
+      <tr role="row" aria-level="1" aria-expanded="true"><td>src</td></tr>
+      <tr role="row" aria-level="2" aria-expanded="true"><td>one/tasks</td></tr>
+      <tr role="row" aria-level="3" data-row="first"><td><button>main.yml</button></td></tr>
+      <tr role="row" aria-level="2" aria-expanded="true"><td>two</td></tr>
+      <tr role="row" aria-level="3" data-row="second"><td><button>main.yml</button></td></tr>
+    `;
+    enhancer = new NativePrEnhancer({
+      ...analysis,
+      files: [
+        { ...analysis.files[0]!, path: "/src/one/tasks/main.yml" },
+        { ...analysis.files[1]!, path: "/src/two/main.yml" }
+      ]
+    }, defaultSettings(), {
+      openDiscussions: vi.fn(), startReviewing: vi.fn(), isReviewAnnounced: () => false, openSettings: vi.fn()
+    });
+    enhancer.start();
+    expect(document.querySelector('[data-row="first"] [data-adopp-inline-stat]')?.getAttribute("data-adopp-inline-stat")).toBe("/src/one/tasks/main.yml");
+    expect(document.querySelector('[data-row="second"] [data-adopp-inline-stat]')?.getAttribute("data-adopp-inline-stat")).toBe("/src/two/main.yml");
+    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("2/2 files");
+
+    const search = document.querySelector<HTMLInputElement>(".adopp-native-search")!;
+    search.value = "/two/";
+    search.dispatchEvent(new Event("input"));
+    expect(document.querySelector('[data-row="first"]')?.classList.contains("adopp-native-hidden")).toBe(true);
+    expect(document.querySelector('[data-row="second"]')?.classList.contains("adopp-native-hidden")).toBe(false);
+  });
+
+  it("matches repeated and truncated filenames using full-path labels", () => {
+    document.querySelector("tbody")!.innerHTML = `
+      <tr role="row" data-row="first"><td><button title="/src/one/main.yml">main.yml</button></td></tr>
+      <tr role="row" data-row="second"><td><button title="/src/two/main.yml">main...</button></td></tr>
+    `;
+    enhancer = new NativePrEnhancer({
+      ...analysis,
+      files: [
+        { ...analysis.files[0]!, path: "/src/one/main.yml" },
+        { ...analysis.files[1]!, path: "/src/two/main.yml" }
+      ]
+    }, defaultSettings(), {
+      openDiscussions: vi.fn(), startReviewing: vi.fn(), isReviewAnnounced: () => false, openSettings: vi.fn()
+    });
+    enhancer.start();
+    enhancer.refresh();
+    expect(document.querySelector('[data-row="first"] [data-adopp-inline-stat]')?.getAttribute("data-adopp-inline-stat")).toBe("/src/one/main.yml");
+    expect(document.querySelector('[data-row="second"] [data-adopp-inline-stat]')?.getAttribute("data-adopp-inline-stat")).toBe("/src/two/main.yml");
+    expect(document.querySelectorAll(".adopp-native-hidden")).toHaveLength(0);
   });
 
   it("removes stale diff badges when ADO recycles a file row", () => {
