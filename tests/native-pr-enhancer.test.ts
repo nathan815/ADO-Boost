@@ -38,11 +38,21 @@ describe("NativePrEnhancer", () => {
     history.replaceState({}, "", "/org/project/_git/repo/pullrequest/7?_a=files");
     document.head.innerHTML = "";
     document.body.innerHTML = `
-      <div class="actions"><button class="bolt-button">Approve</button></div>
+      <div class="actions">
+        <div class="repos-pr-header-vote-button bolt-split-button flex-stretch inline-flex-row">
+          <button class="bolt-button enabled bolt-focus-treatment"><span class="bolt-button-text">Approve</span></button>
+          <button class="bolt-split-button-option bolt-button bolt-icon-button enabled icon-only bolt-focus-treatment" aria-label="More vote options" aria-controls="approve-menu" data-command="approve-options"><span class="fabric-icon ms-Icon--ChevronDownSmall"></span></button>
+        </div>
+      </div>
       <div class="page-layout">
         <aside class="project-navigation">Project navigation</aside>
         <section data-file-pane>
-          <div class="native-file-controls">All Changes</div>
+          <div class="native-file-controls">
+            <button class="bolt-button enabled subtle flex-row flex-center bolt-focus-treatment body-s">
+              <span class="bolt-button-text">All Changes</span>
+              <span class="fabric-icon ms-Icon--ChevronDownSmall native-chevron"></span>
+            </button>
+          </div>
           <div class="file-tree-pane" data-file-tree-pane>
             <label><input type="checkbox" aria-label="Mark as reviewed"></label>
             <div class="bolt-table-container flex-grow v-scroll-auto">
@@ -73,13 +83,28 @@ describe("NativePrEnhancer", () => {
     expect(actions.textContent).toContain("−3");
     expect(actions.textContent).toContain("ADO++ (2)");
     expect(actions.textContent).toContain("Start Reviewing");
-    expect([...actions.children].at(-1)?.textContent).toBe("Approve");
+    expect([...actions.children].at(-1)?.textContent?.trim()).toBe("Approve");
+    expect(document.querySelector(".adopp-start-split")?.classList.contains("bolt-split-button")).toBe(true);
+    expect(document.querySelector(".adopp-start-split")?.classList.contains("repos-pr-header-vote-button")).toBe(false);
+    expect(document.querySelector(".adopp-action-menu-button .ms-Icon--ChevronDownSmall")).not.toBeNull();
+    expect(document.querySelector(".adopp-action-menu-button")?.hasAttribute("aria-controls")).toBe(false);
+    expect(document.querySelector(".adopp-action-menu-button")?.hasAttribute("data-command")).toBe(false);
 
     document.querySelector<HTMLButtonElement>(".adopp-panel-button")?.click();
     expect(openDiscussions).toHaveBeenCalledOnce();
 
+    const startSplit = document.querySelector<HTMLElement>(".adopp-start-split")!;
+    startSplit.getBoundingClientRect = () => ({ x: 100, y: 50, top: 50, right: 333, bottom: 98, left: 100, width: 233, height: 48, toJSON: () => ({}) });
     document.querySelector<HTMLButtonElement>(".adopp-action-menu-button")?.click();
-    expect(document.querySelector(".adopp-action-menu .bolt-menu .bolt-list")).not.toBeNull();
+    const actionMenu = document.querySelector<HTMLElement>(".adopp-action-menu")!;
+    expect(actionMenu.querySelector(".bolt-menu .bolt-list")).not.toBeNull();
+    expect(Number.parseFloat(actionMenu.style.width)).toBeGreaterThan(233);
+    expect(Number.parseFloat(actionMenu.style.width)).toBeLessThanOrEqual(320);
+    expect(actionMenu.style.maxWidth).toBe(actionMenu.style.width);
+    expect(startSplit.dataset.menuOpen).toBe("true");
+    expect(startSplit.querySelector(".adopp-start-button")?.classList.contains("active")).toBe(false);
+    expect(startSplit.querySelector(".adopp-action-menu-button")?.classList.contains("active")).toBe(true);
+    expect(startSplit.querySelector(".adopp-action-menu-button")?.getAttribute("aria-expanded")).toBe("true");
   });
 
   it("adds per-file counts once and filters using native reviewed checkboxes", () => {
@@ -94,22 +119,98 @@ describe("NativePrEnhancer", () => {
     expect(document.querySelector('[data-row="app"] .adopp-native-stat-minus')?.textContent).toBe("−2");
     expect(document.querySelector("[data-adopp-native-toolbar]")?.parentElement?.classList.contains("file-tree-pane")).toBe(true);
     expect(document.querySelector("[data-adopp-native-toolbar]")?.nextElementSibling?.classList.contains("bolt-table-container")).toBe(true);
+    expect(document.querySelector("select.adopp-native-change")).toBeNull();
+    expect(document.querySelector('[data-dropdown="change"] .bolt-button')).not.toBeNull();
+    expect(document.querySelector('[data-dropdown="extension"] .bolt-button')).not.toBeNull();
+    expect(document.querySelector('[data-dropdown="change"] .native-chevron')).not.toBeNull();
+    expect(document.querySelector('[data-nav="previous"] .ms-Icon--ChevronUpSmall')).not.toBeNull();
+    expect(document.querySelector('[data-nav="next"] .ms-Icon--ChevronDownSmall')).not.toBeNull();
+    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("2/2 files");
+    expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("1/2 reviewed");
+    expect(document.querySelector(".adopp-native-summary")?.parentElement).toBe(document.querySelector("[data-adopp-native-toolbar]"));
+
+    const filterTrigger = document.querySelector<HTMLButtonElement>(".adopp-native-filter-trigger");
+    filterTrigger!.getBoundingClientRect = () => ({ x: 100, y: 50, top: 50, right: 218, bottom: 94, left: 100, width: 118, height: 44, toJSON: () => ({}) });
+    filterTrigger?.click();
+    expect(filterTrigger?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector<HTMLElement>(".adopp-native-filter-menu")?.hidden).toBe(false);
+    expect(document.querySelector(".adopp-native-filter-menu")?.parentElement).toBe(document.body);
+    expect(document.querySelector(".adopp-native-filter-menu")?.getAttribute("data-adopp-filter-portal")).toBe("true");
+    expect(Number.parseFloat(document.querySelector<HTMLElement>(".adopp-native-filter-menu")!.style.width)).toBeGreaterThan(118);
+    expect(Number.parseFloat(document.querySelector<HTMLElement>(".adopp-native-filter-menu")!.style.width)).toBeLessThanOrEqual(320);
+    expect(getComputedStyle(document.querySelector<HTMLElement>(".adopp-native-filter-menu")!).overflow).toBe("hidden");
 
     document.querySelector<HTMLButtonElement>('[data-toggle="viewed"]')?.click();
     expect(document.querySelector('[data-row="app"]')?.classList.contains("adopp-native-hidden")).toBe(true);
     expect(document.querySelector('[data-row="new"]')?.classList.contains("adopp-native-hidden")).toBe(false);
+    expect(document.querySelector(".adopp-native-filter-trigger")?.textContent).toContain("Filters (1)");
+    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("1/2 files");
+    expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("1/2 reviewed");
   });
 
-  it("navigates to the next unreviewed file through the native link", () => {
+  it("hides empty folders and annotations when their files are filtered out", () => {
+    const appRow = document.querySelector<HTMLElement>('[data-row="app"]')!;
+    const newRow = document.querySelector<HTMLElement>('[data-row="new"]')!;
+    appRow.setAttribute("aria-level", "3");
+    newRow.setAttribute("aria-level", "2");
+    appRow.insertAdjacentHTML("beforebegin", `
+      <tr role="row" aria-level="1" aria-expanded="true" data-folder="src"><td><div role="row">src</div></td></tr>
+      <tr role="row" aria-level="2" aria-expanded="true" data-folder="nested"><td><div role="row">nested</div></td></tr>
+    `);
+    appRow.insertAdjacentHTML("afterend", '<tr role="row" aria-level="4" data-annotation="app"><td>Review annotation</td></tr>');
+    newRow.insertAdjacentHTML("beforebegin", '<tr role="row" aria-level="1" aria-expanded="true" data-folder="added"><td><div role="row">added</div></td></tr>');
+
+    enhancer = createEnhancer();
+    enhancer.start();
+    document.querySelector<HTMLButtonElement>('[data-dropdown="change"] .adopp-native-dropdown-trigger')?.click();
+    document.querySelector<HTMLButtonElement>('[data-choice-kind="change"][data-choice-value="add"]')?.click();
+
+    expect(document.querySelector('[data-folder="src"]')?.classList.contains("adopp-native-hidden")).toBe(true);
+    expect(document.querySelector('[data-folder="nested"]')?.classList.contains("adopp-native-hidden")).toBe(true);
+    expect(document.querySelector('[data-row="app"]')?.classList.contains("adopp-native-hidden")).toBe(true);
+    expect(document.querySelector('[data-annotation="app"]')?.classList.contains("adopp-native-hidden")).toBe(true);
+    expect(document.querySelector('[data-folder="added"]')?.classList.contains("adopp-native-hidden")).toBe(false);
+    expect(document.querySelector('[data-row="new"]')?.classList.contains("adopp-native-hidden")).toBe(false);
+  });
+
+  it("navigates to the next unreviewed file through the native row button", () => {
     const navigated = vi.fn();
-    window.addEventListener("popstate", navigated, { once: true });
+    document.querySelector<HTMLElement>('[data-row="new"] [role="row"]')?.addEventListener("click", navigated);
     enhancer = createEnhancer();
     enhancer.start();
 
     document.querySelector<HTMLButtonElement>('[data-nav="unreviewed"]')?.click();
 
     expect(navigated).toHaveBeenCalledOnce();
-    expect(new URLSearchParams(location.search).get("path")).toBe("/src/new.ts");
+  });
+
+  it("dismisses native menus on outside pointer input and Escape", () => {
+    enhancer = createEnhancer();
+    enhancer.start();
+
+    const trigger = document.querySelector<HTMLButtonElement>(".adopp-native-filter-trigger")!;
+    trigger.click();
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+    document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector<HTMLElement>(".adopp-native-filter-menu")?.hidden).toBe(true);
+    expect(document.querySelector(".adopp-native-filter-menu")?.parentElement?.dataset.dropdown).toBe("filters");
+
+    trigger.click();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector<HTMLElement>(".adopp-native-filter-menu")?.hidden).toBe(true);
+  });
+
+  it("does not copy Approve's transient open state onto Start Reviewing", () => {
+    document.querySelector<HTMLButtonElement>(".repos-pr-header-vote-button > button")?.classList.add("active", "selected");
+    enhancer = createEnhancer();
+    enhancer.start();
+
+    expect(document.querySelector(".adopp-start-button")?.classList.contains("active")).toBe(false);
+    expect(document.querySelector(".adopp-start-button")?.classList.contains("selected")).toBe(false);
+    expect(document.querySelector(".adopp-action-menu-button")?.classList.contains("active")).toBe(false);
   });
 
   it("prefers the verified ADO file tree over unrelated tables with matching text", () => {
@@ -139,6 +240,32 @@ describe("NativePrEnhancer", () => {
 
     expect(document.querySelector("[data-adopp-native-toolbar]")).toBeNull();
     expect(document.querySelectorAll("[data-adopp-inline-stat]")).toHaveLength(2);
+  });
+
+  it("preserves search focus during routine ADO rescans", () => {
+    enhancer = createEnhancer();
+    enhancer.start();
+    const search = document.querySelector<HTMLInputElement>(".adopp-native-search")!;
+    search.focus();
+    search.value = "app";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+
+    enhancer.refresh();
+
+    expect(document.activeElement).toBe(search);
+    expect(search.value).toBe("app");
+  });
+
+  it("updates reviewed progress when ADO changes a native checkbox property", async () => {
+    enhancer = createEnhancer();
+    enhancer.start();
+    const checkbox = document.querySelector<HTMLInputElement>('[data-row="new"] input[type="checkbox"]')!;
+
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+
+    expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("2/2 reviewed");
   });
 });
 
