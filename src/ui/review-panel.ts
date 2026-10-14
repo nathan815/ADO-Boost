@@ -13,7 +13,7 @@ import { buildCopilotExcerpts, MAX_COPILOT_FILES } from "../core/diff-context";
 import { DiffDialog } from "./diff-dialog";
 import { DiscussionController } from "./discussion-controller";
 import { panelStyles } from "./styles";
-import { renderAdoComment } from "./comment-content";
+import { AnnouncementDialog } from "./announcement-dialog";
 
 interface ReviewPanelDependencies {
   analysis: PullRequestAnalysis;
@@ -38,6 +38,7 @@ export class ReviewPanel {
   private open = false;
   private announcementPosted = false;
   private announcementError = "";
+  private announcementDialog: AnnouncementDialog | null = null;
   private copilotGroups: ReviewGroup[] | null = null;
   private copilotHealth: CopilotHealth | null = null;
   private copilotBusy = false;
@@ -71,6 +72,7 @@ export class ReviewPanel {
   updateSettings(settings: FeatureSettings): void {
     const threadsWereEnabled = resolveFeature(this.settings, "threadNavigator").enabled;
     this.settings = settings;
+    if (!resolveFeature(settings, "startReviewing").enabled) this.announcementDialog?.close();
     this.host.dataset.theme = settings.presentation.theme;
     if (!settings.masterEnabled) {
       this.destroy();
@@ -81,6 +83,7 @@ export class ReviewPanel {
   }
 
   destroy(): void {
+    this.announcementDialog?.close();
     document.removeEventListener("keydown", this.onKeyDown, true);
     this.host.remove();
   }
@@ -214,35 +217,21 @@ export class ReviewPanel {
   }
 
   private showAnnouncementDialog(): void {
-    if (this.announcementPosted) return;
-    const body = this.announcement.body(this.dependencies.analysis.context);
-    const backdrop = document.createElement("div");
-    backdrop.className = "dialog-backdrop";
-    backdrop.innerHTML = `<section class="dialog" role="dialog" aria-modal="true" aria-labelledby="adopp-dialog-title"><h3 id="adopp-dialog-title">Announce review start?</h3><p>This posts one normal comment to PR ${this.dependencies.analysis.context.pullRequestId}. It does not change your vote or guarantee a notification.</p><div class="preview announcement-preview">${renderAdoComment(body)}</div><p>Includes hidden ADO Boost metadata for your review start time and original iteration/commits, so review-start status can be restored in another browser. Anyone with PR access can read this metadata in the comment source. Drafts and settings stay local.</p><div class="dialog-actions"><button class="secondary cancel" type="button">Cancel</button><button class="primary confirm" type="button">Post announcement</button></div></section>`;
-    this.root.append(backdrop);
-    backdrop.querySelector(".cancel")?.addEventListener("click", () => backdrop.remove());
-    backdrop.querySelector(".confirm")?.addEventListener("click", () => void this.confirmAnnouncement(backdrop));
-    backdrop.querySelector<HTMLButtonElement>(".cancel")?.focus();
-  }
-
-  private async confirmAnnouncement(backdrop: HTMLElement): Promise<void> {
-    const button = backdrop.querySelector<HTMLButtonElement>(".confirm");
-    if (!button) return;
-    button.disabled = true;
-    button.textContent = "Posting…";
-    try {
-      await this.dependencies.writes.postAnnouncement(this.dependencies.analysis.context);
-      this.announcementPosted = true;
-      this.announcementError = "";
-      backdrop.remove();
-      this.render();
-      window.dispatchEvent(new CustomEvent("adopp:announcement-changed"));
-    } catch (error) {
-      button.disabled = false;
-      button.textContent = "Retry after checking";
-      const text = backdrop.querySelector<HTMLElement>(".dialog p");
-      if (text) text.textContent = error instanceof Error ? `${error.message}. ADO Boost will check the PR before retrying to prevent a duplicate.` : "Announcement failed.";
-    }
+    if (this.announcementPosted || !resolveFeature(this.settings, "startReviewing").enabled) return;
+    this.announcementDialog ??= new AnnouncementDialog({
+      pullRequestId: this.dependencies.analysis.context.pullRequestId,
+      body: this.announcement.body(this.dependencies.analysis.context),
+      onConfirm: async () => {
+        await this.dependencies.writes.postAnnouncement(this.dependencies.analysis.context);
+        if (!this.host.isConnected) return;
+        this.announcementPosted = true;
+        this.announcementError = "";
+        this.render();
+        window.dispatchEvent(new CustomEvent("adopp:announcement-changed"));
+      },
+      onClose: () => { this.announcementDialog = null; }
+    });
+    this.announcementDialog.open();
   }
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {

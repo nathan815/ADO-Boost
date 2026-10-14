@@ -34,6 +34,7 @@ Browser loading, native-host registration, and live Copilot inference require se
 
 - Start Reviewing renders a formatted Markdown announcement with the authenticated reviewer's name, the starting iteration, and attribution linking to the [ADO Boost](https://github.com/nathan815/ADO-Boost) browser extension, with a matching preview before confirmation.
 - Start Reviewing is integrated beside Azure DevOps' native Approve action with an ADO Boost action menu.
+- The review-start confirmation uses Azure DevOps' native Bolt dialog and button classes in the page DOM, inheriting the site's theme with keyboard focus containment, Escape dismissal, and focus restoration.
 - The announcement is a normal Azure DevOps comment and does not change vote/status or guarantee notification delivery.
 - Background-serialized writes prevent duplicate multi-tab announcements and submissions.
 - Announcements include versioned JSON in a hidden HTML comment recording the reviewer ID, repository/PR IDs, start timestamp, and original iteration/source/target/merge-base commits. ADO Boost restores review-start status from the authenticated reviewer's matching PR comment when local state is missing, including in another browser. Older plain-text announcements are still recognized.
