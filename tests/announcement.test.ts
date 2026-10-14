@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AdoApi } from "../src/adapters/ado-api";
+import { AdoApi } from "../src/adapters/ado-api";
 import { MemoryBrowserStore } from "../src/adapters/browser";
 import { AnnouncementService } from "../src/core/announcement";
 import type { PullRequestContext } from "../src/core/types";
@@ -73,6 +73,34 @@ describe("AnnouncementService", () => {
     await service.post(context);
     await service.post(context);
     expect(posts).toBe(1);
+  });
+
+  it.each([false, true])("handles null thread properties without duplicating announcements (existing: %s)", async (existing) => {
+    const body = announcementBody(context, "2026-10-14T04:00:00.000Z");
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        value: [
+          { id: 1, properties: null, comments: [{ id: 1, content: "Historical feedback" }] },
+          ...(existing ? [{
+            id: 8,
+            properties: null,
+            threadContext: null,
+            comments: [{ id: 9, content: body, author: context.reviewer }]
+          }] : [])
+        ]
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 8, comments: [{ id: 9 }] }), { status: 200 }));
+    const store = new MemoryBrowserStore();
+    const service = new AnnouncementService(new AdoApi({ fetch }), store);
+
+    const record = await service.post(context);
+    expect(record).toMatchObject({ status: "posted", threadId: 8, commentId: 9 });
+    expect(await store.getAnnouncement(service.key(context))).toEqual(record);
+    await expect(service.post(context)).resolves.toEqual(record);
+    expect(fetch).toHaveBeenCalledTimes(existing ? 1 : 2);
+    if (!existing) {
+      expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "POST" });
+    }
   });
 
   it("reconciles an ambiguous result before retrying", async () => {

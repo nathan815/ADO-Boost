@@ -104,6 +104,29 @@ describe("AdoApi", () => {
     }]);
   });
 
+  it.each([null, undefined, {}])("accepts threads with absent or empty properties: %s", async (properties) => {
+    const payload = {
+      value: [{
+        id: 10,
+        status: "active",
+        properties,
+        comments: [{ id: 2, content: "General feedback", author: { id: "me", displayName: "Me" } }]
+      }]
+    };
+    const api = new AdoApi(new QueueHttp([json(payload), json(payload)]));
+    await expect(api.listThreads(context)).resolves.toEqual([{
+      id: 10,
+      status: "active",
+      comments: [{ id: 2, content: "General feedback", author: "Me", isDeleted: false }]
+    }]);
+    await expect(api.getThreadOverview(context)).resolves.toEqual({ state: "available", active: 1, resolved: 0, total: 1 });
+  });
+
+  it.each(["invalid", 1, []])("rejects malformed thread properties: %s", async (properties) => {
+    const api = new AdoApi(new QueueHttp([json({ value: [{ id: 10, properties }] })]));
+    await expect(api.listThreads(context)).rejects.toThrow("Azure DevOps response validation failed");
+  });
+
   it("treats a not-listed reviewer as no existing vote", async () => {
     const http = new QueueHttp([new Response("not found", { status: 404 })]);
     await expect(new AdoApi(http).getCurrentVote(context)).resolves.toBe(0);

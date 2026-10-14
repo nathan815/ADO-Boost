@@ -47,7 +47,7 @@ const threadSchema = z.object({
     leftFileStart: z.object({ line: z.number().int().positive(), offset: z.number().int().nonnegative() }).optional(),
     rightFileStart: z.object({ line: z.number().int().positive(), offset: z.number().int().nonnegative() }).optional()
   }).passthrough().nullish(),
-  properties: z.record(z.string(), z.unknown()).optional(),
+  properties: z.record(z.string(), z.unknown()).nullish(),
   comments: z.array(z.object({
     id: z.number().int().positive().optional(),
     content: z.string().optional(),
