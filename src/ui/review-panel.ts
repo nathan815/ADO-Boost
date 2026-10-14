@@ -13,6 +13,7 @@ import { buildCopilotExcerpts, MAX_COPILOT_FILES } from "../core/diff-context";
 import { DiffDialog } from "./diff-dialog";
 import { DiscussionController } from "./discussion-controller";
 import { panelStyles } from "./styles";
+import { renderAdoComment } from "./comment-content";
 
 interface ReviewPanelDependencies {
   analysis: PullRequestAnalysis;
@@ -36,6 +37,7 @@ export class ReviewPanel {
   private settings: FeatureSettings;
   private open = false;
   private announcementPosted = false;
+  private announcementError = "";
   private copilotGroups: ReviewGroup[] | null = null;
   private copilotHealth: CopilotHealth | null = null;
   private copilotBusy = false;
@@ -52,7 +54,13 @@ export class ReviewPanel {
     document.addEventListener("keydown", this.onKeyDown, true);
     if (resolveFeature(this.settings, "startReviewing").enabled) {
       void this.announcement.status(dependencies.analysis.context).then((record) => {
+        if (!this.host.isConnected) return;
         this.announcementPosted = record?.status === "posted";
+        this.render();
+        window.dispatchEvent(new CustomEvent("adopp:announcement-changed"));
+      }).catch((error: unknown) => {
+        if (!this.host.isConnected) return;
+        this.announcementError = error instanceof Error ? error.message : "Review announcement lookup failed";
         this.render();
       });
     }
@@ -111,6 +119,7 @@ export class ReviewPanel {
           <div class="metric"><b>${analysis.threads.total}</b><span>all threads</span></div>
         </section>
         <main class="workspace">
+          ${this.announcementError ? `<div class="delivery error">${escapeHtml(this.announcementError)}. Start Reviewing will check again before posting.</div>` : ""}
           ${this.copilotMarkup()}
           ${resolveFeature(this.settings, "draftQueue").enabled || resolveFeature(this.settings, "threadNavigator").enabled ? this.discussion.markup() : ""}
         </main>
@@ -209,7 +218,7 @@ export class ReviewPanel {
     const body = this.announcement.body(this.dependencies.analysis.context);
     const backdrop = document.createElement("div");
     backdrop.className = "dialog-backdrop";
-    backdrop.innerHTML = `<section class="dialog" role="dialog" aria-modal="true" aria-labelledby="adopp-dialog-title"><h3 id="adopp-dialog-title">Announce review start?</h3><p>This posts one normal comment to PR ${this.dependencies.analysis.context.pullRequestId}. It does not change your vote or guarantee a notification.</p><div class="preview">${escapeHtml(body)}</div><div class="dialog-actions"><button class="secondary cancel" type="button">Cancel</button><button class="primary confirm" type="button">Post announcement</button></div></section>`;
+    backdrop.innerHTML = `<section class="dialog" role="dialog" aria-modal="true" aria-labelledby="adopp-dialog-title"><h3 id="adopp-dialog-title">Announce review start?</h3><p>This posts one normal comment to PR ${this.dependencies.analysis.context.pullRequestId}. It does not change your vote or guarantee a notification.</p><div class="preview announcement-preview">${renderAdoComment(body)}</div><p>Includes hidden ADO Boost metadata for your review start time and original iteration/commits, so review-start status can be restored in another browser. Anyone with PR access can read this metadata in the comment source. Drafts and settings stay local.</p><div class="dialog-actions"><button class="secondary cancel" type="button">Cancel</button><button class="primary confirm" type="button">Post announcement</button></div></section>`;
     this.root.append(backdrop);
     backdrop.querySelector(".cancel")?.addEventListener("click", () => backdrop.remove());
     backdrop.querySelector(".confirm")?.addEventListener("click", () => void this.confirmAnnouncement(backdrop));
@@ -224,6 +233,7 @@ export class ReviewPanel {
     try {
       await this.dependencies.writes.postAnnouncement(this.dependencies.analysis.context);
       this.announcementPosted = true;
+      this.announcementError = "";
       backdrop.remove();
       this.render();
       window.dispatchEvent(new CustomEvent("adopp:announcement-changed"));

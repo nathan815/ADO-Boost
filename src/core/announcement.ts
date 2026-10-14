@@ -1,6 +1,7 @@
 import type { AdoApi } from "../adapters/ado-api";
 import type { BrowserStore } from "../adapters/browser";
 import type { AnnouncementRecord, PullRequestContext } from "./types";
+import { announcementBody } from "./announcement-content";
 
 export class AnnouncementService {
   constructor(
@@ -9,7 +10,7 @@ export class AnnouncementService {
   ) {}
 
   body(context: PullRequestContext): string {
-    return `${context.reviewer.displayName} has started reviewing this PR.\n\nPosted via ADO Boost Browser Extension`;
+    return announcementBody(context);
   }
 
   key(context: PullRequestContext): string {
@@ -20,32 +21,31 @@ export class AnnouncementService {
     const key = this.key(context);
     const local = await this.store.getAnnouncement(key);
     if (local?.status === "posted") return local;
-    if (local?.status === "posting" || local?.status === "ambiguous") {
-      const existing = await this.api.findAnnouncement(context, local.body, signal);
-      if (existing) {
-        const reconciled: AnnouncementRecord = {
-          ...local,
-          status: "posted",
-          threadId: existing.threadId,
-          commentId: existing.commentId,
-          postedAt: local.postedAt ?? new Date().toISOString()
-        };
-        await this.store.saveAnnouncement(reconciled);
-        return reconciled;
-      }
-      return local;
+    const existing = await this.api.findAnnouncement(context, local?.body ?? this.body(context), signal);
+    if (existing) {
+      const reconciled: AnnouncementRecord = {
+        key,
+        body: existing.body ?? local?.body ?? this.body(context),
+        status: "posted",
+        threadId: existing.threadId,
+        commentId: existing.commentId,
+        postedAt: existing.postedAt ?? local?.postedAt ?? new Date().toISOString()
+      };
+      await this.store.saveAnnouncement(reconciled);
+      return reconciled;
     }
     return local;
   }
 
   async post(context: PullRequestContext, signal?: AbortSignal): Promise<AnnouncementRecord> {
     const key = this.key(context);
-    const body = this.body(context);
     const existing = await this.status(context, signal);
     if (existing?.status === "posted") return existing;
     if (existing?.status === "posting") throw new Error("A review announcement is already being posted in another tab");
     if (existing?.status === "ambiguous") throw new Error("The previous announcement result is still ambiguous and must be reconciled before retrying");
 
+    const startedAt = new Date().toISOString();
+    const body = announcementBody(context, startedAt);
     const inFlight: AnnouncementRecord = { key, status: "posting", body };
     await this.store.saveAnnouncement(inFlight);
     try {
@@ -55,7 +55,7 @@ export class AnnouncementService {
         status: "posted",
         threadId: created.threadId,
         commentId: created.commentId,
-        postedAt: new Date().toISOString()
+        postedAt: startedAt
       };
       await this.store.saveAnnouncement(posted);
       return posted;

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AdoApi, type HttpClient } from "../src/adapters/ado-api";
 import type { PullRequestContext } from "../src/core/types";
 import type { ReviewDraft } from "../src/core/types";
+import { announcementBody, legacyAnnouncementBody } from "../src/core/announcement-content";
 
 class QueueHttp implements HttpClient {
   readonly urls: string[] = [];
@@ -156,4 +157,52 @@ describe("AdoApi", () => {
     await expect(new AdoApi(http).findDraftDelivery(context, draft)).resolves.toBeNull();
     expect(http.urls).toEqual([]);
   });
+
+  it("finds review-start metadata after a new iteration and display name change", async () => {
+    const body = announcementBody(context, "2026-10-14T04:00:00.000Z");
+    const http = new QueueHttp([json({
+      value: [{
+        id: 10,
+        comments: [{ id: 2, content: body.replace("has started reviewing this PR.", "is reviewing this PR."), author: { id: "me", displayName: "Me" } }]
+      }]
+    })]);
+    const updatedContext = { ...context, iterationId: 4, sourceCommit: "updated", reviewer: { id: "me", displayName: "Renamed" } };
+    await expect(new AdoApi(http).findAnnouncement(updatedContext, announcementBody(updatedContext))).resolves.toMatchObject({
+      threadId: 10, commentId: 2, postedAt: "2026-10-14T04:00:00.000Z"
+    });
+  });
+
+  it("recognizes legacy announcements from another browser", async () => {
+    const body = legacyAnnouncementBody(context);
+    const http = new QueueHttp([json({
+      value: [{ id: 10, comments: [{ id: 2, content: body, author: { id: "me", displayName: "Me" } }] }]
+    })]);
+    await expect(new AdoApi(http).findAnnouncement(context, announcementBody(context))).resolves.toEqual({
+      threadId: 10, commentId: 2, body
+    });
+  });
+
+  it.each(["author", "reviewer", "repository", "pr", "deleted-comment", "deleted-thread", "inline", "version", "malformed"])(
+    "does not restore unrelated or invalid announcements: %s",
+    async (mismatch) => {
+      let body = announcementBody(context);
+      if (mismatch === "reviewer") body = body.replace('"reviewerId":"me"', '"reviewerId":"someone-else"');
+      if (mismatch === "repository") body = body.replace('"repositoryId":"repo-id"', '"repositoryId":"other"');
+      if (mismatch === "pr") body = body.replace('"pullRequestId":7', '"pullRequestId":8');
+      if (mismatch === "version") body = body.replace('"version":1', '"version":2');
+      if (mismatch === "malformed") body = body.replace('"version":1', '"version":');
+      const http = new QueueHttp([json({
+        value: [{
+          id: 10,
+          isDeleted: mismatch === "deleted-thread",
+          ...(mismatch === "inline" ? { threadContext: { filePath: "/file.ts" } } : {}),
+          comments: [{
+            id: 2, content: body, isDeleted: mismatch === "deleted-comment",
+            author: { id: mismatch === "author" ? "someone-else" : "me", displayName: "Me" }
+          }]
+        }]
+      })]);
+      await expect(new AdoApi(http).findAnnouncement(context, "unmatched body")).resolves.toBeNull();
+    }
+  );
 });

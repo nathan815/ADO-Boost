@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ChangedFile, PrRoute, PullRequestContext, PullRequestThread, ReviewDraft, ThreadOverview } from "../core/types";
+import { legacyAnnouncementBody, readAnnouncementMetadata } from "../core/announcement-content";
 
 const identitySchema = z.object({
   id: z.string().min(1),
@@ -290,15 +291,25 @@ export class AdoApi {
     if (!response.ok) throw new Error(`Thread status update failed (${response.status})`);
   }
 
-  async findAnnouncement(context: PullRequestContext, body: string, signal?: AbortSignal): Promise<{ threadId: number; commentId: number } | null> {
+  async findAnnouncement(context: PullRequestContext, body: string, signal?: AbortSignal): Promise<{ threadId: number; commentId: number; body: string; postedAt?: string } | null> {
     const threads = await this.getThreads(context, signal);
     for (const thread of threads) {
-      const comment = thread.comments?.find((candidate) =>
-        !candidate.isDeleted
-        && candidate.author?.id === context.reviewer.id
-        && candidate.content?.trim() === body.trim()
-      );
-      if (thread.id && comment?.id) return { threadId: thread.id, commentId: comment.id };
+      if (thread.threadContext) continue;
+      for (const comment of thread.comments ?? []) {
+        if (!thread.id || !comment.id || comment.isDeleted || comment.author?.id !== context.reviewer.id || !comment.content) continue;
+        const metadata = readAnnouncementMetadata(comment.content);
+        const matches = metadata
+          ? metadata.repositoryId === context.repositoryId
+            && metadata.pullRequestId === context.pullRequestId
+            && metadata.reviewerId === context.reviewer.id
+          : comment.content.trim() === body.trim() || comment.content.trim() === legacyAnnouncementBody(context);
+        if (matches) return {
+          threadId: thread.id,
+          commentId: comment.id,
+          body: comment.content,
+          ...(metadata ? { postedAt: metadata.startedAt } : {})
+        };
+      }
     }
     return null;
   }
