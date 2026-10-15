@@ -474,6 +474,49 @@ describe("NativePrEnhancer", () => {
     expect(document.querySelectorAll("[data-adopp-action-group]")).toHaveLength(1);
   });
 
+  it("keeps completed PR actions beside the title instead of inside its clipboard control", () => {
+    document.querySelector(".status")!.textContent = "Completed";
+    document.querySelector(".pr-header-row")!.innerHTML = `
+      <div class="repos-pr-title-row inline-flex-row flex-grow">
+        <div class="title-slot"><input aria-label="Pull request title" value="PR title"></div>
+        <div class="bolt-clipboard-button repos-pr-title-clipboard-button">
+          <button aria-label="Copy to clipboard">Copy</button>
+        </div>
+      </div>
+      <div class="bolt-header-command-item-button bolt-expandable-button inline-flex-row">
+        <button aria-label="More actions">More actions</button>
+      </div>`;
+    enhancer = createEnhancer();
+    enhancer.start();
+    enhancer.refresh();
+
+    const row = document.querySelector(".pr-header-row")!;
+    const group = row.querySelector("[data-adopp-action-group]")!;
+    expect(group.parentElement).toBe(row);
+    expect(group.previousElementSibling).toBe(row.querySelector(".repos-pr-title-row"));
+    expect(group.nextElementSibling).toBe(row.querySelector(".bolt-header-command-item-button"));
+    expect(row.querySelector(".bolt-clipboard-button")!.children).toHaveLength(1);
+    expect(row.querySelectorAll("[data-adopp-action-group]")).toHaveLength(1);
+  });
+
+  it("moves the assistant out of a stale clipboard mount when a PR completes", () => {
+    const titleSlot = document.querySelector(".title-slot")!;
+    titleSlot.classList.add("repos-pr-title-row");
+    titleSlot.insertAdjacentHTML("beforeend", '<div class="bolt-clipboard-button"><button aria-label="Copy to clipboard">Copy</button></div>');
+    enhancer = createEnhancer();
+    enhancer.start();
+    const group = document.querySelector("[data-adopp-action-group]")!;
+    document.querySelector(".bolt-clipboard-button")!.prepend(group);
+    document.querySelector(".status")!.textContent = "Completed";
+    document.querySelector(".actions")!.replaceChildren();
+    enhancer.refresh();
+
+    expect(group.parentElement).toBe(document.querySelector(".pr-header-row"));
+    expect(group.previousElementSibling).toBe(titleSlot);
+    expect(document.querySelector(".bolt-clipboard-button [data-adopp-action-group]")).toBeNull();
+    expect(group.querySelector(".adopp-start-button")!.textContent).toContain("Review Assistant");
+  });
+
   it("does not mount into unrelated page actions when the native PR header is absent", () => {
     document.querySelector(".pr-header-shell")!.remove();
     enhancer = createEnhancer();
@@ -552,6 +595,27 @@ describe("NativePrEnhancer", () => {
     expect(actions.classList.contains("adopp-header-action-item")).toBe(true);
     expect(actions.querySelector("[data-adopp-action-group]")).not.toBeNull();
     expect(actions.querySelector(".repos-pr-header-vote-button")).not.toBeNull();
+  });
+
+  it("does not treat the title input's unused width as overflowing text", () => {
+    const header = document.querySelector<HTMLElement>(".pr-header-row")!;
+    const title = document.querySelector<HTMLInputElement>('[aria-label="Pull request title"]')!;
+    const titleSlot = document.querySelector<HTMLElement>(".title-slot")!;
+    const actions = document.querySelector<HTMLElement>(".actions")!;
+    Object.defineProperty(header, "clientWidth", { configurable: true, value: 1000 });
+    Object.defineProperty(title, "clientWidth", { configurable: true, value: 850 });
+    Object.defineProperty(title, "scrollWidth", { configurable: true, value: 850 });
+    title.getBoundingClientRect = () => ({ width: 850 }) as DOMRect;
+    titleSlot.getBoundingClientRect = () => ({ width: 880 }) as DOMRect;
+    Object.defineProperty(actions, "scrollWidth", { configurable: true, value: 200 });
+    enhancer = createEnhancer();
+    enhancer.start();
+
+    expect(header.classList.contains("adopp-header-actions-wrapped")).toBe(false);
+    title.value = "A".repeat(150);
+    title.dispatchEvent(new Event("input"));
+    enhancer.refresh();
+    expect(header.classList.contains("adopp-header-actions-wrapped")).toBe(true);
   });
 
   it("renders regular inline filter controls and forwards options to the native model", () => {

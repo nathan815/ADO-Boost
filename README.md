@@ -32,7 +32,7 @@ Browser loading, native-host registration, and live Copilot inference require se
 - Filters run before ADO constructs its tree and diff/navigation model, including offscreen files. Unmapped native entries are retained rather than guessed or silently hidden. Azure DevOps retains ownership of folders, reviewed checkboxes, selection, and virtualization.
 - Previous, next, next-unreviewed, and keyboard navigation reuse Azure DevOps' SPA file links without forcing a full page reload.
 - Azure DevOps' existing server-backed reviewed checkboxes remain authoritative. ADO Boost does not render or synchronize a second reviewed-state system.
-- The elevated `Review Assistant` button opens the discussions and review-tools side panel on completed PRs and after a review has started.
+- The elevated `Review Assistant` button opens the discussions and review-tools side panel on completed PRs and after a review has started. When Approve and Complete are removed, it stays in the title's native action row beside the overflow menu, leaving the title's copy control untouched.
 
 ### Review coordination
 

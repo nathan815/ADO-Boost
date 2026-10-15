@@ -617,7 +617,8 @@ export class NativePrEnhancer {
     const titleItemRect = layout.titleItem.getBoundingClientRect();
     const titleViewportWidth = title.clientWidth || titleRect.width;
     const titleChromeWidth = Math.max(0, titleItemRect.width - titleRect.width);
-    const intrinsicTitleWidth = Math.max(title.scrollWidth, measureInputTextWidth(title));
+    const overflowingTitleWidth = title.scrollWidth > titleViewportWidth + 1 ? title.scrollWidth : 0;
+    const intrinsicTitleWidth = Math.max(overflowingTitleWidth, measureInputTextWidth(title));
     const actionWidth = Math.max(layout.actionItem.scrollWidth, layout.actionItem.getBoundingClientRect().width);
     const titleIsClipped = titleViewportWidth > 0 && intrinsicTitleWidth > titleViewportWidth + 1;
     const shouldWrap = availableWidth > 0
@@ -721,9 +722,15 @@ function findHeaderStatus(): HTMLElement | null {
 function findHeaderActionMount(): { host: HTMLElement; before: HTMLElement | null } | null {
   const title = document.querySelector<HTMLInputElement>('input[aria-label="Pull request title"]');
   if (!title) return null;
+  const titleRow = title.closest<HTMLElement>(".repos-pr-title-row");
+  if (titleRow?.parentElement) {
+    let before = titleRow.nextElementSibling;
+    while (before?.hasAttribute("data-adopp-action-group")) before = before.nextElementSibling;
+    return { host: titleRow.parentElement, before: before instanceof HTMLElement ? before : null };
+  }
   for (let container = title.parentElement; container && container !== document.body; container = container.parentElement) {
     for (const branch of container.children) {
-      if (!(branch instanceof HTMLElement) || branch.contains(title)) continue;
+      if (!(branch instanceof HTMLElement) || branch.contains(title) || branch.matches(".bolt-clipboard-button")) continue;
       const button = [...(branch instanceof HTMLButtonElement ? [branch] : []), ...branch.querySelectorAll<HTMLButtonElement>("button")]
         .find((candidate) => !candidate.closest("[data-adopp-action-group]"));
       const commandBar = branch.matches(".bolt-header-commandbar")
