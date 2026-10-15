@@ -56,7 +56,7 @@ export class ReviewPanel {
     if (resolveFeature(this.settings, "startReviewing").enabled) {
       void this.announcement.status(dependencies.analysis.context).then((record) => {
         if (!this.host.isConnected) return;
-        this.announcementPosted = record?.status === "posted";
+        this.announcementPosted ||= record?.status === "posted";
         this.render();
         window.dispatchEvent(new CustomEvent("adopp:announcement-changed"));
       }).catch((error: unknown) => {

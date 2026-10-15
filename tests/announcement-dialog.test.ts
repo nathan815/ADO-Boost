@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AdoApi } from "../src/adapters/ado-api";
 import { MemoryBrowserStore } from "../src/adapters/browser";
+import { NativePrEnhancer } from "../src/content/native-pr-enhancer";
 import type { PullRequestAnalysis } from "../src/core/types";
 import { defaultSettings } from "../src/features/registry";
 import { MemorySettingsStorage, SettingsService } from "../src/features/settings-service";
@@ -241,5 +242,55 @@ describe("Native announcement dialog", () => {
     panel.startReviewing();
     panel.destroy();
     expect(document.querySelector("[data-adopp-announcement-dialog]")).toBeNull();
+  });
+
+  it("turns Start Review into a sidebar opener only after the announcement succeeds", async () => {
+    const analysis: PullRequestAnalysis = {
+      context: {
+        origin: "https://dev.azure.com", organization: "org", project: "project", repository: "repo",
+        repositoryId: "repo-id", pullRequestId: 7, title: "PR", sourceCommit: "source", targetCommit: "target",
+        mergeBaseCommit: "base", iterationId: 3, identity: "identity", reviewer: { id: "me", displayName: "Me" }
+      },
+      files: [], groups: [], threads: { state: "available", active: 0, resolved: 0, total: 0 }, completedTrackingIds: new Set()
+    };
+    const postAnnouncement = vi.fn().mockResolvedValue(undefined);
+    const settings = defaultSettings();
+    panel = new ReviewPanel({
+      analysis,
+      api: new AdoApi({ fetch: async () => new Response(JSON.stringify({ value: [] }), { status: 200 }) }),
+      store: new MemoryBrowserStore(),
+      settingsService: new SettingsService(new MemorySettingsStorage()),
+      settings,
+      reviewKey: "review",
+      writes: { postAnnouncement, submitReview: vi.fn(), retryDecision: vi.fn(), setThreadStatus: vi.fn() },
+      copilot: { health: vi.fn(), semanticGroups: vi.fn(), chat: vi.fn() },
+      openSettings: vi.fn()
+    });
+    document.body.innerHTML = '<div class="actions"><div class="bolt-split-button"><button class="bolt-button enabled"><span class="bolt-button-text">Approve</span></button></div></div>';
+    const enhancer = new NativePrEnhancer(analysis, settings, {
+      startReviewing: () => panel!.startReviewing(),
+      openDiscussions: () => panel!.openDiscussions(),
+      isReviewAnnounced: () => panel!.isReviewAnnounced(),
+      openSettings: vi.fn()
+    });
+    enhancer.start();
+    try {
+      document.querySelector<HTMLButtonElement>(".adopp-start-button")!.click();
+      expect(document.querySelector("[data-adopp-announcement-dialog]")).not.toBeNull();
+      expect(panel.isReviewAnnounced()).toBe(false);
+      expect(document.querySelector(".adopp-start-button")!.textContent).toContain("Start Review");
+      button("confirm").click();
+      await vi.waitFor(() => expect(document.querySelector(".adopp-start-button")!.textContent).toContain("Review Assistant"));
+      expect(postAnnouncement).toHaveBeenCalledOnce();
+      expect(document.querySelector("[data-adopp-announcement-dialog]")).toBeNull();
+
+      document.querySelector<HTMLButtonElement>(".adopp-start-button")!.click();
+      const rail = [...document.querySelectorAll("div")].map((host) => host.shadowRoot?.querySelector(".rail")).find(Boolean)!;
+      expect(rail.getAttribute("data-open")).toBe("true");
+      expect(document.querySelector("[data-adopp-announcement-dialog]")).toBeNull();
+      expect(postAnnouncement).toHaveBeenCalledOnce();
+    } finally {
+      enhancer.destroy();
+    }
   });
 });

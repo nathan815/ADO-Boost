@@ -167,6 +167,107 @@ describe("NativePrEnhancer", () => {
     expect(staleStyle.textContent).toContain(".adopp-total-diff");
   });
 
+  it("starts an unannounced review, then opens the assistant after the announcement", () => {
+    let announced = false;
+    const startReviewing = vi.fn();
+    const openDiscussions = vi.fn();
+    enhancer = createEnhancer({ startReviewing, openDiscussions, isReviewAnnounced: () => announced });
+    enhancer.start();
+
+    document.querySelector<HTMLButtonElement>(".adopp-start-button")!.click();
+    expect(startReviewing).toHaveBeenCalledOnce();
+    expect(openDiscussions).not.toHaveBeenCalled();
+
+    announced = true;
+    window.dispatchEvent(new CustomEvent("adopp:announcement-changed"));
+
+    const button = document.querySelector<HTMLButtonElement>(".adopp-start-button")!;
+    expect(button.textContent).toContain("Review Assistant");
+    expect(button.getAttribute("aria-label")).toBe("Review Assistant");
+    expect(button.disabled).toBe(false);
+    expect(document.querySelector<HTMLElement>(".adopp-start-split")!.dataset.reviewStarted).toBe("true");
+    button.click();
+    expect(openDiscussions).toHaveBeenCalledOnce();
+    expect(startReviewing).toHaveBeenCalledOnce();
+    expect(getComputedStyle(document.querySelector(".adopp-start-split")!).boxShadow).toContain("0 1px 2px");
+  });
+
+  it.each([false, true])("opens the assistant for an already-started review when announcements are enabled=%s", (enabled) => {
+    const openDiscussions = vi.fn();
+    enhancer = createEnhancer({ isReviewAnnounced: () => true, openDiscussions });
+    const settings = defaultSettings();
+    settings.features.startReviewing = enabled;
+    enhancer.updateSettings(settings);
+    enhancer.start();
+
+    const button = document.querySelector<HTMLButtonElement>(".adopp-start-button")!;
+    expect(button.hidden).toBe(false);
+    expect(button.disabled).toBe(false);
+    expect(button.textContent).toContain("Review Assistant");
+    button.click();
+    expect(openDiscussions).toHaveBeenCalledOnce();
+  });
+
+  it.each([false, true])("shows an elevated assistant on completed PRs without Approve when announced=%s", (announced) => {
+    document.querySelector(".status")!.textContent = "Completed";
+    document.querySelector(".actions")!.innerHTML = '<button class="bolt-button enabled bolt-focus-treatment">Reactivate</button>';
+    const startReviewing = vi.fn();
+    const openDiscussions = vi.fn();
+    enhancer = createEnhancer({ startReviewing, openDiscussions, isReviewAnnounced: () => announced });
+    const settings = defaultSettings();
+    settings.features.startReviewing = false;
+    enhancer.updateSettings(settings);
+    enhancer.start();
+    enhancer.refresh();
+
+    const button = document.querySelector<HTMLButtonElement>(".adopp-start-button")!;
+    expect(document.querySelectorAll("[data-adopp-action-group]")).toHaveLength(1);
+    expect(button.textContent).toContain("Review Assistant");
+    expect(button.disabled).toBe(false);
+    expect(button.hidden).toBe(false);
+    button.click();
+    expect(openDiscussions).toHaveBeenCalledOnce();
+    expect(startReviewing).not.toHaveBeenCalled();
+    expect(document.querySelector(".actions")!.textContent).toContain("Reactivate");
+    expect(document.querySelectorAll(".adopp-start-split > .bolt-split-button-divider")).toHaveLength(1);
+    expect(getComputedStyle(document.querySelector(".adopp-start-split")!).boxShadow).toContain("0 1px 2px");
+    document.querySelector<HTMLButtonElement>(".adopp-action-menu-button")!.click();
+    expect(document.querySelector(".adopp-action-menu")).not.toBeNull();
+  });
+
+  it("mounts on completed PRs with an empty native header command bar", () => {
+    document.querySelector(".status")!.textContent = "Completed";
+    const actions = document.querySelector<HTMLElement>(".actions")!;
+    actions.replaceChildren();
+    actions.classList.add("bolt-header-commandbar");
+    enhancer = createEnhancer();
+    enhancer.start();
+    enhancer.refresh();
+
+    expect(actions.querySelector(".adopp-start-button")!.textContent).toContain("Review Assistant");
+    expect(actions.querySelectorAll("[data-adopp-action-group]")).toHaveLength(1);
+  });
+
+  it("switches to the assistant when a PR completes and Approve is removed", () => {
+    enhancer = createEnhancer();
+    enhancer.start();
+    document.querySelector(".status")!.textContent = "Completed";
+    document.querySelector(".actions > .repos-pr-header-vote-button")!.remove();
+    document.querySelector(".actions")!.insertAdjacentHTML("beforeend", '<button class="bolt-button">Reactivate</button>');
+    enhancer.refresh();
+
+    expect(document.querySelector(".adopp-start-button")!.textContent).toContain("Review Assistant");
+    expect(document.querySelectorAll("[data-adopp-action-group]")).toHaveLength(1);
+  });
+
+  it("does not mount into unrelated page actions when the native PR header is absent", () => {
+    document.querySelector(".pr-header-shell")!.remove();
+    enhancer = createEnhancer();
+    enhancer.start();
+
+    expect(document.querySelector("[data-adopp-action-group]")).toBeNull();
+  });
+
   it("overrides the native blue divider with a theme-aware neutral color", () => {
     const nativeDivider = document.querySelector<HTMLElement>(".bolt-split-button-divider")!;
     nativeDivider.style.backgroundColor = "rgb(0, 120, 212)";

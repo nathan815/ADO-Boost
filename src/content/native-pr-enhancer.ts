@@ -318,28 +318,32 @@ export class NativePrEnhancer {
 
   private renderActionGroup(): void {
     const approve = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => normalize(button.textContent) === "approve");
-    if (!approve) {
+    const completed = normalize(findHeaderStatus()?.textContent ?? null) === "completed";
+    const approveSplit = approve?.closest<HTMLElement>(".bolt-split-button") ?? approve?.parentElement;
+    const mount = approveSplit?.parentElement
+      ? { host: approveSplit.parentElement, before: approveSplit }
+      : completed ? findHeaderActionMount() : null;
+    if (!mount) {
       document.querySelector("[data-adopp-action-group]")?.remove();
+      this.clearHeaderWrapping();
       return;
     }
-    const approveSplit = approve.closest<HTMLElement>(".bolt-split-button") ?? approve.parentElement;
-    const actionHost = approveSplit?.parentElement;
-    if (!approveSplit || !actionHost) return;
+    const { host: actionHost, before } = mount;
     let group = document.querySelector<HTMLElement>("[data-adopp-action-group]");
     if (!group) {
       group = document.createElement("span");
       group.dataset.adoppActionGroup = "true";
       group.className = "adopp-action-group";
-      actionHost.insertBefore(group, approveSplit);
-    } else if (group.parentElement !== actionHost || group.nextElementSibling !== approveSplit) {
-      actionHost.insertBefore(group, approveSplit);
+      actionHost.insertBefore(group, before);
+    } else if (group.parentElement !== actionHost || group.nextElementSibling !== before) {
+      actionHost.insertBefore(group, before);
     }
     closeActionMenu();
     group.innerHTML = "";
     const startEnabled = resolveFeature(this.settings, "startReviewing").enabled;
-    const startSplit = approveSplit.cloneNode(true) as HTMLElement;
+    const startSplit = approveSplit ? approveSplit.cloneNode(true) as HTMLElement : createReviewActionSplit();
     sanitizeClonedNativeControl(startSplit);
-    startSplit.className = stableNativeClassNames(approveSplit)
+    startSplit.className = stableNativeClassNames(startSplit)
       .concat("adopp-start-split")
       .join(" ");
     for (const control of [startSplit, ...startSplit.querySelectorAll<HTMLElement>(".primary")]) {
@@ -351,8 +355,9 @@ export class NativePrEnhancer {
     start.type = "button";
     start.classList.add("adopp-start-button");
     const reviewStarted = this.actions.isReviewAnnounced();
+    const assistant = completed || reviewStarted;
     startSplit.dataset.reviewStarted = String(reviewStarted);
-    const startLabel = reviewStarted ? "Review started" : "Start Review";
+    const startLabel = assistant ? "Review Assistant" : "Start Review";
     let startText = start.querySelector<HTMLElement>(".bolt-button-text");
     if (!startText) {
       startText = document.createElement("span");
@@ -367,9 +372,12 @@ export class NativePrEnhancer {
     reviewIcon.innerHTML = '<path d="M1.5 8s2.2-4 6.5-4 6.5 4 6.5 4-2.2 4-6.5 4S1.5 8 1.5 8Z"></path><circle cx="8" cy="8" r="1.8"></circle>';
     start.insertBefore(reviewIcon, startText);
     start.setAttribute("aria-label", startLabel);
-    start.disabled = reviewStarted;
-    start.hidden = !startEnabled;
-    start.addEventListener("click", () => this.actions.startReviewing());
+    start.disabled = false;
+    start.hidden = !assistant && !startEnabled;
+    start.addEventListener("click", () => {
+      if (assistant) this.actions.openDiscussions();
+      else this.actions.startReviewing();
+    });
     const menuButton = clonedButtons[1] ?? document.createElement("button");
     menuButton.type = "button";
     if (!clonedButtons[1]) {
@@ -689,12 +697,47 @@ function findHeaderStatus(): HTMLElement | null {
   for (let container = title.parentElement; container && container !== document.body; container = container.parentElement) {
     const status = [...container.querySelectorAll<HTMLElement>("span,button,div")]
       .find((element) =>
-        normalize(element.textContent) === "active"
+        ["active", "completed"].includes(normalize(element.textContent))
         && !element.closest("[data-adopp-action-group],[data-adopp-native-toolbar]")
       );
     if (status) return status;
   }
   return null;
+}
+
+function findHeaderActionMount(): { host: HTMLElement; before: HTMLElement | null } | null {
+  const title = document.querySelector<HTMLInputElement>('input[aria-label="Pull request title"]');
+  if (!title) return null;
+  for (let container = title.parentElement; container && container !== document.body; container = container.parentElement) {
+    for (const branch of container.children) {
+      if (!(branch instanceof HTMLElement) || branch.contains(title)) continue;
+      const button = [...(branch instanceof HTMLButtonElement ? [branch] : []), ...branch.querySelectorAll<HTMLButtonElement>("button")]
+        .find((candidate) => !candidate.closest("[data-adopp-action-group]"));
+      const commandBar = branch.matches(".bolt-header-commandbar")
+        ? branch : branch.querySelector<HTMLElement>(".bolt-header-commandbar");
+      if (commandBar) {
+        const anchor = [...commandBar.children].find((child) => !child.hasAttribute("data-adopp-action-group"));
+        return { host: commandBar, before: anchor instanceof HTMLElement ? anchor : null };
+      }
+      if (button && normalize(branch.textContent) !== "completed") {
+        const anchor = button.closest<HTMLElement>(".bolt-split-button") ?? button;
+        if (anchor.parentElement) return { host: anchor.parentElement, before: anchor };
+      }
+    }
+  }
+  return null;
+}
+
+function createReviewActionSplit(): HTMLElement {
+  const split = document.createElement("div");
+  split.className = "repos-pr-header-vote-button bolt-split-button flex-stretch inline-flex-row";
+  split.innerHTML = `
+    <button class="bolt-button enabled bolt-focus-treatment"><span class="bolt-button-text"></span></button>
+    <div class="bolt-split-button-divider flex-noshrink"></div>
+    <div class="inline-flex-row">
+      <button class="bolt-split-button-option bolt-button bolt-icon-button enabled icon-only bolt-focus-treatment"><span class="fabric-icon ms-Icon--ChevronDownSmall" aria-hidden="true"></span></button>
+    </div>`;
+  return split;
 }
 
 function findNativeDifferenceButton(direction: "previous" | "next"): HTMLButtonElement | null {
@@ -1197,7 +1240,7 @@ const nativeStyles = `
 .adopp-native-toolbar-row{display:grid;grid-template-columns:minmax(0,1fr);align-items:center;gap:5px;min-width:0}.adopp-native-search{min-width:0;width:100%;box-sizing:border-box;padding:5px 7px;border:1px solid var(--palette-neutral-30,#c8c6c4);background:transparent;color:inherit}
 .adopp-native-nav{width:30px;min-width:30px;min-height:28px;padding:4px 7px;border:1px solid var(--palette-neutral-30,#c8c6c4);border-radius:2px;background:transparent;color:inherit;font:inherit;cursor:pointer}.adopp-native-nav:hover{background:var(--palette-neutral-10,#f3f2f1)}.adopp-nav-icon{display:block;width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;overflow:visible}.adopp-nav-double-icon{height:16px}.adopp-native-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.78fr) minmax(76px,.72fr);align-items:center;gap:5px}.adopp-native-dropdown{position:relative;min-width:0}.adopp-native-dropdown-trigger{width:100%;min-width:0;justify-content:space-between!important;gap:8px!important}.adopp-native-dropdown-trigger .bolt-button-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.adopp-native-dropdown-chevron{display:block;width:12px;height:12px;flex:none;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round}.adopp-native-menu{z-index:100000;box-sizing:border-box!important;overflow:hidden!important}.adopp-native-menu[data-adopp-filter-portal="true"]{position:fixed!important}.adopp-native-menu[hidden]{display:none!important}.adopp-native-menu .bolt-callout-content,.adopp-native-menu .bolt-menu,.adopp-native-menu .bolt-list,.adopp-native-menu .bolt-list-row,.adopp-native-menu .bolt-list-cell{box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important}.adopp-native-menu .bolt-list-row,.adopp-native-menu .bolt-list-cell{display:block!important}.adopp-native-menu .bolt-menu-button{box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important;overflow:hidden!important}.adopp-native-menu-check{display:inline-flex;width:16px;flex:none;visibility:hidden}.adopp-native-menu-check[data-active="true"]{visibility:visible}.adopp-native-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:1px 2px 0;color:var(--palette-neutral-60,#8a8886);white-space:nowrap}.adopp-native-visible-count,.adopp-native-reviewed-count{white-space:nowrap}
 .adopp-ado-tooltip{position:fixed!important;z-index:2147483647;max-width:320px;animation:adopp-tooltip-fade-in 300ms ease-in}.adopp-ado-tooltip .bolt-callout-content{background-color:transparent}.adopp-ado-tooltip .bolt-tooltip-content{padding:8px 12px;border-radius:2px;background:rgba(var(--palette-neutral-80,51,51,51),.95);color:rgba(var(--palette-neutral-0,255,255,255),1);font:12px "Segoe UI",sans-serif;text-align:left;white-space:nowrap}.ms-vss-web-vsts-theme-hc-dark .adopp-ado-tooltip .bolt-tooltip-content,.ms-vss-web-vsts-theme-hc-light .adopp-ado-tooltip .bolt-tooltip-content{border:2px solid var(--focus-border-color,#0078d4);background:var(--background-color,#fff);color:var(--text-primary-color,#000)}@keyframes adopp-tooltip-fade-in{from{opacity:0}to{opacity:1}}
-.adopp-native-hidden{display:none!important}.adopp-header-action-item{white-space:nowrap}.adopp-header-wrap.adopp-header-actions-wrapped{flex-wrap:wrap!important}.adopp-header-wrap.adopp-header-actions-wrapped>.adopp-header-action-item{display:flex!important;flex:0 0 100%!important;width:100%!important;max-width:100%!important;justify-content:flex-end!important;margin-left:0!important;padding-top:8px}.adopp-action-group{position:relative;display:inline-flex;align-items:center;gap:0;margin-right:8px}.adopp-total-diff{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 8px;margin-left:8px;border:1px solid var(--palette-neutral-30,#c8c6c4);border-radius:5px;background:var(--background-color,#fff);font:600 12px Consolas,"Cascadia Mono",monospace;white-space:nowrap;vertical-align:middle;cursor:default}.adopp-total-diff:focus-visible{outline:2px solid var(--communication-background,#0078d4);outline-offset:1px}.adopp-total-plus{color:var(--status-success-foreground,#107c10)}.adopp-total-minus{color:var(--status-error-foreground,#a4262c)}.adopp-total-partial{font:10px "Segoe UI",sans-serif;color:var(--palette-neutral-60,#8a8886)}.adopp-total-popover{position:fixed!important;z-index:2147483647;box-sizing:border-box;width:176px}.adopp-total-popover-content{box-sizing:border-box;padding:10px 12px;font:12px "Segoe UI",sans-serif}.adopp-total-popover-title{margin-bottom:7px;font-weight:600}.adopp-total-popover-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:2px 0;color:var(--palette-neutral-80,#323130)}.adopp-total-popover-row strong{font-weight:600;font-variant-numeric:tabular-nums}.adopp-total-popover-divider{height:1px;margin:7px 0 5px;background:var(--palette-neutral-20,#edebe9)}.adopp-merge-proposal-text{display:inline-block;margin:0 6px;color:var(--palette-neutral-60,#8a8886);font-weight:600}.adopp-start-split{border-radius:2px;overflow:hidden}.adopp-start-split[data-review-started="false"]{box-shadow:0 1px 2px var(--callout-shadow-color,rgba(0,0,0,.22)),inset 0 0 0 1px rgba(var(--palette-neutral-100),.18)}.adopp-start-split[data-review-started="false"]>.adopp-start-button,.adopp-start-split[data-review-started="false"]>.inline-flex-row>.adopp-action-menu-button{background:rgba(var(--palette-neutral-100),.08)!important;color:var(--text-primary-color)!important;transition:background-color 120ms ease}.adopp-start-split[data-review-started="false"]>.adopp-start-button:hover,.adopp-start-split[data-review-started="false"]>.inline-flex-row>.adopp-action-menu-button:hover{background:rgba(var(--palette-neutral-100),.14)!important}.adopp-start-review-icon{display:block;width:15px;height:15px;margin-right:7px;flex:none;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round}.adopp-start-split>.adopp-start-button{border-right:0!important}.adopp-start-split>.bolt-split-button-divider{width:.5px!important;min-width:.5px!important;max-width:.5px!important;flex:0 0 .5px!important}.adopp-start-split>.inline-flex-row>.adopp-action-menu-button{border-left:0!important}
+.adopp-native-hidden{display:none!important}.adopp-header-action-item{white-space:nowrap}.adopp-header-wrap.adopp-header-actions-wrapped{flex-wrap:wrap!important}.adopp-header-wrap.adopp-header-actions-wrapped>.adopp-header-action-item{display:flex!important;flex:0 0 100%!important;width:100%!important;max-width:100%!important;justify-content:flex-end!important;margin-left:0!important;padding-top:8px}.adopp-action-group{position:relative;display:inline-flex;align-items:center;gap:0;margin-right:8px}.adopp-total-diff{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 8px;margin-left:8px;border:1px solid var(--palette-neutral-30,#c8c6c4);border-radius:5px;background:var(--background-color,#fff);font:600 12px Consolas,"Cascadia Mono",monospace;white-space:nowrap;vertical-align:middle;cursor:default}.adopp-total-diff:focus-visible{outline:2px solid var(--communication-background,#0078d4);outline-offset:1px}.adopp-total-plus{color:var(--status-success-foreground,#107c10)}.adopp-total-minus{color:var(--status-error-foreground,#a4262c)}.adopp-total-partial{font:10px "Segoe UI",sans-serif;color:var(--palette-neutral-60,#8a8886)}.adopp-total-popover{position:fixed!important;z-index:2147483647;box-sizing:border-box;width:176px}.adopp-total-popover-content{box-sizing:border-box;padding:10px 12px;font:12px "Segoe UI",sans-serif}.adopp-total-popover-title{margin-bottom:7px;font-weight:600}.adopp-total-popover-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:2px 0;color:var(--palette-neutral-80,#323130)}.adopp-total-popover-row strong{font-weight:600;font-variant-numeric:tabular-nums}.adopp-total-popover-divider{height:1px;margin:7px 0 5px;background:var(--palette-neutral-20,#edebe9)}.adopp-merge-proposal-text{display:inline-block;margin:0 6px;color:var(--palette-neutral-60,#8a8886);font-weight:600}.adopp-start-split{border-radius:2px;overflow:hidden;box-shadow:0 1px 2px var(--callout-shadow-color,rgba(0,0,0,.22)),inset 0 0 0 1px rgba(var(--palette-neutral-100),.18)}.adopp-start-split>.adopp-start-button,.adopp-start-split>.inline-flex-row>.adopp-action-menu-button{background:rgba(var(--palette-neutral-100),.08)!important;color:var(--text-primary-color)!important;transition:background-color 120ms ease}.adopp-start-split>.adopp-start-button:hover,.adopp-start-split>.inline-flex-row>.adopp-action-menu-button:hover{background:rgba(var(--palette-neutral-100),.14)!important}.adopp-start-review-icon{display:block;width:15px;height:15px;margin-right:7px;flex:none;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round}.adopp-start-split>.adopp-start-button{border-right:0!important}.adopp-start-split>.bolt-split-button-divider{width:.5px!important;min-width:.5px!important;max-width:.5px!important;flex:0 0 .5px!important}.adopp-start-split>.inline-flex-row>.adopp-action-menu-button{border-left:0!important}
 .adopp-action-menu{position:fixed!important}.adopp-action-menu .bolt-menu-button,.adopp-native-menu .bolt-menu-button{width:100%;justify-content:flex-start!important}.adopp-action-menu .bolt-button-text,.adopp-native-menu .bolt-button-text{min-width:0;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media(max-width:440px){.adopp-native-toolbar{padding-left:7px;padding-right:7px}}
 `;

@@ -28,12 +28,12 @@ Browser loading, native-host registration, and live Copilot inference require se
 - With no extension filters active, every native tree row stays visible, including collapsed folders and files the extension cannot identify. Tree counters cover recognized rendered files, not necessarily every file in the selected comparison.
 - Previous, next, next-unreviewed, and keyboard navigation reuse Azure DevOps' SPA file links without forcing a full page reload.
 - Azure DevOps' existing server-backed reviewed checkboxes remain authoritative. ADO Boost does not render or synchronize a second reviewed-state system.
-- A native-looking `ADO Boost` button beside the PR action buttons opens the discussions and review-tools side panel.
+- The elevated `Review Assistant` button opens the discussions and review-tools side panel on completed PRs and after a review has started.
 
 ### Review coordination
 
 - Start Reviewing renders a formatted Markdown announcement with the authenticated reviewer's name, the starting iteration, and attribution linking to the [ADO Boost](https://github.com/nathan815/ADO-Boost) browser extension, with a matching preview before confirmation.
-- Start Reviewing is integrated beside Azure DevOps' native Approve action with an ADO Boost action menu.
+- `Start Review` is integrated beside Azure DevOps' native Approve action with an ADO Boost action menu. After the review-start announcement succeeds, it becomes `Review Assistant` and retains its elevated styling.
 - The review-start confirmation uses Azure DevOps' native Bolt dialog and button classes in the page DOM, inheriting the site's theme with keyboard focus containment, Escape dismissal, and focus restoration.
 - The announcement is a normal Azure DevOps comment and does not change vote/status or guarantee notification delivery.
 - Background-serialized writes prevent duplicate multi-tab announcements and submissions.
