@@ -228,6 +228,64 @@ describe("NativePrEnhancer", () => {
     enhancer = null;
   });
 
+  it("copies only the numeric PR ID and preserves the native label on cleanup", async () => {
+    const clipboard = { writeText: vi.fn().mockResolvedValue(undefined) };
+    const host = document.querySelector(".pr-id")!;
+    const original = host.firstChild;
+    enhancer = new NativePrEnhancer(analysis, defaultSettings(), {
+      openDiscussions: vi.fn(), startReviewing: vi.fn(), isReviewAnnounced: () => false, openSettings: vi.fn()
+    }, createNativePort(), clipboard);
+    enhancer.start();
+    enhancer.refresh();
+    const button = host.querySelector<HTMLButtonElement>("button")!;
+    expect(host.querySelectorAll("button")).toHaveLength(1);
+    expect(button.textContent).toBe("!7");
+    expect(button.getAttribute("aria-label")).toBe("Copy PR ID 7");
+    button.click();
+    expect(clipboard.writeText).toHaveBeenCalledExactlyOnceWith("7");
+    await vi.waitFor(() => expect(host.querySelector('[role="status"]')?.textContent).toBe(" Copied"));
+    expect(button.disabled).toBe(false);
+    enhancer.destroy();
+    expect(host.firstChild).toBe(original);
+    expect(host.textContent).toBe("!7");
+    expect(host.querySelector("button")).toBeNull();
+  });
+
+  it("reports clipboard errors and allows retrying", async () => {
+    const error = new Error("Clipboard access denied");
+    const clipboard = { writeText: vi.fn().mockRejectedValueOnce(error).mockResolvedValue(undefined) };
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      enhancer = new NativePrEnhancer(analysis, defaultSettings(), {
+        openDiscussions: vi.fn(), startReviewing: vi.fn(), isReviewAnnounced: () => false, openSettings: vi.fn()
+      }, createNativePort(), clipboard);
+      enhancer.start();
+      const button = document.querySelector<HTMLButtonElement>("[data-adopp-copy-pr-id]")!;
+      button.click();
+      await vi.waitFor(() => expect(document.querySelector("[data-adopp-copy-pr-feedback]")?.textContent).toContain("Could not copy"));
+      expect(log).toHaveBeenCalledWith("ADO Boost could not copy PR ID", error);
+      button.click();
+      await vi.waitFor(() => expect(document.querySelector("[data-adopp-copy-pr-feedback]")?.textContent).toBe(" Copied"));
+      expect(clipboard.writeText).toHaveBeenCalledTimes(2);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("reattaches the copy control when ADO replaces PR metadata", async () => {
+    const clipboard = { writeText: vi.fn().mockResolvedValue(undefined) };
+    enhancer = new NativePrEnhancer(analysis, defaultSettings(), {
+      openDiscussions: vi.fn(), startReviewing: vi.fn(), isReviewAnnounced: () => false, openSettings: vi.fn()
+    }, createNativePort(), clipboard);
+    enhancer.start();
+    document.querySelector(".pr-metadata")!.innerHTML = '<span class="status">Completed</span><span class="pr-id">!7</span>';
+    enhancer.refresh();
+    const button = document.querySelector<HTMLButtonElement>("[data-adopp-copy-pr-id]")!;
+    button.click();
+    await vi.waitFor(() => expect(clipboard.writeText).toHaveBeenCalledExactlyOnceWith("7"));
+    expect(document.querySelectorAll("[data-adopp-copy-pr-id]")).toHaveLength(1);
+  });
+
   it("shows partial totals and retained unresolved changes without blocking the native UI", () => {
     enhancer = new NativePrEnhancer({
       ...analysis,

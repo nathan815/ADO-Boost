@@ -12,6 +12,10 @@ interface NativePrEnhancerActions {
   openSettings(): void;
 }
 
+interface ClipboardWriter {
+  writeText(text: string): Promise<void>;
+}
+
 interface NativeFileRow {
   file: FileStat;
   row: HTMLElement;
@@ -38,12 +42,14 @@ export class NativePrEnhancer {
   private hideLockfiles: boolean;
   private unsubscribeNativeTree: (() => void) | null = null;
   private nativeFileCount: HTMLElement | null = null;
+  private prIdControl: { host: HTMLElement; original: Node[]; button: HTMLButtonElement } | null = null;
 
   constructor(
     private readonly analysis: PullRequestAnalysis,
     private settings: FeatureSettings,
     private readonly actions: NativePrEnhancerActions,
-    private readonly nativeTree?: NativeTreePort
+    private readonly nativeTree?: NativeTreePort,
+    private readonly clipboard: ClipboardWriter = { writeText: (text) => navigator.clipboard.writeText(text) }
   ) {
     this.hideGenerated = settings.features.hideGenerated;
     this.hideLockfiles = settings.features.hideLockfiles;
@@ -92,6 +98,7 @@ export class NativePrEnhancer {
     closeTotalDiffPopover();
     closeAdoTooltip();
     this.restoreNativeFileCount();
+    this.restorePrId();
     document.querySelector("[data-adopp-native-toolbar]")?.remove();
     document.querySelector("[data-adopp-action-group]")?.remove();
     document.querySelector("[data-adopp-total-diff]")?.remove();
@@ -383,6 +390,7 @@ export class NativePrEnhancer {
 
   private renderHeaderMetadata(): void {
     const status = findHeaderStatus();
+    this.renderPrId(status);
     if (!status) {
       document.querySelector("[data-adopp-total-diff]")?.remove();
       return;
@@ -408,6 +416,53 @@ export class NativePrEnhancer {
     total.onblur = closeTotalDiffPopover;
     if (status.nextElementSibling !== total) status.insertAdjacentElement("afterend", total);
     hideMergeProposalText(status);
+  }
+
+  private renderPrId(status: HTMLElement | null): void {
+    if (this.prIdControl?.button.isConnected && status?.parentElement?.contains(this.prIdControl.host)) return;
+    this.restorePrId();
+    const id = String(this.analysis.context.pullRequestId);
+    const host = [...(status?.parentElement?.querySelectorAll<HTMLElement>("span") ?? [])]
+      .find((element) => element.textContent?.trim() === `!${id}` && element.childElementCount === 0);
+    if (!host) return;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "adopp-copy-pr-id";
+    button.dataset.adoppCopyPrId = "true";
+    button.textContent = host.textContent;
+    button.title = "Copy PR ID";
+    button.setAttribute("aria-label", `Copy PR ID ${id}`);
+    const feedback = document.createElement("span");
+    feedback.dataset.adoppCopyPrFeedback = "true";
+    feedback.setAttribute("role", "status");
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void this.copyPrId(id, button, feedback);
+    });
+    this.prIdControl = { host, original: [...host.childNodes], button };
+    host.replaceChildren(button, feedback);
+  }
+
+  private async copyPrId(id: string, button: HTMLButtonElement, feedback: HTMLElement): Promise<void> {
+    button.disabled = true;
+    feedback.textContent = "";
+    try {
+      await this.clipboard.writeText(id);
+      feedback.textContent = " Copied";
+    } catch (error) {
+      feedback.textContent = " Could not copy PR ID. Try again.";
+      console.error("ADO Boost could not copy PR ID", error);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  private restorePrId(): void {
+    if (!this.prIdControl) return;
+    const { host, original, button } = this.prIdControl;
+    if (host.contains(button)) host.replaceChildren(...original);
+    this.prIdControl = null;
   }
 
   private applyFilters(): void {
@@ -1108,6 +1163,7 @@ function capitalize(value: string): string {
 }
 
 const nativeStyles = `
+.adopp-copy-pr-id{appearance:none;border:0;padding:0;background:transparent;color:inherit;font:inherit;cursor:pointer}.adopp-copy-pr-id:hover{text-decoration:underline}.adopp-copy-pr-id:focus-visible{outline:2px solid var(--communication-background,#0078d4);outline-offset:2px}
 [data-adopp-native-status]{font-size:12px;color:var(--status-warning-foreground,#8a6d00)}
 [data-adopp-native-status][hidden],[data-adopp-original-file-count]{display:none!important}
 .adopp-start-split>.bolt-split-button-divider{background:rgba(var(--palette-neutral-100,0,0,0),.18) !important;opacity:1 !important}

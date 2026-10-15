@@ -25,6 +25,7 @@ Browser loading, native-host registration, and live Copilot inference require se
 
 ### Native Azure DevOps review workspace
 
+- Click the PR ID in the header to copy its numeric value to the clipboard, with visible success or failure feedback.
 - Azure DevOps' **Filter** control handles search and reviewed-file filtering. ADO Boost's change-type, file-type, and **Options** buttons sit beside it and filter the native file model; additions and deletions are rendered in the tree by ADO's React instance.
 - Hiding noise never changes the reported overall totals.
 - All files returned by the paginated PR changes API are analyzed independently of scrolling or collapsed folders. The header shows the total PR file count without filters and matching/total counts with filters. Unresolved records and incomplete counts remain explicit.
