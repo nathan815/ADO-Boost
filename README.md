@@ -108,6 +108,14 @@ Open the extension's options page from the browser toolbar action, the gear butt
 
 Core review features are enabled by default. Generated-file hiding, lockfile hiding, and all future AI capabilities are opt-in. Disabling a feature removes its controls and blocks its write entry points without deleting saved progress or drafts.
 
+### Experimental native tree integration
+
+Enable **Experimental native tree integration** in options to try model-level filtering and React-rendered per-file counts instead of hiding native DOM rows. In this mode, use Azure DevOps' existing **Filter** control for keyword and reviewed/unreviewed filtering. ADO Boost's change-kind, extension, and noise filters sit beside that control, compose with native filters before tree construction, and affect the diff/navigation view too. The header shows `12 changed files` without filters and matching/total counts such as `5/12 changed files` when a filter is active, without a separate status summary above the tree.
+
+This mode uses guarded private Azure DevOps runtime interfaces, not supported extension APIs. Counts and extra filters require the analyzed latest-iteration merge-base comparison; another native comparison leaves native filters available and reports the limitation. Incompatible runtime interfaces show an explicit unavailable state, never silently switch to DOM row-hiding, and restore native behavior. Count-rendering failures can disable counts independently of working model filters.
+
+The mode remains off by default. Installed-extension Chrome checks exercised 12-file and 198-file native models, offscreen-file filtering, native/custom filter composition, comparison switching, keyboard navigation, tab remounting, and disable/re-enable. Broader host compatibility, sustained pointer scrolling, and cross-page pagination still need release coverage before making this the default.
+
 ## Permissions and privacy
 
 - `storage`: stores settings, content-aware review progress, private drafts, announcement receipts, and submission receipts in extension-local storage.

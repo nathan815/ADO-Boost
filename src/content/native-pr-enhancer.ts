@@ -3,6 +3,7 @@ import { totalStats } from "../core/diff";
 import type { FeatureSettings } from "../features/registry";
 import { resolveFeature } from "../features/registry";
 import { navigateToAdoFile } from "../ui/ado-navigation";
+import type { NativeTreePort } from "../native-tree/client";
 
 interface NativePrEnhancerActions {
   openDiscussions(): void;
@@ -40,11 +41,15 @@ export class NativePrEnhancer {
   private hideLockfiles: boolean;
   private fileTree: HTMLElement | null = null;
   private rows: NativeFileRow[] = [];
+  private unsubscribeNativeTree: (() => void) | null = null;
+  private nativeTreeEnabled = false;
+  private nativeFileCount: HTMLElement | null = null;
 
   constructor(
     private readonly analysis: PullRequestAnalysis,
     private settings: FeatureSettings,
-    private readonly actions: NativePrEnhancerActions
+    private readonly actions: NativePrEnhancerActions,
+    private readonly nativeTree?: NativeTreePort
   ) {
     this.hideGenerated = settings.features.hideGenerated;
     this.hideLockfiles = settings.features.hideLockfiles;
@@ -52,6 +57,7 @@ export class NativePrEnhancer {
 
   start(): void {
     this.ensureStyles();
+    this.unsubscribeNativeTree = this.nativeTree?.subscribe(() => this.renderNativeTreeStatus()) ?? null;
     this.observer = new MutationObserver((records) => {
       if (records.some((record) => !isOwnedMutationRecord(record))) this.schedule();
     });
@@ -77,6 +83,9 @@ export class NativePrEnhancer {
   }
 
   destroy(): void {
+    this.nativeTree?.stop();
+    this.unsubscribeNativeTree?.();
+    this.unsubscribeNativeTree = null;
     this.observer?.disconnect();
     this.observer = null;
     window.clearTimeout(this.scheduled);
@@ -93,6 +102,7 @@ export class NativePrEnhancer {
     closeActionMenu();
     closeTotalDiffPopover();
     closeAdoTooltip();
+    this.restoreNativeFileCount();
     document.querySelector("[data-adopp-native-toolbar]")?.remove();
     document.querySelector("[data-adopp-action-group]")?.remove();
     document.querySelector("[data-adopp-total-diff]")?.remove();
@@ -113,9 +123,18 @@ export class NativePrEnhancer {
       this.destroy();
       return;
     }
+    const nativeTreeEnabled = resolveFeature(this.settings, "nativeTreeIntegration").enabled;
+    const modeChanged = nativeTreeEnabled !== this.nativeTreeEnabled;
+    if (modeChanged) {
+      this.nativeTree?.stop();
+      this.restoreNativeFileCount();
+      for (const stat of document.querySelectorAll("[data-adopp-inline-stat]")) stat.remove();
+      for (const row of document.querySelectorAll(".adopp-native-hidden")) row.classList.remove("adopp-native-hidden");
+    }
+    this.nativeTreeEnabled = nativeTreeEnabled;
     this.rows = this.findFileRows();
-    this.renderInlineStats();
-    this.renderToolbar(forceToolbar);
+    if (!nativeTreeEnabled) this.renderInlineStats();
+    this.renderToolbar(forceToolbar || modeChanged);
     this.renderNextUnreviewedAction();
     this.renderHeaderMetadata();
     this.renderActionGroup();
@@ -181,14 +200,16 @@ export class NativePrEnhancer {
     const enabled = resolveFeature(this.settings, "groupedNavigation").enabled
       || resolveFeature(this.settings, "fileSearch").enabled
       || resolveFeature(this.settings, "fileFilters").enabled;
-    if (!enabled || !this.fileTree) {
+    if (!enabled || (!this.nativeTreeEnabled && !this.fileTree)) {
+      this.restoreNativeFileCount();
       document.querySelector("[data-adopp-native-toolbar]")?.remove();
       document.querySelector("[data-adopp-next-unreviewed]")?.remove();
       return;
     }
     const tree = this.fileTree;
-    const mount = tree ? findToolbarMount(tree) : null;
-    if (!tree || !mount) {
+    const mount = this.nativeTreeEnabled ? findInlineFilterMount() : tree ? findToolbarMount(tree) : null;
+    if (!mount) {
+      this.restoreNativeFileCount();
       document.querySelector("[data-adopp-native-toolbar]")?.remove();
       return;
     }
@@ -202,19 +223,21 @@ export class NativePrEnhancer {
     if (!toolbar) {
       toolbar = document.createElement("section");
       toolbar.dataset.adoppNativeToolbar = "true";
-      toolbar.className = "adopp-native-toolbar";
       mount.host.insertBefore(toolbar, mount.before);
     } else if (toolbar.parentElement !== mount.host || toolbar.nextElementSibling !== mount.before) {
       mount.host.insertBefore(toolbar, mount.before);
     }
+    toolbar.className = `adopp-native-toolbar${this.nativeTreeEnabled ? " adopp-native-toolbar-inline" : ""}`;
+    if (this.nativeTreeEnabled) toolbar.setAttribute("aria-label", "Additional file filters");
+    else toolbar.removeAttribute("aria-label");
     const extensions = [...new Set(this.analysis.files.map((file) => extensionOf(file.path)).filter(Boolean))].sort();
-    const activeFilterCount = [this.hideViewed, this.hideGenerated, this.hideLockfiles].filter(Boolean).length;
+    const activeFilterCount = [!this.nativeTreeEnabled && this.hideViewed, this.hideGenerated, this.hideLockfiles].filter(Boolean).length;
     document.querySelector('[data-adopp-filter-portal="true"]')?.remove();
     toolbar.innerHTML = `
-      <div class="adopp-native-toolbar-row">
+      ${this.nativeTreeEnabled ? "" : `<div class="adopp-native-toolbar-row">
         <input class="adopp-native-search" type="search" value="${escapeHtml(this.query)}" placeholder="Search changed files" aria-label="Search changed files">
-      </div>
-      <div class="adopp-native-toolbar-row adopp-native-filters">
+      </div>`}
+      ${this.nativeTreeEnabled && !resolveFeature(this.settings, "fileFilters").enabled ? "" : `<div class="adopp-native-toolbar-row adopp-native-filters">
         <div class="adopp-native-dropdown" data-dropdown="change">
           ${nativeDropdownTrigger(changeKindLabel(this.changeKind), "Filter by change kind")}
           ${nativeMenuShell("adopp-native-change-menu", [
@@ -230,18 +253,18 @@ export class NativePrEnhancer {
           ].join(""))}
         </div>
         <div class="adopp-native-dropdown" data-dropdown="filters">
-          ${nativeDropdownTrigger(`More${activeFilterCount ? ` (${activeFilterCount})` : ""}`, "Additional file options", "adopp-native-filter-trigger")}
+          ${nativeDropdownTrigger(`Options${activeFilterCount ? ` (${activeFilterCount})` : ""}`, "Additional file options", "adopp-native-filter-trigger")}
           ${nativeMenuShell("adopp-native-filter-menu", `
-              ${nativeToggleMenuItem("viewed", "Hide viewed files", this.hideViewed)}
+              ${this.nativeTreeEnabled ? "" : nativeToggleMenuItem("viewed", "Hide viewed files", this.hideViewed)}
               ${nativeToggleMenuItem("generated", "Hide generated files", this.hideGenerated)}
               ${nativeToggleMenuItem("lockfiles", "Hide lockfiles", this.hideLockfiles)}
           `)}
         </div>
-      </div>
-      <div class="adopp-native-summary">
+      </div>`}
+      ${this.nativeTreeEnabled ? '<span data-adopp-native-status role="status" hidden></span>' : `<div class="adopp-native-summary">
         <span class="adopp-native-visible-count"></span>
         <span class="adopp-native-reviewed-count"></span>
-      </div>`;
+      </div>`}`;
     toolbar.querySelector<HTMLInputElement>(".adopp-native-search")?.addEventListener("input", (event) => {
       this.query = (event.currentTarget as HTMLInputElement).value;
       this.applyFilters();
@@ -453,6 +476,17 @@ export class NativePrEnhancer {
   }
 
   private applyFilters(): void {
+    if (this.nativeTreeEnabled) {
+      const filteringEnabled = resolveFeature(this.settings, "fileFilters").enabled;
+      this.nativeTree?.configure({
+        changeKind: filteringEnabled ? this.nativeChangeKind() : "all",
+        extension: filteringEnabled ? this.extension : "all",
+        hideGenerated: filteringEnabled && this.hideGenerated,
+        hideLockfiles: filteringEnabled && this.hideLockfiles
+      }, resolveFeature(this.settings, "prOverview").enabled);
+      this.renderNativeTreeStatus();
+      return;
+    }
     const hasActiveFilters = Boolean(this.query)
       || this.changeKind !== "all"
       || this.extension !== "all"
@@ -500,6 +534,70 @@ export class NativePrEnhancer {
       reviewedCount.textContent = this.rows.length ? `${reviewed}/${this.rows.length} reviewed in view` : "";
       reviewedCount.title = "Native Azure DevOps checkbox state for files in the current view only, not analysis coverage or whole-PR review progress.";
     }
+  }
+
+  private nativeChangeKind(): "all" | "add" | "edit" | "delete" | "rename" {
+    switch (this.changeKind) {
+      case "add": case "edit": case "delete": case "rename": return this.changeKind;
+      default: return "all";
+    }
+  }
+
+  private renderNativeTreeStatus(): void {
+    if (!this.nativeTreeEnabled) return;
+    this.renderNativeFileCount();
+    const status = this.nativeTree?.status;
+    const summary = document.querySelector<HTMLElement>("[data-adopp-native-status]");
+    if (summary) {
+      const text = !this.nativeTree || status?.state === "unavailable" ? "File filters unavailable"
+        : status?.state === "counts-unavailable" ? "Diff counts unavailable"
+        : status?.state === "comparison-mismatch" ? "Choose All Changes to use these filters" : "";
+      summary.hidden = !text;
+      if (summary.textContent !== text) summary.textContent = text;
+      summary.title = text ? status?.detail ?? "Reload the page to reconnect file filters." : "";
+    }
+    const disabled = !status || status.state === "waiting" || status.state === "unavailable" || status.state === "comparison-mismatch";
+    for (const trigger of document.querySelectorAll<HTMLButtonElement>("[data-adopp-native-toolbar] .adopp-native-dropdown-trigger")) {
+      trigger.disabled = disabled;
+    }
+  }
+
+  private renderNativeFileCount(): void {
+    const toolbar = document.querySelector<HTMLElement>(".adopp-native-toolbar-inline");
+    const header = document.querySelector(".repos-compare-filter")?.parentElement?.parentElement;
+    if (!toolbar || !header) return;
+    const original = [...header.querySelectorAll<HTMLElement>("span")]
+      .find((element) => !element.hasAttribute("data-adopp-total-file-count")
+        && !element.children.length && /^\d+ changed files?$/i.test(element.textContent?.trim() ?? "")) ?? null;
+    if (this.nativeFileCount !== original) {
+      this.nativeFileCount?.removeAttribute("data-adopp-original-file-count");
+      this.nativeFileCount = original;
+    }
+    this.nativeFileCount?.setAttribute("data-adopp-original-file-count", "true");
+    let total = document.querySelector<HTMLElement>("[data-adopp-total-file-count]");
+    if (!total) {
+      total = document.createElement("span");
+      total.dataset.adoppTotalFileCount = "true";
+      total.className = "body-m";
+    }
+    const count = this.analysis.files.length + (this.analysis.unresolvedChanges?.length ?? 0);
+    const matching = this.nativeTree?.status?.fileCount;
+    const extraFiltersActive = resolveFeature(this.settings, "fileFilters").enabled
+      && (this.changeKind !== "all" || this.extension !== "all" || this.hideGenerated || this.hideLockfiles);
+    const filtered = matching !== null && matching !== undefined
+      && (extraFiltersActive || this.nativeTree?.status?.filtersActive || matching !== count);
+    const text = `${filtered ? `${matching}/${count}` : count} changed file${count === 1 ? "" : "s"}`;
+    if (total.textContent !== text) total.textContent = text;
+    total.title = "Matching files / total files in this pull request. The total is unaffected by filters.";
+    if (original) {
+      if (original.nextElementSibling !== total) original.insertAdjacentElement("afterend", total);
+    } else if (total.parentElement !== toolbar) toolbar.append(total);
+  }
+
+  private restoreNativeFileCount(): void {
+    this.nativeFileCount?.removeAttribute("data-adopp-original-file-count");
+    this.nativeFileCount = null;
+    document.querySelector("[data-adopp-total-file-count]")?.remove();
   }
 
   private matchesFileFilters(file: FileStat): boolean {
@@ -659,6 +757,14 @@ function findNativeFileTree(files: FileStat[]): HTMLElement | null {
 function scoreFileTree(tree: HTMLElement, basenames: Set<string>): number {
   const rows = [...tree.querySelectorAll<HTMLElement>('tr,[role="row"]')];
   return [...basenames].filter((basename) => rows.some((row) => rowMatchesFile(row, basename))).length;
+}
+
+function findInlineFilterMount(): { host: HTMLElement; before: Element | null } | null {
+  const filter = document.querySelector<HTMLElement>(".repos-compare-filter");
+  if (!filter?.parentElement) return null;
+  let before = filter.nextElementSibling;
+  if (before?.hasAttribute("data-adopp-native-toolbar")) before = before.nextElementSibling;
+  return { host: filter.parentElement, before };
 }
 
 function findToolbarMount(tree: HTMLElement): { host: HTMLElement; before: HTMLElement } | null {
@@ -1084,7 +1190,7 @@ function escapeHtml(value: string): string {
 
 function isOwnedMutation(target: Node): boolean {
   const element = target instanceof Element ? target : target.parentElement;
-  return Boolean(element?.closest("[data-adopp-native-toolbar],[data-adopp-action-group],[data-adopp-next-unreviewed],[data-adopp-tooltip],[data-adopp-total-diff],[data-adopp-total-diff-popover],[data-adopp-merge-proposal-text],[data-adopp-inline-stat],[data-adopp-announcement-dialog],.adopp-native-menu,.adopp-action-menu"));
+  return Boolean(element?.closest("[data-adopp-native-toolbar],[data-adopp-total-file-count],[data-adopp-action-group],[data-adopp-next-unreviewed],[data-adopp-tooltip],[data-adopp-total-diff],[data-adopp-total-diff-popover],[data-adopp-merge-proposal-text],[data-adopp-inline-stat],[data-adopp-react-stat],[data-adopp-announcement-dialog],.adopp-native-menu,.adopp-action-menu"));
 }
 
 function isOwnedMutationRecord(record: MutationRecord): boolean {
@@ -1133,7 +1239,7 @@ function nativeChoiceMenuItem(kind: string, value: string, label: string, select
 function nativeDropdownTrigger(label: string, ariaLabel: string, extraClass = ""): string {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "bolt-button enabled subtle flex-row flex-center bolt-focus-treatment body-s adopp-native-dropdown-trigger";
+  button.className = "bolt-button enabled flex-row flex-center bolt-focus-treatment body-s adopp-native-dropdown-trigger";
   for (const className of extraClass.split(/\s+/).filter(Boolean)) button.classList.add(className);
   button.setAttribute("aria-label", ariaLabel);
   button.title = label;
@@ -1233,12 +1339,18 @@ function capitalize(value: string): string {
 }
 
 const nativeStyles = `
+[data-adopp-native-status]{font-size:12px;color:var(--status-warning-foreground,#8a6d00)}
+[data-adopp-native-status][hidden],[data-adopp-original-file-count]{display:none!important}
 .adopp-start-split>.bolt-split-button-divider{background:rgba(var(--palette-neutral-100,0,0,0),.18) !important;opacity:1 !important}
 .adopp-native-stat{display:inline-flex;margin-left:8px;white-space:nowrap;font:600 11px/1.4 Consolas,"Cascadia Mono",monospace;color:var(--palette-neutral-60,#8a8886)}
 .adopp-native-stat[data-state="exact"]{color:var(--palette-neutral-70,#605e5c)}
 .adopp-native-stat-plus{color:var(--status-success-foreground,#107c10)}.adopp-native-stat-minus{color:var(--status-error-foreground,#a4262c)}
 .adopp-native-toolbar{display:grid;gap:6px;width:100%;box-sizing:border-box;padding:8px 10px;border-bottom:1px solid var(--palette-neutral-20,#edebe9);background:var(--background-color,#fff);font:12px "Segoe UI",sans-serif}
 .adopp-native-toolbar-row{display:grid;grid-template-columns:minmax(0,1fr);align-items:center;gap:5px;min-width:0}.adopp-native-search{min-width:0;width:100%;box-sizing:border-box;padding:5px 7px;border:1px solid var(--palette-neutral-30,#c8c6c4);background:transparent;color:inherit}
+.adopp-native-toolbar.adopp-native-toolbar-inline{display:inline-flex;flex:none;align-items:center;gap:8px;width:auto;padding:0;border:0;background:transparent;font:inherit}
+.adopp-native-toolbar-inline .adopp-native-filters{display:flex;gap:8px}
+.adopp-native-toolbar-inline .adopp-native-dropdown-trigger{width:auto;font-size:inherit}
+[data-adopp-total-file-count]{white-space:nowrap}
 .adopp-native-nav{width:30px;min-width:30px;min-height:28px;padding:4px 7px;border:1px solid var(--palette-neutral-30,#c8c6c4);border-radius:2px;background:transparent;color:inherit;font:inherit;cursor:pointer}.adopp-native-nav:hover{background:var(--palette-neutral-10,#f3f2f1)}.adopp-nav-icon{display:block;width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;overflow:visible}.adopp-nav-double-icon{height:16px}.adopp-native-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.78fr) minmax(76px,.72fr);align-items:center;gap:5px}.adopp-native-dropdown{position:relative;min-width:0}.adopp-native-dropdown-trigger{width:100%;min-width:0;justify-content:space-between!important;gap:8px!important}.adopp-native-dropdown-trigger .bolt-button-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.adopp-native-dropdown-chevron{display:block;width:12px;height:12px;flex:none;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round}.adopp-native-menu{z-index:100000;box-sizing:border-box!important;overflow:hidden!important}.adopp-native-menu[data-adopp-filter-portal="true"]{position:fixed!important}.adopp-native-menu[hidden]{display:none!important}.adopp-native-menu .bolt-callout-content,.adopp-native-menu .bolt-menu,.adopp-native-menu .bolt-list,.adopp-native-menu .bolt-list-row,.adopp-native-menu .bolt-list-cell{box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important}.adopp-native-menu .bolt-list-row,.adopp-native-menu .bolt-list-cell{display:block!important}.adopp-native-menu .bolt-menu-button{box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important;overflow:hidden!important}.adopp-native-menu-check{display:inline-flex;width:16px;flex:none;visibility:hidden}.adopp-native-menu-check[data-active="true"]{visibility:visible}.adopp-native-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:1px 2px 0;color:var(--palette-neutral-60,#8a8886);white-space:nowrap}.adopp-native-visible-count,.adopp-native-reviewed-count{white-space:nowrap}
 .adopp-ado-tooltip{position:fixed!important;z-index:2147483647;max-width:320px;animation:adopp-tooltip-fade-in 300ms ease-in}.adopp-ado-tooltip .bolt-callout-content{background-color:transparent}.adopp-ado-tooltip .bolt-tooltip-content{padding:8px 12px;border-radius:2px;background:rgba(var(--palette-neutral-80,51,51,51),.95);color:rgba(var(--palette-neutral-0,255,255,255),1);font:12px "Segoe UI",sans-serif;text-align:left;white-space:nowrap}.ms-vss-web-vsts-theme-hc-dark .adopp-ado-tooltip .bolt-tooltip-content,.ms-vss-web-vsts-theme-hc-light .adopp-ado-tooltip .bolt-tooltip-content{border:2px solid var(--focus-border-color,#0078d4);background:var(--background-color,#fff);color:var(--text-primary-color,#000)}@keyframes adopp-tooltip-fade-in{from{opacity:0}to{opacity:1}}
 .adopp-native-hidden{display:none!important}.adopp-header-action-item{white-space:nowrap}.adopp-header-wrap.adopp-header-actions-wrapped{flex-wrap:wrap!important}.adopp-header-wrap.adopp-header-actions-wrapped>.adopp-header-action-item{display:flex!important;flex:0 0 100%!important;width:100%!important;max-width:100%!important;justify-content:flex-end!important;margin-left:0!important;padding-top:8px}.adopp-action-group{position:relative;display:inline-flex;align-items:center;gap:0;margin-right:8px}.adopp-total-diff{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 8px;margin-left:8px;border:1px solid var(--palette-neutral-30,#c8c6c4);border-radius:5px;background:var(--background-color,#fff);font:600 12px Consolas,"Cascadia Mono",monospace;white-space:nowrap;vertical-align:middle;cursor:default}.adopp-total-diff:focus-visible{outline:2px solid var(--communication-background,#0078d4);outline-offset:1px}.adopp-total-plus{color:var(--status-success-foreground,#107c10)}.adopp-total-minus{color:var(--status-error-foreground,#a4262c)}.adopp-total-partial{font:10px "Segoe UI",sans-serif;color:var(--palette-neutral-60,#8a8886)}.adopp-total-popover{position:fixed!important;z-index:2147483647;box-sizing:border-box;width:176px}.adopp-total-popover-content{box-sizing:border-box;padding:10px 12px;font:12px "Segoe UI",sans-serif}.adopp-total-popover-title{margin-bottom:7px;font-weight:600}.adopp-total-popover-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:2px 0;color:var(--palette-neutral-80,#323130)}.adopp-total-popover-row strong{font-weight:600;font-variant-numeric:tabular-nums}.adopp-total-popover-divider{height:1px;margin:7px 0 5px;background:var(--palette-neutral-20,#edebe9)}.adopp-merge-proposal-text{display:inline-block;margin:0 6px;color:var(--palette-neutral-60,#8a8886);font-weight:600}.adopp-start-split{border-radius:2px;overflow:hidden;box-shadow:0 1px 2px var(--callout-shadow-color,rgba(0,0,0,.22)),inset 0 0 0 1px rgba(var(--palette-neutral-100),.18)}.adopp-start-split>.adopp-start-button,.adopp-start-split>.inline-flex-row>.adopp-action-menu-button{background:rgba(var(--palette-neutral-100),.08)!important;color:var(--text-primary-color)!important;transition:background-color 120ms ease}.adopp-start-split>.adopp-start-button:hover,.adopp-start-split>.inline-flex-row>.adopp-action-menu-button:hover{background:rgba(var(--palette-neutral-100),.14)!important}.adopp-start-review-icon{display:block;width:15px;height:15px;margin-right:7px;flex:none;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round}.adopp-start-split>.adopp-start-button{border-right:0!important}.adopp-start-split>.bolt-split-button-divider{width:.5px!important;min-width:.5px!important;max-width:.5px!important;flex:0 0 .5px!important}.adopp-start-split>.inline-flex-row>.adopp-action-menu-button{border-left:0!important}

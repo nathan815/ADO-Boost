@@ -10,6 +10,7 @@ import { ChromeSettingsStorage, SettingsService } from "../features/settings-ser
 import { ReviewPanel } from "../ui/review-panel";
 import { PullRequestListBadges } from "./list-badges";
 import { NativePrEnhancer } from "./native-pr-enhancer";
+import { NativeTreeClient } from "../native-tree/client";
 
 class ContentApp {
   private readonly api = new AdoApi(new FetchHttpClient());
@@ -57,7 +58,8 @@ class ContentApp {
     this.currentUrl = url;
     const route = parsePrRoute(new URL(url));
     const routeKey = route ? `${route.origin}|${route.organization}|${route.project}|${route.repository}|${route.pullRequestId}` : "";
-    if (routeKey && routeKey === this.currentRouteKey && this.panel && this.enhancer) {
+    if (this.settings.masterEnabled && resolveFeature(this.settings, "prOverview").enabled
+      && routeKey && routeKey === this.currentRouteKey && this.panel && this.enhancer) {
       this.panel.updateSettings(this.settings);
       this.enhancer.updateSettings(this.settings);
       this.enhancer.refresh();
@@ -93,7 +95,7 @@ class ContentApp {
           startReviewing: () => this.panel?.startReviewing(),
           isReviewAnnounced: () => this.panel?.isReviewAnnounced() ?? false,
           openSettings: this.openSettings
-        });
+        }, new NativeTreeClient(analysis));
         this.enhancer.start();
         this.currentRouteKey = routeKey;
       } catch (error) {

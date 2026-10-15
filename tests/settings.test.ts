@@ -3,6 +3,10 @@ import { defaultSettings, migrateSettings, resolveFeature } from "../src/feature
 import { MemorySettingsStorage, SettingsService } from "../src/features/settings-service";
 
 describe("feature settings", () => {
+  it("keeps private native-tree integration opt-in for existing installations", () => {
+    expect(defaultSettings().features.nativeTreeIntegration).toBe(false);
+    expect(migrateSettings({ features: {} }).features.nativeTreeIntegration).toBe(false);
+  });
   it("migrates partial settings and preserves explicit choices", () => {
     const migrated = migrateSettings({ masterEnabled: true, features: { prOverview: false } });
     expect(migrated.features.prOverview).toBe(false);

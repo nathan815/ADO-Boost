@@ -24,6 +24,19 @@ await build({
     }
   }
 });
+await build({
+  configFile: false,
+  build: {
+    target: "chrome114",
+    sourcemap: false,
+    emptyOutDir: false,
+    outDir: fileURLToPath(dist),
+    rollupOptions: {
+      input: fileURLToPath(new URL("../src/native-tree/main.ts", import.meta.url)),
+      output: { format: "iife", entryFileNames: "native-tree.js", inlineDynamicImports: true }
+    }
+  }
+});
 await cp(new URL("../public/", import.meta.url), dist, { recursive: true });
 await mkdir(new URL("licenses/", dist), { recursive: true });
 await cp(new URL("../LICENSE", import.meta.url), new URL("LICENSE", dist));
