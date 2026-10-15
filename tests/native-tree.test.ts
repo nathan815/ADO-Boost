@@ -89,6 +89,18 @@ function fixture(config = configuration()) {
 }
 
 describe("native tree adapter", () => {
+  it("filters all cached changes including files outside the rendered viewport", () => {
+    const files = Array.from({ length: 422 }, (_, index) => file(`/src/file-${index}.${index === 421 ? "py" : "ts"}`, { trackingId: index + 1 }));
+    const f = fixture(configuration(files));
+    f.config.filters.extension = "py";
+    f.adapter.start();
+    expect(f.processed()?.changeEntries.map((entry) => entry.item.path)).toEqual(["/src/file-421.py"]);
+    expect(f.host.view.changes.value.totalChanges).toBe(1);
+    expect(f.raw.changeEntries).toHaveLength(422);
+    f.adapter.dispose();
+    expect(f.host.view.changes.value.totalChanges).toBe(422);
+  });
+
   it("filters before native collection building without changing cache or pagination", () => {
     const f = fixture();
     f.config.filters.extension = "ts";

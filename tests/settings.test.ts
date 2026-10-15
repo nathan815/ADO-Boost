@@ -1,11 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { defaultSettings, migrateSettings, resolveFeature } from "../src/features/registry";
+import { defaultSettings, FEATURE_REGISTRY, migrateSettings, resolveFeature } from "../src/features/registry";
 import { MemorySettingsStorage, SettingsService } from "../src/features/settings-service";
 
 describe("feature settings", () => {
-  it("keeps private native-tree integration opt-in for existing installations", () => {
-    expect(defaultSettings().features.nativeTreeIntegration).toBe(false);
-    expect(migrateSettings({ features: {} }).features.nativeTreeIntegration).toBe(false);
+  it.each([false, true])("retires the experimental native-tree preference set to %s without disabling enhancements", (nativeTreeIntegration) => {
+    const settings = migrateSettings({ features: { nativeTreeIntegration, fileSearch: false, hideGenerated: true } });
+    expect(settings.features.groupedNavigation).toBe(true);
+    expect(settings.features.fileFilters).toBe(true);
+    expect(settings.features.hideGenerated).toBe(true);
+    expect(settings.features).not.toHaveProperty("nativeTreeIntegration");
+    expect(settings.features).not.toHaveProperty("fileSearch");
+    expect(FEATURE_REGISTRY.map((feature) => feature.id)).not.toContain("nativeTreeIntegration");
+    expect(FEATURE_REGISTRY.map((feature) => feature.id)).not.toContain("fileSearch");
+  });
+
+  it("preserves existing disabled navigation preferences when retiring the experiment", () => {
+    const settings = migrateSettings({ features: { nativeTreeIntegration: true, groupedNavigation: false, fileFilters: false } });
+    expect(resolveFeature(settings, "groupedNavigation").enabled).toBe(false);
+    expect(settings.features.fileFilters).toBe(false);
+    expect(defaultSettings().features.groupedNavigation).toBe(true);
   });
   it("migrates partial settings and preserves explicit choices", () => {
     const migrated = migrateSettings({ masterEnabled: true, features: { prOverview: false } });

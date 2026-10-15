@@ -25,10 +25,10 @@ Browser loading, native-host registration, and live Copilot inference require se
 
 ### Native Azure DevOps review workspace
 
-- Full-path search, change and extension filters, reviewed-file filtering, and opt-in generated/lockfile hiding are inserted above Azure DevOps' native file tree.
+- Azure DevOps' **Filter** control handles search and reviewed-file filtering. ADO Boost's change-type, file-type, and **Options** buttons sit beside it and filter the native file model; additions and deletions are rendered in the tree by ADO's React instance.
 - Hiding noise never changes the reported overall totals.
-- All files returned by the paginated PR changes API are analyzed independently of scrolling or collapsed folders. The toolbar analysis total and search/type/noise-filter counts use the full PR file list, not currently rendered rows. Unresolved records and incomplete counts remain explicit.
-- With no extension filters active, every native tree row stays visible, including collapsed folders and files the extension cannot identify. Native reviewed-checkbox counts are labeled "in view" because Azure DevOps only exposes those checkbox states for currently rendered rows; they are not analysis coverage or whole-PR review progress.
+- All files returned by the paginated PR changes API are analyzed independently of scrolling or collapsed folders. The header shows the total PR file count without filters and matching/total counts with filters. Unresolved records and incomplete counts remain explicit.
+- Filters run before ADO constructs its tree and diff/navigation model, including offscreen files. Unmapped native entries are retained rather than guessed or silently hidden. Azure DevOps retains ownership of folders, reviewed checkboxes, selection, and virtualization.
 - Previous, next, next-unreviewed, and keyboard navigation reuse Azure DevOps' SPA file links without forcing a full page reload.
 - Azure DevOps' existing server-backed reviewed checkboxes remain authoritative. ADO Boost does not render or synchronize a second reviewed-state system.
 - The elevated `Review Assistant` button opens the discussions and review-tools side panel on completed PRs and after a review has started.
@@ -108,13 +108,13 @@ Open the extension's options page from the browser toolbar action, the gear butt
 
 Core review features are enabled by default. Generated-file hiding, lockfile hiding, and all future AI capabilities are opt-in. Disabling a feature removes its controls and blocks its write entry points without deleting saved progress or drafts.
 
-### Experimental native tree integration
+### Native tree integration
 
-Enable **Experimental native tree integration** in options to try model-level filtering and React-rendered per-file counts instead of hiding native DOM rows. In this mode, use Azure DevOps' existing **Filter** control for keyword and reviewed/unreviewed filtering. ADO Boost's change-kind, extension, and noise filters sit beside that control, compose with native filters before tree construction, and affect the diff/navigation view too. The header shows `12 changed files` without filters and matching/total counts such as `5/12 changed files` when a filter is active, without a separate status summary above the tree.
+Native model filtering and React-rendered per-file counts are the only file-tree integration, enabled by default through **Native file-tree enhancements**. Use Azure DevOps' existing **Filter** control for keyword and reviewed/unreviewed filtering. ADO Boost's change-kind, extension, and noise filters sit beside that control, compose with native filters before tree construction, and affect the diff/navigation view too. The header shows `12 changed files` without filters and matching/total counts such as `5/12 changed files` when a filter is active, without a separate status summary above the tree. The old experimental toggle and extension-owned search/reviewed controls have been removed; saved experimental preferences no longer select a different implementation.
 
-This mode uses guarded private Azure DevOps runtime interfaces, not supported extension APIs. Counts and extra filters require the analyzed latest-iteration merge-base comparison; another native comparison leaves native filters available and reports the limitation. Incompatible runtime interfaces show an explicit unavailable state, never silently switch to DOM row-hiding, and restore native behavior. Count-rendering failures can disable counts independently of working model filters.
+This integration uses guarded private Azure DevOps runtime interfaces, not supported extension APIs. Counts and extra filters require the analyzed latest-iteration merge-base comparison; another native comparison leaves native filters available and reports the limitation. Incompatible runtime interfaces show an explicit unavailable state and restore native behavior. There is no DOM badge or row-hiding implementation or fallback. Count-rendering failures can disable counts independently of working model filters. Disabling **Native file-tree enhancements** restores the original native behavior without affecting the PR summary; disabling **Native file filters** clears only ADO Boost's extra predicates.
 
-The mode remains off by default. Installed-extension Chrome checks exercised 12-file and 198-file native models, offscreen-file filtering, native/custom filter composition, comparison switching, keyboard navigation, tab remounting, and disable/re-enable. Broader host compatibility, sustained pointer scrolling, and cross-page pagination still need release coverage before making this the default.
+Installed-extension Chrome checks exercised 12-file and 198-file native models, offscreen-file filtering, native/custom filter composition, comparison switching, keyboard navigation, tab remounting, and disable/re-enable. Broader host compatibility, sustained pointer scrolling, and cross-page pagination still need additional release coverage.
 
 ## Permissions and privacy
 

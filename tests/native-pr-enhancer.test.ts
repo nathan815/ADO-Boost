@@ -35,9 +35,8 @@ const analysis: PullRequestAnalysis = {
 let enhancer: NativePrEnhancer | null = null;
 
 describe("NativePrEnhancer", () => {
-  it("uses the native bridge without inserting badges or hiding native rows in experimental mode", () => {
+  it("uses the native bridge by default without inserting badges or hiding native rows", () => {
     const settings = defaultSettings();
-    settings.features.nativeTreeIntegration = true;
     settings.features.hideGenerated = true;
     const port = { status: null, configure: vi.fn(), stop: vi.fn(), subscribe: vi.fn(() => vi.fn()) };
     enhancer = new NativePrEnhancer(analysis, settings, {
@@ -55,17 +54,22 @@ describe("NativePrEnhancer", () => {
     expect(document.querySelector(".file-tree-pane [data-adopp-native-toolbar]")).toBeNull();
     expect(document.querySelector("[data-adopp-total-file-count]")?.textContent).toBe("2 changed files");
     expect(document.querySelector(".adopp-native-summary")).toBeNull();
-    settings.features.nativeTreeIntegration = false;
+    settings.features.groupedNavigation = false;
     enhancer.updateSettings(settings);
     expect(port.stop).toHaveBeenCalled();
-    expect(document.querySelectorAll("[data-adopp-inline-stat]")).toHaveLength(2);
+    expect(document.querySelectorAll("[data-adopp-inline-stat],.adopp-native-hidden")).toHaveLength(0);
+    expect(document.querySelector("[data-adopp-native-toolbar]")).toBeNull();
+    expect(document.querySelector("[data-adopp-next-unreviewed]")).toBeNull();
     expect(document.querySelector("[data-adopp-total-file-count]")).toBeNull();
     expect(document.querySelector("[data-adopp-original-file-count]")).toBeNull();
+    settings.features.groupedNavigation = true;
+    enhancer.updateSettings(settings);
+    expect(port.configure).toHaveBeenCalledTimes(2);
+    expect(document.querySelector(".repos-compare-filter")?.nextElementSibling).toBe(document.querySelector("[data-adopp-native-toolbar]"));
   });
 
   it("shows matching and total PR counts through filtering, clearing, and empty results", () => {
     const settings = defaultSettings();
-    settings.features.nativeTreeIntegration = true;
     const status: TreeStatus = {
       channel: "adopp-native-tree-v1", kind: "status", session: "16748ae6-f0a9-4dad-ac76-88e2bafc32c1",
       state: "active", detail: "Native model filtering and React-rendered counts are active.", fileCount: 2
@@ -121,7 +125,6 @@ describe("NativePrEnhancer", () => {
 
   it("keeps normal native status quiet but exposes actionable compatibility failures", () => {
     const settings = defaultSettings();
-    settings.features.nativeTreeIntegration = true;
     const status: TreeStatus = {
       channel: "adopp-native-tree-v1", kind: "status", session: "16748ae6-f0a9-4dad-ac76-88e2bafc32c1",
       state: "active", detail: "Native model filtering and React-rendered counts are active.", fileCount: 2
@@ -145,7 +148,6 @@ describe("NativePrEnhancer", () => {
 
   it("reattaches inline controls and the total when ADO replaces the header", () => {
     const settings = defaultSettings();
-    settings.features.nativeTreeIntegration = true;
     enhancer = new NativePrEnhancer(analysis, settings, {
       openDiscussions: vi.fn(), startReviewing: vi.fn(), isReviewAnnounced: () => false, openSettings: vi.fn()
     }, { status: null, configure: vi.fn(), stop: vi.fn(), subscribe: () => vi.fn() });
@@ -245,7 +247,7 @@ describe("NativePrEnhancer", () => {
     total.dispatchEvent(new MouseEvent("mouseenter"));
     expect(document.querySelector("[data-adopp-total-diff-popover]")?.textContent).toContain("Unresolved changes (retained)");
     expect(document.querySelector(".adopp-start-split")).not.toBeNull();
-    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("2 files analyzed · 6 unresolved");
+    expect(document.querySelector("[data-adopp-total-file-count]")?.textContent).toBe("8 changed files");
   });
 
   it("integrates totals into PR metadata and review actions beside Approve", () => {
@@ -494,18 +496,14 @@ describe("NativePrEnhancer", () => {
     expect(actions.querySelector(".repos-pr-header-vote-button")).not.toBeNull();
   });
 
-  it("adds per-file counts once and filters using native reviewed checkboxes", () => {
-    enhancer = createEnhancer();
+  it("renders regular inline filter controls and forwards options to the native model", () => {
+    const port = createNativePort();
+    enhancer = createEnhancer({}, port);
     enhancer.start();
     enhancer.refresh();
 
-    expect(document.querySelectorAll("[data-adopp-inline-stat]")).toHaveLength(2);
-    expect(document.querySelector('[data-row="app"]')?.textContent).toContain("+5 −2");
-    expect(document.querySelector('[data-row="new"]')?.textContent).toContain("+3 −1");
-    expect(document.querySelector('[data-row="app"] .adopp-native-stat-plus')?.textContent).toBe("+5");
-    expect(document.querySelector('[data-row="app"] .adopp-native-stat-minus')?.textContent).toBe("−2");
-    expect(document.querySelector("[data-adopp-native-toolbar]")?.parentElement?.classList.contains("file-tree-pane")).toBe(true);
-    expect(document.querySelector("[data-adopp-native-toolbar]")?.nextElementSibling?.classList.contains("bolt-table-container")).toBe(true);
+    expect(document.querySelectorAll("[data-adopp-inline-stat],.adopp-native-hidden")).toHaveLength(0);
+    expect(document.querySelector(".repos-compare-filter")?.nextElementSibling).toBe(document.querySelector("[data-adopp-native-toolbar]"));
     expect(document.querySelector("select.adopp-native-change")).toBeNull();
     expect(document.querySelector('[data-dropdown="change"] .bolt-button')).not.toBeNull();
     expect(document.querySelector('[data-dropdown="extension"] .bolt-button')).not.toBeNull();
@@ -524,9 +522,8 @@ describe("NativePrEnhancer", () => {
     expect(document.querySelector(".bolt-tooltip [role='tooltip']")).not.toBeNull();
     nextUnreviewed.dispatchEvent(new MouseEvent("mouseleave"));
     expect(document.querySelector("[data-adopp-tooltip]")).toBeNull();
-    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("2 files analyzed");
-    expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("1/2 reviewed in view");
-    expect(document.querySelector(".adopp-native-summary")?.parentElement).toBe(document.querySelector("[data-adopp-native-toolbar]"));
+    expect(document.querySelector("[data-adopp-total-file-count]")?.textContent).toBe("2 changed files");
+    expect(document.querySelector(".adopp-native-summary")).toBeNull();
     expect(document.querySelectorAll("[data-adopp-next-unreviewed]")).toHaveLength(1);
     expect(document.querySelectorAll("[data-adopp-next-unreviewed] .adopp-nav-double-icon path")).toHaveLength(2);
 
@@ -541,12 +538,13 @@ describe("NativePrEnhancer", () => {
     expect(Number.parseFloat(document.querySelector<HTMLElement>(".adopp-native-filter-menu")!.style.width)).toBeLessThanOrEqual(320);
     expect(getComputedStyle(document.querySelector<HTMLElement>(".adopp-native-filter-menu")!).overflow).toBe("hidden");
 
-    document.querySelector<HTMLButtonElement>('[data-toggle="viewed"]')?.click();
-    expect(document.querySelector('[data-row="app"]')?.classList.contains("adopp-native-hidden")).toBe(true);
-    expect(document.querySelector('[data-row="new"]')?.classList.contains("adopp-native-hidden")).toBe(false);
+    expect(document.querySelector('[data-toggle="viewed"]')).toBeNull();
+    document.querySelector<HTMLButtonElement>('[data-toggle="generated"]')!.click();
+    expect(port.configure).toHaveBeenLastCalledWith({
+      changeKind: "all", extension: "all", hideGenerated: true, hideLockfiles: false
+    }, true);
     expect(document.querySelector(".adopp-native-filter-trigger")?.textContent).toContain("Options (1)");
-    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("2 files analyzed");
-    expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("1/2 reviewed in view");
+    expect(document.querySelectorAll(".adopp-native-hidden")).toHaveLength(0);
   });
 
   it("does not copy transient iteration-button styling into filter triggers", () => {
@@ -587,124 +585,88 @@ describe("NativePrEnhancer", () => {
     });
     enhancer.start();
 
-    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("3 files analyzed");
-    expect(document.querySelector(".adopp-native-visible-count")?.getAttribute("title")).toContain("including offscreen and collapsed files");
-    expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("1/2 reviewed in view");
+    expect(document.querySelector("[data-adopp-total-file-count]")?.textContent).toBe("3 changed files");
+    expect(document.querySelector(".adopp-native-reviewed-count")).toBeNull();
   });
 
-  it("keeps 422-file coverage and filter counts stable as a virtualized tree recycles rows", () => {
+  it("keeps full-PR counts stable regardless of virtualized rows", () => {
     const files = Array.from({ length: 422 }, (_, index) => ({
       ...analysis.files[0]!, trackingId: index + 1, path: `/src/file-${index}.ts`
     }));
     const tbody = document.querySelector("tbody")!;
-    const renderRows = (start: number, count: number) => {
-      tbody.innerHTML = files.slice(start, start + count).map((file) =>
-        `<tr role="row"><td><input type="checkbox"><button title="${file.path}">${file.path.split("/").at(-1)}</button></td></tr>`
-      ).join("");
-    };
-    renderRows(0, 29);
+    const port = createNativePort(files.length);
     enhancer = new NativePrEnhancer({ ...analysis, files }, defaultSettings(), {
       openDiscussions: vi.fn(), startReviewing: vi.fn(), isReviewAnnounced: () => false, openSettings: vi.fn()
-    });
+    }, port);
     enhancer.start();
     const toolbar = document.querySelector("[data-adopp-native-toolbar]");
-    const count = document.querySelector(".adopp-native-visible-count")!;
+    const count = document.querySelector("[data-adopp-total-file-count]")!;
     const totals = document.querySelector("[data-adopp-total-diff]")?.textContent;
-    expect(count.textContent).toBe("422 files analyzed");
-    expect(document.querySelectorAll("[data-adopp-inline-stat]")).toHaveLength(29);
-
-    renderRows(290, 8);
-    enhancer.refresh();
-    expect(count.textContent).toBe("422 files analyzed");
-    expect(document.querySelector("[data-adopp-total-diff]")?.textContent).toBe(totals);
-    expect(document.querySelectorAll("[data-adopp-inline-stat]")).toHaveLength(8);
-    expect(document.querySelector("[data-adopp-inline-stat]")?.getAttribute("data-adopp-inline-stat")).toBe("/src/file-290.ts");
-    expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("0/8 reviewed in view");
-
-    const search = document.querySelector<HTMLInputElement>(".adopp-native-search")!;
-    search.value = "file-421.ts";
-    search.dispatchEvent(new Event("input"));
-    expect(count.textContent).toBe("1/422 matching files");
-    renderRows(0, 0);
+    expect(count.textContent).toBe("422 changed files");
+    document.querySelector<HTMLButtonElement>('[data-choice-kind="extension"][data-choice-value="ts"]')!.click();
+    expect(port.configure).toHaveBeenLastCalledWith({
+      changeKind: "all", extension: "ts", hideGenerated: false, hideLockfiles: false
+    }, true);
+    port.status.fileCount = 1;
+    tbody.replaceChildren();
     enhancer.refresh();
     expect(document.querySelector("[data-adopp-native-toolbar]")).toBe(toolbar);
-    expect(count.textContent).toBe("1/422 matching files");
-    renderRows(421, 1);
+    expect(count.textContent).toBe("1/422 changed files");
+    tbody.innerHTML = '<tr role="row"><td><button>file-421.ts</button></td></tr>';
+    const nativeMarkup = tbody.innerHTML;
     enhancer.refresh();
-    expect(count.textContent).toBe("1/422 matching files");
-    expect(document.querySelector("tbody tr")?.classList.contains("adopp-native-hidden")).toBe(false);
+    expect(tbody.innerHTML).toBe(nativeMarkup);
+    expect(count.textContent).toBe("1/422 changed files");
     expect(document.querySelector("[data-adopp-total-diff]")?.textContent).toBe(totals);
-
-    search.value = "";
-    search.dispatchEvent(new Event("input"));
-    expect(count.textContent).toBe("422 files analyzed");
   });
 
-  it("leaves unmatched files, their discussions, and collapsed folders visible without filters", () => {
+  it("leaves file rows, discussions, and collapsed folders untouched when filters change", () => {
     const appRow = document.querySelector<HTMLElement>('[data-row="app"]')!;
     appRow.insertAdjacentHTML("afterend", `
       <tr role="row" aria-level="2" aria-expanded="true" data-row="unmatched"><td>main.yml</td></tr>
       <tr role="row" aria-level="3" data-annotation="unmatched"><td>Review discussion</td></tr>
       <tr role="row" aria-level="1" aria-expanded="false" data-folder="collapsed"><td>other</td></tr>
     `);
-    const otherFiles = Array.from({ length: 7 }, (_, index) => ({
-      ...analysis.files[0]!, trackingId: index + 3, path: `/src/file${index}.ts`
-    }));
-    document.querySelector("tbody")!.insertAdjacentHTML("beforeend", otherFiles.map((file) =>
-      `<tr role="row"><td><button>${file.path.split("/").at(-1)}</button></td></tr>`
-    ).join(""));
-    document.querySelector("tbody")!.insertAdjacentHTML("beforeend", Array.from({ length: 4 }, () =>
-      '<tr role="row" aria-level="2" aria-expanded="true"><td><button>main.yml</button></td></tr>'
-    ).join(""));
-    const unmatchedAnalysis: PullRequestAnalysis = {
-      ...analysis,
-      files: [
-        ...analysis.files,
-        ...otherFiles,
-        ...["one", "two", "three", "four", "five"].map((folder, index) => ({
-          ...analysis.files[0]!, trackingId: index + 10, path: `/${folder}/main.yml`
-        }))
-      ]
-    };
-    enhancer = new NativePrEnhancer(unmatchedAnalysis, defaultSettings(), {
-      openDiscussions: vi.fn(), startReviewing: vi.fn(), isReviewAnnounced: () => false, openSettings: vi.fn()
-    });
+    const nativeMarkup = document.querySelector("tbody")!.innerHTML;
+    const port = createNativePort();
+    enhancer = createEnhancer({}, port);
     enhancer.start();
-    expect(document.querySelectorAll(".adopp-native-hidden")).toHaveLength(0);
-    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("14 files analyzed");
-
-    const search = document.querySelector<HTMLInputElement>(".adopp-native-search")!;
-    search.value = "no-match";
-    search.dispatchEvent(new Event("input"));
-    expect(document.querySelector('[data-row="unmatched"]')?.classList.contains("adopp-native-hidden")).toBe(false);
-    expect(document.querySelector('[data-folder="collapsed"]')?.classList.contains("adopp-native-hidden")).toBe(false);
-    search.value = "";
-    search.dispatchEvent(new Event("input"));
+    document.querySelector<HTMLButtonElement>('[data-choice-kind="change"][data-choice-value="add"]')!.click();
     enhancer.refresh();
+    expect(document.querySelector("tbody")!.innerHTML).toBe(nativeMarkup);
+    expect(port.configure).toHaveBeenLastCalledWith({
+      changeKind: "add", extension: "all", hideGenerated: false, hideLockfiles: false
+    }, true);
+    enhancer.destroy();
+    expect(document.querySelector("tbody")!.innerHTML).toBe(nativeMarkup);
+  });
+
+  it("disables extra controls without a DOM fallback when native integration is unavailable", () => {
+    const port = createNativePort();
+    port.status.state = "unavailable";
+    const nativeMarkup = document.querySelector("tbody")!.innerHTML;
+    enhancer = createEnhancer({}, port);
+    enhancer.start();
+    enhancer.refresh();
+    expect(document.querySelector("[data-adopp-native-status]")?.textContent).toBe("File filters unavailable");
+    for (const trigger of document.querySelectorAll<HTMLButtonElement>(".adopp-native-dropdown-trigger")) {
+      expect(trigger.disabled).toBe(true);
+    }
+    expect(document.querySelector("tbody")!.innerHTML).toBe(nativeMarkup);
+    expect(document.querySelectorAll("[data-adopp-inline-stat]")).toHaveLength(0);
     expect(document.querySelectorAll(".adopp-native-hidden")).toHaveLength(0);
   });
 
-  it("restores the native tree when refreshed rows can no longer be recognized", () => {
-    enhancer = createEnhancer();
-    enhancer.start();
-    const search = document.querySelector<HTMLInputElement>(".adopp-native-search")!;
-    search.value = "no-match";
-    search.dispatchEvent(new Event("input"));
-    for (const button of document.querySelectorAll("tbody button")) button.textContent = "unknown";
-    search.value = "";
-    search.dispatchEvent(new Event("input"));
-    enhancer.refresh();
-    expect(document.querySelectorAll(".adopp-native-hidden")).toHaveLength(0);
-  });
-
-  it("matches repeated filenames by their native folder hierarchy", () => {
+  it("uses native folder hierarchy for read-only navigation between repeated filenames", () => {
     document.querySelector("tbody")!.innerHTML = `
       <tr role="row" aria-level="1" aria-expanded="true"><td>src</td></tr>
       <tr role="row" aria-level="2" aria-expanded="true"><td>one/tasks</td></tr>
-      <tr role="row" aria-level="3" data-row="first"><td><button>main.yml</button></td></tr>
+      <tr role="row" aria-level="3" aria-selected="true" data-row="first"><td><button><span>main.yml</span><span data-adopp-react-stat="/src/one/tasks/main.yml">+5 −2</span></button></td></tr>
       <tr role="row" aria-level="2" aria-expanded="true"><td>two</td></tr>
-      <tr role="row" aria-level="3" data-row="second"><td><button>main.yml</button></td></tr>
+      <tr role="row" aria-level="3" data-row="second"><td><button><span>main.yml</span><span data-adopp-react-stat="/src/two/main.yml">+3 −1</span></button></td></tr>
     `;
+    const navigated = vi.fn();
+    document.querySelector('[data-row="second"]')!.addEventListener("click", navigated);
     enhancer = new NativePrEnhancer({
       ...analysis,
       files: [
@@ -715,22 +677,18 @@ describe("NativePrEnhancer", () => {
       openDiscussions: vi.fn(), startReviewing: vi.fn(), isReviewAnnounced: () => false, openSettings: vi.fn()
     });
     enhancer.start();
-    expect(document.querySelector('[data-row="first"] [data-adopp-inline-stat]')?.getAttribute("data-adopp-inline-stat")).toBe("/src/one/tasks/main.yml");
-    expect(document.querySelector('[data-row="second"] [data-adopp-inline-stat]')?.getAttribute("data-adopp-inline-stat")).toBe("/src/two/main.yml");
-    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("2 files analyzed");
-
-    const search = document.querySelector<HTMLInputElement>(".adopp-native-search")!;
-    search.value = "/two/";
-    search.dispatchEvent(new Event("input"));
-    expect(document.querySelector('[data-row="first"]')?.classList.contains("adopp-native-hidden")).toBe(true);
-    expect(document.querySelector('[data-row="second"]')?.classList.contains("adopp-native-hidden")).toBe(false);
+    document.querySelector<HTMLButtonElement>("[data-adopp-next-unreviewed]")!.click();
+    expect(navigated).toHaveBeenCalledOnce();
+    expect(document.querySelectorAll("[data-adopp-inline-stat],.adopp-native-hidden")).toHaveLength(0);
   });
 
   it("matches repeated and truncated filenames using full-path labels", () => {
     document.querySelector("tbody")!.innerHTML = `
-      <tr role="row" data-row="first"><td><button title="/src/one/main.yml">main.yml</button></td></tr>
+      <tr role="row" aria-selected="true" data-row="first"><td><button title="/src/one/main.yml">main.yml</button></td></tr>
       <tr role="row" data-row="second"><td><button title="/src/two/main.yml">main...</button></td></tr>
     `;
+    const navigated = vi.fn();
+    document.querySelector('[data-row="second"]')!.addEventListener("click", navigated);
     enhancer = new NativePrEnhancer({
       ...analysis,
       files: [
@@ -742,50 +700,9 @@ describe("NativePrEnhancer", () => {
     });
     enhancer.start();
     enhancer.refresh();
-    expect(document.querySelector('[data-row="first"] [data-adopp-inline-stat]')?.getAttribute("data-adopp-inline-stat")).toBe("/src/one/main.yml");
-    expect(document.querySelector('[data-row="second"] [data-adopp-inline-stat]')?.getAttribute("data-adopp-inline-stat")).toBe("/src/two/main.yml");
-    expect(document.querySelectorAll(".adopp-native-hidden")).toHaveLength(0);
-  });
-
-  it("removes stale diff badges when ADO recycles a file row", () => {
-    enhancer = createEnhancer();
-    enhancer.start();
-    const row = document.querySelector<HTMLElement>('[data-row="new"]')!;
-    const stale = document.createElement("span");
-    stale.dataset.adoppInlineStat = "/src/previous.ts";
-    stale.textContent = "+99 −4";
-    row.querySelector("button")?.after(stale);
-
-    enhancer.refresh();
-
-    expect(row.querySelectorAll("[data-adopp-inline-stat]")).toHaveLength(1);
-    expect(row.querySelector("[data-adopp-inline-stat]")?.getAttribute("data-adopp-inline-stat")).toBe("/src/new.ts");
-    expect(row.textContent).not.toContain("+99");
-  });
-
-  it("hides empty folders and annotations when their files are filtered out", () => {
-    const appRow = document.querySelector<HTMLElement>('[data-row="app"]')!;
-    const newRow = document.querySelector<HTMLElement>('[data-row="new"]')!;
-    appRow.setAttribute("aria-level", "3");
-    newRow.setAttribute("aria-level", "2");
-    appRow.insertAdjacentHTML("beforebegin", `
-      <tr role="row" aria-level="1" aria-expanded="true" data-folder="src"><td><div role="row">src</div></td></tr>
-      <tr role="row" aria-level="2" aria-expanded="true" data-folder="nested"><td><div role="row">nested</div></td></tr>
-    `);
-    appRow.insertAdjacentHTML("afterend", '<tr role="row" aria-level="4" data-annotation="app"><td>Review annotation</td></tr>');
-    newRow.insertAdjacentHTML("beforebegin", '<tr role="row" aria-level="1" aria-expanded="true" data-folder="added"><td><div role="row">added</div></td></tr>');
-
-    enhancer = createEnhancer();
-    enhancer.start();
-    document.querySelector<HTMLButtonElement>('[data-dropdown="change"] .adopp-native-dropdown-trigger')?.click();
-    document.querySelector<HTMLButtonElement>('[data-choice-kind="change"][data-choice-value="add"]')?.click();
-
-    expect(document.querySelector('[data-folder="src"]')?.classList.contains("adopp-native-hidden")).toBe(true);
-    expect(document.querySelector('[data-folder="nested"]')?.classList.contains("adopp-native-hidden")).toBe(true);
-    expect(document.querySelector('[data-row="app"]')?.classList.contains("adopp-native-hidden")).toBe(true);
-    expect(document.querySelector('[data-annotation="app"]')?.classList.contains("adopp-native-hidden")).toBe(true);
-    expect(document.querySelector('[data-folder="added"]')?.classList.contains("adopp-native-hidden")).toBe(false);
-    expect(document.querySelector('[data-row="new"]')?.classList.contains("adopp-native-hidden")).toBe(false);
+    document.querySelector<HTMLButtonElement>("[data-adopp-next-unreviewed]")!.click();
+    expect(navigated).toHaveBeenCalledOnce();
+    expect(document.querySelectorAll("[data-adopp-inline-stat],.adopp-native-hidden")).toHaveLength(0);
   });
 
   it("navigates to the next unreviewed file through the native row button", () => {
@@ -901,26 +818,30 @@ describe("NativePrEnhancer", () => {
     enhancer.start();
 
     expect(unrelated.querySelector("[data-adopp-inline-stat]")).toBeNull();
-    expect(document.querySelector('[data-row="app"] [data-adopp-inline-stat]')).not.toBeNull();
-    expect(document.querySelector("[data-adopp-native-toolbar]")?.parentElement?.classList.contains("file-tree-pane")).toBe(true);
+    const navigated = vi.fn();
+    document.querySelector('[data-row="new"] [role="row"]')!.addEventListener("click", navigated);
+    document.querySelector<HTMLButtonElement>("[data-adopp-next-unreviewed]")!.click();
+    expect(navigated).toHaveBeenCalledOnce();
+    expect(document.querySelectorAll("[data-adopp-inline-stat]")).toHaveLength(0);
+    expect(document.querySelector(".repos-compare-filter")?.nextElementSibling).toBe(document.querySelector("[data-adopp-native-toolbar]"));
   });
 
   it("does not mount the file toolbar into a full-page fallback container", () => {
-    document.querySelector('[aria-label="Mark as reviewed"]')?.remove();
-    document.querySelector(".file-tree-pane")?.removeAttribute("data-file-tree-pane");
-    document.querySelector(".file-tree-pane")?.classList.remove("file-tree-pane");
+    document.querySelector(".repos-compare-filter")?.remove();
 
     enhancer = createEnhancer();
     enhancer.start();
 
     expect(document.querySelector("[data-adopp-native-toolbar]")).toBeNull();
-    expect(document.querySelectorAll("[data-adopp-inline-stat]")).toHaveLength(2);
+    expect(document.querySelectorAll("[data-adopp-inline-stat]")).toHaveLength(0);
   });
 
-  it("preserves search focus during routine ADO rescans", () => {
+  it("preserves native search focus during routine ADO rescans", () => {
+    const search = document.createElement("input");
+    search.type = "search";
+    document.querySelector(".native-file-controls")!.append(search);
     enhancer = createEnhancer();
     enhancer.start();
-    const search = document.querySelector<HTMLInputElement>(".adopp-native-search")!;
     search.focus();
     search.value = "app";
     search.dispatchEvent(new Event("input", { bubbles: true }));
@@ -931,25 +852,68 @@ describe("NativePrEnhancer", () => {
     expect(search.value).toBe("app");
   });
 
-  it("updates reviewed progress when ADO changes a native checkbox property", async () => {
+  it("reads current reviewed state only when navigating without rewriting native checkboxes", () => {
     enhancer = createEnhancer();
     enhancer.start();
     const checkbox = document.querySelector<HTMLInputElement>('[data-row="new"] input[type="checkbox"]')!;
 
     checkbox.checked = true;
-    checkbox.dispatchEvent(new Event("change", { bubbles: true }));
-    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    const navigated = vi.fn();
+    document.querySelector('[data-row="new"] [role="row"]')!.addEventListener("click", navigated);
+    document.querySelector<HTMLButtonElement>("[data-adopp-next-unreviewed]")!.click();
+    expect(navigated).not.toHaveBeenCalled();
+    expect(checkbox.checked).toBe(true);
+    expect(document.querySelector(".adopp-native-reviewed-count")).toBeNull();
+  });
 
-    expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("2/2 reviewed in view");
+  it("clears extra predicates when file filters are disabled while keeping native counts active", () => {
+    const settings = defaultSettings();
+    const port = createNativePort();
+    enhancer = new NativePrEnhancer(analysis, settings, {
+      openDiscussions: vi.fn(), startReviewing: vi.fn(), isReviewAnnounced: () => false, openSettings: vi.fn()
+    }, port);
+    enhancer.start();
+    document.querySelector<HTMLButtonElement>('[data-choice-kind="change"][data-choice-value="add"]')!.click();
+    settings.features.fileFilters = false;
+    enhancer.updateSettings(settings);
+    expect(port.configure).toHaveBeenLastCalledWith({
+      changeKind: "all", extension: "all", hideGenerated: false, hideLockfiles: false
+    }, true);
+    expect(port.stop).not.toHaveBeenCalled();
+    expect(document.querySelector(".adopp-native-dropdown-trigger")).toBeNull();
+    expect(document.querySelector("[data-adopp-total-file-count]")).not.toBeNull();
+  });
+
+  it("stops native integration and restores the count when the extension is disabled", () => {
+    const settings = defaultSettings();
+    const port = createNativePort();
+    enhancer = new NativePrEnhancer(analysis, settings, {
+      openDiscussions: vi.fn(), startReviewing: vi.fn(), isReviewAnnounced: () => false, openSettings: vi.fn()
+    }, port);
+    enhancer.start();
+    settings.masterEnabled = false;
+    enhancer.updateSettings(settings);
+    expect(port.stop).toHaveBeenCalledOnce();
+    expect(document.querySelector("[data-adopp-total-file-count]")).toBeNull();
+    expect(document.querySelector("[data-adopp-original-file-count]")).toBeNull();
+    expect(document.querySelector("[data-adopp-native-toolbar]")).toBeNull();
   });
 });
 
-function createEnhancer(overrides: Partial<ConstructorParameters<typeof NativePrEnhancer>[2]> = {}): NativePrEnhancer {
+function createNativePort(fileCount = analysis.files.length) {
+  const status: TreeStatus = {
+    channel: "adopp-native-tree-v1", kind: "status", session: "16748ae6-f0a9-4dad-ac76-88e2bafc32c1",
+    state: "active", detail: "Native integration active.", fileCount
+  };
+  return { status, configure: vi.fn(), stop: vi.fn(), subscribe: vi.fn(() => vi.fn()) };
+}
+
+function createEnhancer(overrides: Partial<ConstructorParameters<typeof NativePrEnhancer>[2]> = {}, port = createNativePort()): NativePrEnhancer {
   return new NativePrEnhancer(analysis, defaultSettings(), {
     openDiscussions: vi.fn(),
     startReviewing: vi.fn(),
     isReviewAnnounced: () => false,
     openSettings: vi.fn(),
     ...overrides
-  });
+  }, port);
 }

@@ -4,9 +4,7 @@ export type FeatureId =
   | "prOverview"
   | "prListBadges"
   | "groupedNavigation"
-  | "fileSearch"
   | "fileFilters"
-  | "nativeTreeIntegration"
   | "reviewProgress"
   | "keyboardShortcuts"
   | "startReviewing"
@@ -32,10 +30,8 @@ export interface FeatureDefinition {
 export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
   { id: "prOverview", group: "overview", label: "PR size summary", description: "Show reliable overall and per-file line counts on pull request pages.", defaultEnabled: true, dependencies: [] },
   { id: "prListBadges", group: "overview", label: "PR list size badges", description: "Analyze visible pull requests with a bounded background queue.", defaultEnabled: true, dependencies: [] },
-  { id: "groupedNavigation", group: "navigation", label: "Native file-tree enhancements", description: "Add ADO Boost counts and review controls directly to the Azure DevOps file tree.", defaultEnabled: true, dependencies: ["prOverview"] },
-  { id: "fileSearch", group: "navigation", label: "Native file search", description: "Search changed files directly above the Azure DevOps file tree.", defaultEnabled: true, dependencies: ["groupedNavigation"] },
-  { id: "fileFilters", group: "navigation", label: "Native file filters", description: "Filter the Azure DevOps tree by change kind, extension, reviewed state, and optional noise heuristics.", defaultEnabled: true, dependencies: ["groupedNavigation"] },
-  { id: "nativeTreeIntegration", group: "navigation", label: "Experimental native tree integration", description: "Use ADO's model filtering and React-rendered counts instead of hiding rendered rows. Uses private host APIs; incompatible versions disable enhancements without a DOM fallback.", defaultEnabled: false, dependencies: ["groupedNavigation"] },
+  { id: "groupedNavigation", group: "navigation", label: "Native file-tree enhancements", description: "Render diff counts through Azure DevOps' native tree and add review controls. Native search and reviewed-state filters remain owned by Azure DevOps.", defaultEnabled: true, dependencies: ["prOverview"] },
+  { id: "fileFilters", group: "navigation", label: "Native file filters", description: "Filter Azure DevOps' native file model by change kind, extension, and optional noise heuristics, alongside its existing Filter control.", defaultEnabled: true, dependencies: ["groupedNavigation"] },
   { id: "reviewProgress", group: "review", label: "Azure DevOps reviewed state", description: "Use the native Azure DevOps reviewed checkboxes as the authoritative server-backed state.", defaultEnabled: true, dependencies: ["prOverview"] },
   { id: "keyboardShortcuts", group: "navigation", label: "Keyboard shortcuts", description: "Use N for next unreviewed and Shift+R to open discussions.", defaultEnabled: true, dependencies: ["groupedNavigation"] },
   { id: "startReviewing", group: "review", label: "Start Reviewing announcement", description: "Preview and explicitly post a normal PR comment announcing the current reviewer started.", defaultEnabled: true, dependencies: ["prOverview"] },

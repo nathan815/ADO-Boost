@@ -21,9 +21,9 @@ Prefer small, extension-owned additions next to native controls rather than rewr
 
 These are design and review criteria, not guarantees about all existing code paths.
 
-## Experimental native file-tree adapter
+## Native file-tree adapter
 
-The default browser-extension path remains DOM-based. The opt-in `nativeTreeIntegration` feature replaces its per-file DOM badges and CSS row-hiding with instance-scoped integration into the observed native filtering and rendering pipeline. It does not replace the file tree.
+The native file-tree adapter is the only implementation for per-file counts and extra file filters, enabled by default through `groupedNavigation`. It uses instance-scoped integration into the observed native filtering and rendering pipeline without replacing the file tree. The former `nativeTreeIntegration` and extension-owned `fileSearch` settings are retired; settings migration ignores those saved keys while preserving navigation, filter, and noise-hiding preferences. Search and reviewed-state filtering use ADO's existing Filter control. There is no DOM badge insertion or CSS row-hiding implementation.
 
 The bundled `native-tree.js` entry runs in the page's MAIN world. The existing isolated content script sends only bounded comparison/file metadata and extra filter choices through a strictly validated message protocol. The page bridge cannot access extension storage, native messaging, or review write gateways. Messages are page-visible, not a trusted authorization channel. The bundled validator uses Zod's `jitless` mode because the host CSP disallows dynamic code generation.
 
@@ -35,7 +35,7 @@ The native Tree uses its own column callback objects when rendering rows, so mer
 
 Model changes can replace the mounted Table. A bounded discovery interval reattaches the renderer without rebuilding or clearing the active filtered model. Leaving Files view restores the native model and waits without expiring the compatibility deadline, so returning after a long tab change can attach again. Disable/unmount restores only methods and callbacks still owned by the adapter and rebuilds from the native iteration cache. Re-enabling the extension recreates its disposed content surfaces and bridge subscription. A missing filtering contract stops the integration with an explicit status and no automatic CSS fallback. A missing count-rendering contract can disable counts independently.
 
-Counts are displayed only when native iteration, source commit, and base commit match the analyzed merge-base comparison. Native keyword and reviewed-state filters remain available for other comparisons; extension counts and extra predicates must not present stale comparison data. Installed-extension Chrome checks covered 12-file and 198-file PRs, offscreen-file filtering, native filter resets, comparison switching, keyboard-driven virtualized navigation and folder collapse/expansion, tab remounts, and master disable/re-enable. Sustained pointer scrolling, cross-page pagination, and broader host compatibility are not release-certified. The feature remains experimental and off by default; a write-disabled harness alone is not a substitute for extension installation testing.
+Counts are displayed only when native iteration, source commit, and base commit match the analyzed merge-base comparison. Native keyword and reviewed-state filters remain available for other comparisons; extension counts and extra predicates must not present stale comparison data. Installed-extension Chrome checks covered 12-file and 198-file PRs, offscreen-file filtering, native filter resets, comparison switching, keyboard-driven virtualized navigation and folder collapse/expansion, tab remounts, and master disable/re-enable. Sustained pointer scrolling, cross-page pagination, and broader host compatibility are not release-certified; a write-disabled harness alone is not a substitute for extension installation testing. Disabling navigation restores the native methods and count label; disabling extra filters clears the adapter's predicates while retaining React-rendered counts.
 
 ## ADO Boost native UI ownership
 
