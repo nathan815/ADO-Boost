@@ -334,11 +334,13 @@ describe("NativePrEnhancer", () => {
     total.dispatchEvent(new MouseEvent("mouseleave"));
     expect(document.querySelector("[data-adopp-total-diff-popover]")).toBeNull();
     expect(actions.textContent).not.toContain("ADO Boost");
-    expect(actions.textContent).toContain("Start Review");
+    expect(actions.textContent).toContain("Assistant");
     expect(document.querySelector(".adopp-start-split")?.getAttribute("data-review-started")).toBe("false");
-    expect(document.querySelectorAll(".adopp-start-review-icon path")).toHaveLength(1);
-    expect(document.querySelectorAll(".adopp-start-review-icon circle")).toHaveLength(1);
+    expect(document.querySelectorAll(".adopp-start-review-icon path")).toHaveLength(2);
+    expect(document.querySelectorAll(".adopp-start-review-icon circle")).toHaveLength(0);
+    expect(document.querySelector(".adopp-start-review-icon")?.getAttribute("aria-hidden")).toBe("true");
     expect([...actions.children].at(-1)?.textContent?.trim()).toBe("Approve");
+    expect(document.querySelector(".adopp-start-button")?.textContent).toContain("Assistant");
     const hiddenProposalText = document.querySelector<HTMLElement>("[data-adopp-merge-proposal-text]")!;
     expect(hiddenProposalText.textContent).toBe("·");
     expect(hiddenProposalText.dataset.adoppOriginalText).toBe("proposes to merge");
@@ -381,28 +383,47 @@ describe("NativePrEnhancer", () => {
     expect(staleStyle.textContent).toContain(".adopp-total-diff");
   });
 
-  it("starts an unannounced review, then opens the assistant after the announcement", () => {
+  it("leaves Approve untouched and keeps Assistant available before and after review starts", () => {
     let announced = false;
     const startReviewing = vi.fn();
     const openDiscussions = vi.fn();
     enhancer = createEnhancer({ startReviewing, openDiscussions, isReviewAnnounced: () => announced });
+    const approve = document.querySelector<HTMLButtonElement>(".actions > .repos-pr-header-vote-button > button")!;
+    const originalLabel = approve.querySelector(".bolt-button-text")!.firstChild;
+    const original = approve.outerHTML;
+    const nativeApprove = vi.fn();
+    const nativeOptions = vi.fn();
+    approve.addEventListener("click", nativeApprove);
+    document.querySelector('[aria-label="More vote options"]')!.addEventListener("click", nativeOptions);
     enhancer.start();
+    enhancer.refresh();
+    expect(approve.outerHTML).toBe(original);
 
     document.querySelector<HTMLButtonElement>(".adopp-start-button")!.click();
-    expect(startReviewing).toHaveBeenCalledOnce();
-    expect(openDiscussions).not.toHaveBeenCalled();
+    expect(openDiscussions).toHaveBeenCalledOnce();
+    expect(startReviewing).not.toHaveBeenCalled();
+    approve.click();
+    expect(startReviewing).not.toHaveBeenCalled();
+    expect(nativeApprove).toHaveBeenCalledOnce();
+    document.querySelector<HTMLButtonElement>('[aria-label="More vote options"]')!.click();
+    expect(nativeOptions).toHaveBeenCalledOnce();
 
     announced = true;
     window.dispatchEvent(new CustomEvent("adopp:announcement-changed"));
 
     const button = document.querySelector<HTMLButtonElement>(".adopp-start-button")!;
-    expect(button.textContent).toContain("Review Assistant");
-    expect(button.getAttribute("aria-label")).toBe("Review Assistant");
+    expect(button.textContent).toContain("Assistant");
+    expect(button.getAttribute("aria-label")).toBe("Assistant");
+    expect(approve.textContent).toBe("Approve");
+    expect(approve.hasAttribute("aria-label")).toBe(false);
+    expect(approve.querySelector(".bolt-button-text")!.firstChild).toBe(originalLabel);
+    approve.click();
+    expect(nativeApprove).toHaveBeenCalledTimes(2);
     expect(button.disabled).toBe(false);
     expect(document.querySelector<HTMLElement>(".adopp-start-split")!.dataset.reviewStarted).toBe("true");
     button.click();
-    expect(openDiscussions).toHaveBeenCalledOnce();
-    expect(startReviewing).toHaveBeenCalledOnce();
+    expect(openDiscussions).toHaveBeenCalledTimes(2);
+    expect(startReviewing).not.toHaveBeenCalled();
     expect(getComputedStyle(document.querySelector(".adopp-start-split")!).boxShadow).toContain("0 1px 2px");
   });
 
@@ -417,9 +438,100 @@ describe("NativePrEnhancer", () => {
     const button = document.querySelector<HTMLButtonElement>(".adopp-start-button")!;
     expect(button.hidden).toBe(false);
     expect(button.disabled).toBe(false);
-    expect(button.textContent).toContain("Review Assistant");
+    expect(button.textContent).toContain("Assistant");
     button.click();
     expect(openDiscussions).toHaveBeenCalledOnce();
+  });
+
+  it("starts reviews from the Assistant menu and disables the entry after success", () => {
+    let announced = false;
+    const startReviewing = vi.fn();
+    enhancer = createEnhancer({ startReviewing, isReviewAnnounced: () => announced });
+    enhancer.start();
+    document.querySelector<HTMLButtonElement>(".adopp-action-menu-button")!.click();
+    const start = document.querySelector<HTMLButtonElement>('[data-action="start-review"]')!;
+    expect(start.textContent).toBe("Start Reviewing");
+    start.click();
+    expect(startReviewing).toHaveBeenCalledOnce();
+    expect(document.querySelector(".adopp-action-menu")).toBeNull();
+
+    announced = true;
+    window.dispatchEvent(new CustomEvent("adopp:announcement-changed"));
+    document.querySelector<HTMLButtonElement>(".adopp-action-menu-button")!.click();
+    const started = document.querySelector<HTMLButtonElement>('[data-action="start-review"]')!;
+    expect(started.textContent).toBe("You've started reviewing");
+    expect(started.disabled).toBe(true);
+    started.click();
+    expect(startReviewing).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Assistant and its review-start option without an Approve button", () => {
+    const actions = document.querySelector(".actions")!;
+    actions.innerHTML = '<button class="bolt-button">Complete</button>';
+    const complete = actions.firstElementChild!;
+    const original = complete.outerHTML;
+    const startReviewing = vi.fn();
+    enhancer = createEnhancer({ startReviewing });
+    enhancer.start();
+    enhancer.refresh();
+    expect(complete.outerHTML).toBe(original);
+    expect(actions.querySelector(".adopp-start-button")?.textContent).toBe("Assistant");
+    document.querySelector<HTMLButtonElement>(".adopp-action-menu-button")!.click();
+    document.querySelector<HTMLButtonElement>('[data-action="start-review"]')!.click();
+    expect(startReviewing).toHaveBeenCalledOnce();
+  });
+
+  it("preserves Approve through announcement setting changes and cleanup", () => {
+    const approve = document.querySelector<HTMLButtonElement>(".actions > .repos-pr-header-vote-button > button")!;
+    approve.setAttribute("aria-label", "Approve pull request");
+    const original = approve.outerHTML;
+    const nativeApprove = vi.fn();
+    approve.addEventListener("click", nativeApprove);
+    enhancer = createEnhancer();
+    enhancer.start();
+    const settings = defaultSettings();
+    settings.features.startReviewing = false;
+    enhancer.updateSettings(settings);
+    expect(approve.outerHTML).toBe(original);
+    approve.click();
+    expect(nativeApprove).toHaveBeenCalledOnce();
+    expect(document.querySelector<HTMLButtonElement>(".adopp-start-button")!.hidden).toBe(false);
+    document.querySelector<HTMLButtonElement>(".adopp-action-menu-button")!.click();
+    expect(document.querySelector('[data-action="start-review"]')).toBeNull();
+    settings.features.startReviewing = true;
+    enhancer.updateSettings(settings);
+    expect(approve.outerHTML).toBe(original);
+    enhancer.destroy();
+    expect(approve.outerHTML).toBe(original);
+    approve.click();
+    expect(nativeApprove).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not alter an already-started native Approve action", () => {
+    const approve = document.querySelector<HTMLButtonElement>(".actions > .repos-pr-header-vote-button > button")!;
+    const original = approve.outerHTML;
+    enhancer = createEnhancer({ isReviewAnnounced: () => true });
+    enhancer.start();
+    enhancer.refresh();
+    expect(approve.outerHTML).toBe(original);
+  });
+
+  it("leaves replacement native buttons and other vote states untouched", () => {
+    const startReviewing = vi.fn();
+    enhancer = createEnhancer({ startReviewing });
+    enhancer.start();
+    const split = document.querySelector<HTMLElement>(".actions > .repos-pr-header-vote-button")!;
+    split.querySelector("button")!.outerHTML = '<button aria-label="Approve"><span class="bolt-button-text">Approve</span></button>';
+    enhancer.refresh();
+    const approve = split.querySelector<HTMLButtonElement>("button")!;
+    expect(approve.textContent).toBe("Approve");
+    approve.click();
+    expect(startReviewing).not.toHaveBeenCalled();
+    approve.querySelector(".bolt-button-text")!.textContent = "Approved";
+    enhancer.refresh();
+    expect(approve.textContent).toBe("Approved");
+    approve.click();
+    expect(startReviewing).not.toHaveBeenCalled();
   });
 
   it.each([false, true])("shows an elevated assistant on completed PRs without Approve when announced=%s", (announced) => {
@@ -436,7 +548,7 @@ describe("NativePrEnhancer", () => {
 
     const button = document.querySelector<HTMLButtonElement>(".adopp-start-button")!;
     expect(document.querySelectorAll("[data-adopp-action-group]")).toHaveLength(1);
-    expect(button.textContent).toContain("Review Assistant");
+    expect(button.textContent).toContain("Assistant");
     expect(button.disabled).toBe(false);
     expect(button.hidden).toBe(false);
     button.click();
@@ -458,7 +570,7 @@ describe("NativePrEnhancer", () => {
     enhancer.start();
     enhancer.refresh();
 
-    expect(actions.querySelector(".adopp-start-button")!.textContent).toContain("Review Assistant");
+    expect(actions.querySelector(".adopp-start-button")!.textContent).toContain("Assistant");
     expect(actions.querySelectorAll("[data-adopp-action-group]")).toHaveLength(1);
   });
 
@@ -470,7 +582,7 @@ describe("NativePrEnhancer", () => {
     document.querySelector(".actions")!.insertAdjacentHTML("beforeend", '<button class="bolt-button">Reactivate</button>');
     enhancer.refresh();
 
-    expect(document.querySelector(".adopp-start-button")!.textContent).toContain("Review Assistant");
+    expect(document.querySelector(".adopp-start-button")!.textContent).toContain("Assistant");
     expect(document.querySelectorAll("[data-adopp-action-group]")).toHaveLength(1);
   });
 
@@ -514,7 +626,7 @@ describe("NativePrEnhancer", () => {
     expect(group.parentElement).toBe(document.querySelector(".pr-header-row"));
     expect(group.previousElementSibling).toBe(titleSlot);
     expect(document.querySelector(".bolt-clipboard-button [data-adopp-action-group]")).toBeNull();
-    expect(group.querySelector(".adopp-start-button")!.textContent).toContain("Review Assistant");
+    expect(group.querySelector(".adopp-start-button")!.textContent).toContain("Assistant");
   });
 
   it("does not mount into unrelated page actions when the native PR header is absent", () => {

@@ -115,6 +115,7 @@ export class ReviewPanel {
             </div>
           </div>
           <p class="subtitle">${this.dependencies.synthetic ? "Synthetic offline fixture · " : ""}Iteration ${analysis.context.iterationId} · comments stay visible while you review files</p>
+          ${this.reviewStartMarkup()}
         </header>
         <section class="summary" aria-label="Pull request review summary">
           <div class="metric"><b>${analysis.threads.active}</b><span>open</span></div>
@@ -123,13 +124,20 @@ export class ReviewPanel {
         </section>
         <main class="workspace">
           ${this.unresolvedChangesMarkup()}
-          ${this.announcementError ? `<div class="delivery error">${escapeHtml(this.announcementError)}. Start Reviewing will check again before posting.</div>` : ""}
+          ${this.announcementError ? `<div class="delivery error">${escapeHtml(this.announcementError)}. Announce Review Start will check again before posting.</div>` : ""}
           ${this.copilotMarkup()}
           ${resolveFeature(this.settings, "draftQueue").enabled || resolveFeature(this.settings, "threadNavigator").enabled ? this.discussion.markup() : ""}
         </main>
       </aside>
     `;
     this.bind();
+  }
+
+  private reviewStartMarkup(): string {
+    if (!resolveFeature(this.settings, "startReviewing").enabled) return "";
+    return `<div class="review-start">${this.announcementPosted
+      ? '<p class="review-start-status" role="status" tabindex="-1">You\'ve started reviewing</p>'
+      : '<button class="primary announce-review" type="button">Announce Review Start</button>'}</div>`;
   }
 
   private unresolvedChangesMarkup(): string {
@@ -143,6 +151,7 @@ export class ReviewPanel {
   private bind(): void {
     this.root.querySelector(".close")?.addEventListener("click", () => { this.open = false; this.render(); });
     this.root.querySelector(".settings")?.addEventListener("click", this.dependencies.openSettings);
+    this.root.querySelector(".announce-review")?.addEventListener("click", () => this.startReviewing());
     this.discussion.bind(this.root);
     this.root.querySelector(".copilot-health")?.addEventListener("click", () => void this.checkCopilot());
     this.root.querySelector(".copilot-groups")?.addEventListener("click", () => this.showCopilotPrivacy("groups"));
@@ -238,7 +247,10 @@ export class ReviewPanel {
         this.render();
         window.dispatchEvent(new CustomEvent("adopp:announcement-changed"));
       },
-      onClose: () => { this.announcementDialog = null; }
+      onClose: () => {
+        this.announcementDialog = null;
+        if (this.open) this.root.querySelector<HTMLElement>(".announce-review,.review-start-status")?.focus();
+      }
     });
     this.announcementDialog.open();
   }

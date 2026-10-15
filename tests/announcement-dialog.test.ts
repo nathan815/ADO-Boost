@@ -244,7 +244,7 @@ describe("Native announcement dialog", () => {
     expect(document.querySelector("[data-adopp-announcement-dialog]")).toBeNull();
   });
 
-  it("turns Start Review into a sidebar opener only after the announcement succeeds", async () => {
+  it("announces from the Assistant sidebar without modifying Approve", async () => {
     const analysis: PullRequestAnalysis = {
       context: {
         origin: "https://dev.azure.com", organization: "org", project: "project", repository: "repo",
@@ -253,7 +253,7 @@ describe("Native announcement dialog", () => {
       },
       files: [], groups: [], threads: { state: "available", active: 0, resolved: 0, total: 0 }, completedTrackingIds: new Set()
     };
-    const postAnnouncement = vi.fn().mockResolvedValue(undefined);
+    const postAnnouncement = vi.fn().mockRejectedValueOnce(new Error("Network failed")).mockResolvedValue(undefined);
     const settings = defaultSettings();
     panel = new ReviewPanel({
       analysis,
@@ -275,20 +275,43 @@ describe("Native announcement dialog", () => {
     });
     enhancer.start();
     try {
+      const approve = document.querySelector<HTMLButtonElement>(".actions > .bolt-split-button > button")!;
+      const originalApprove = approve.outerHTML;
+      const sidebar = () => [...document.documentElement.children].find((element) => element.shadowRoot)?.shadowRoot;
       document.querySelector<HTMLButtonElement>(".adopp-start-button")!.click();
-      expect(document.querySelector("[data-adopp-announcement-dialog]")).not.toBeNull();
-      expect(panel.isReviewAnnounced()).toBe(false);
-      expect(document.querySelector(".adopp-start-button")!.textContent).toContain("Start Review");
-      button("confirm").click();
-      await vi.waitFor(() => expect(document.querySelector(".adopp-start-button")!.textContent).toContain("Review Assistant"));
-      expect(postAnnouncement).toHaveBeenCalledOnce();
       expect(document.querySelector("[data-adopp-announcement-dialog]")).toBeNull();
+      const announce = sidebar()!.querySelector<HTMLButtonElement>(".header .announce-review")!;
+      expect(announce.textContent).toBe("Announce Review Start");
+      expect(announce.classList.contains("primary")).toBe(true);
+      expect(postAnnouncement).not.toHaveBeenCalled();
+      announce.focus();
+      announce.click();
+      expect(document.querySelector("[data-adopp-announcement-dialog]")).not.toBeNull();
+      button("cancel").click();
+      expect(postAnnouncement).not.toHaveBeenCalled();
+      expect(sidebar()!.activeElement?.classList.contains("announce-review")).toBe(true);
+      sidebar()!.querySelector<HTMLButtonElement>(".announce-review")!.click();
+      expect(panel.isReviewAnnounced()).toBe(false);
+      expect(approve.outerHTML).toBe(originalApprove);
+      expect(document.querySelector(".adopp-start-button")!.textContent).toContain("Assistant");
+      button("confirm").click();
+      await vi.waitFor(() => expect(document.querySelector('[role="alert"]')?.textContent).toContain("Network failed"));
+      expect(sidebar()!.querySelector(".announce-review")).not.toBeNull();
+      expect(sidebar()!.querySelector(".review-start-status")).toBeNull();
+      expect(approve.outerHTML).toBe(originalApprove);
+      button("confirm").click();
+      await vi.waitFor(() => expect(sidebar()!.querySelector(".review-start-status")?.textContent).toBe("You've started reviewing"));
+      expect(sidebar()!.querySelector(".announce-review")).toBeNull();
+      expect(approve.outerHTML).toBe(originalApprove);
+      expect(postAnnouncement).toHaveBeenCalledTimes(2);
+      expect(document.querySelector("[data-adopp-announcement-dialog]")).toBeNull();
+      expect(sidebar()!.activeElement?.classList.contains("review-start-status")).toBe(true);
 
       document.querySelector<HTMLButtonElement>(".adopp-start-button")!.click();
       const rail = [...document.querySelectorAll("div")].map((host) => host.shadowRoot?.querySelector(".rail")).find(Boolean)!;
       expect(rail.getAttribute("data-open")).toBe("true");
       expect(document.querySelector("[data-adopp-announcement-dialog]")).toBeNull();
-      expect(postAnnouncement).toHaveBeenCalledOnce();
+      expect(postAnnouncement).toHaveBeenCalledTimes(2);
     } finally {
       enhancer.destroy();
     }

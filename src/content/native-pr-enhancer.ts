@@ -282,12 +282,16 @@ export class NativePrEnhancer {
   }
 
   private renderActionGroup(): void {
-    const approve = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => normalize(button.textContent) === "approve");
-    const completed = normalize(findHeaderStatus()?.textContent ?? null) === "completed";
+    const approve = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+      !button.closest("[data-adopp-action-group]") &&
+      normalize(button.textContent) === "approve"
+    );
     const approveSplit = approve?.closest<HTMLElement>(".bolt-split-button") ?? approve?.parentElement;
     const mount = approveSplit?.parentElement
       ? { host: approveSplit.parentElement, before: approveSplit }
-      : completed ? findHeaderActionMount() : null;
+      : findHeaderActionMount();
+    const reviewStarted = this.actions.isReviewAnnounced();
+    const startEnabled = resolveFeature(this.settings, "startReviewing").enabled;
     if (!mount) {
       document.querySelector("[data-adopp-action-group]")?.remove();
       this.clearHeaderWrapping();
@@ -305,7 +309,6 @@ export class NativePrEnhancer {
     }
     closeActionMenu();
     group.innerHTML = "";
-    const startEnabled = resolveFeature(this.settings, "startReviewing").enabled;
     const startSplit = approveSplit ? approveSplit.cloneNode(true) as HTMLElement : createReviewActionSplit();
     sanitizeClonedNativeControl(startSplit);
     startSplit.className = stableNativeClassNames(startSplit)
@@ -319,10 +322,8 @@ export class NativePrEnhancer {
     if (!clonedButtons[0]) startSplit.prepend(start);
     start.type = "button";
     start.classList.add("adopp-start-button");
-    const reviewStarted = this.actions.isReviewAnnounced();
-    const assistant = completed || reviewStarted;
     startSplit.dataset.reviewStarted = String(reviewStarted);
-    const startLabel = assistant ? "Review Assistant" : "Start Review";
+    const startLabel = "Assistant";
     let startText = start.querySelector<HTMLElement>(".bolt-button-text");
     if (!startText) {
       startText = document.createElement("span");
@@ -330,19 +331,16 @@ export class NativePrEnhancer {
       start.replaceChildren(startText);
     }
     startText.textContent = startLabel;
-    const reviewIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    reviewIcon.setAttribute("class", "adopp-start-review-icon");
-    reviewIcon.setAttribute("viewBox", "0 0 16 16");
-    reviewIcon.setAttribute("aria-hidden", "true");
-    reviewIcon.innerHTML = '<path d="M1.5 8s2.2-4 6.5-4 6.5 4 6.5 4-2.2 4-6.5 4S1.5 8 1.5 8Z"></path><circle cx="8" cy="8" r="1.8"></circle>';
-    start.insertBefore(reviewIcon, startText);
+    const assistantIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    assistantIcon.setAttribute("class", "adopp-start-review-icon");
+    assistantIcon.setAttribute("viewBox", "0 0 16 16");
+    assistantIcon.setAttribute("aria-hidden", "true");
+    assistantIcon.innerHTML = '<path d="M8.5 2.5H3A1.5 1.5 0 0 0 1.5 4v6A1.5 1.5 0 0 0 3 11.5h.5v3l3.5-3h5a1.5 1.5 0 0 0 1.5-1.5V7.5"></path><path d="M12 .75l.75 2 2 .75-2 .75-.75 2-.75-2-2-.75 2-.75Z"></path>';
+    start.insertBefore(assistantIcon, startText);
     start.setAttribute("aria-label", startLabel);
     start.disabled = false;
-    start.hidden = !assistant && !startEnabled;
-    start.addEventListener("click", () => {
-      if (assistant) this.actions.openDiscussions();
-      else this.actions.startReviewing();
-    });
+    start.hidden = false;
+    start.addEventListener("click", () => this.actions.openDiscussions());
     const menuButton = clonedButtons[1] ?? document.createElement("button");
     menuButton.type = "button";
     if (!clonedButtons[1]) {
@@ -365,7 +363,12 @@ export class NativePrEnhancer {
       const menu = document.createElement("div");
       menu.className = "adopp-action-menu adopp-native-menu bolt-callout bolt-callout-shadow";
       menu.setAttribute("role", "menu");
-      menu.innerHTML = nativeMenuContent(`${nativeMenuItem("discussions", "Open discussion sidebar")}${nativeMenuItem("unreviewed", "Next unreviewed file")}${nativeMenuItem("settings", "ADO Boost settings")}`);
+      const reviewItem = startEnabled ? nativeMenuItem("start-review", reviewStarted ? "You've started reviewing" : "Start Reviewing", reviewStarted) : "";
+      menu.innerHTML = nativeMenuContent(`${reviewItem}${nativeMenuItem("discussions", "Open discussion sidebar")}${nativeMenuItem("unreviewed", "Next unreviewed file")}${nativeMenuItem("settings", "ADO Boost settings")}`);
+      menu.querySelector('[data-action="start-review"]')?.addEventListener("click", () => {
+        closeActionMenu();
+        this.actions.startReviewing();
+      });
       menu.querySelector('[data-action="discussions"]')?.addEventListener("click", () => {
         closeActionMenu();
         this.actions.openDiscussions();
@@ -1030,8 +1033,8 @@ function isOwnedMutationRecord(record: MutationRecord): boolean {
   return changedNodes.length > 0 && changedNodes.every((node) => isOwnedMutation(node));
 }
 
-function nativeMenuItem(action: string, label: string): string {
-  return `<div class="bolt-list-row bolt-menu-item" role="presentation"><div class="bolt-list-cell"><button class="bolt-button bolt-menu-button enabled subtle flex-row flex-center bolt-focus-treatment body-m" type="button" role="menuitem" data-action="${action}"><span class="bolt-button-text">${label}</span></button></div></div>`;
+function nativeMenuItem(action: string, label: string, disabled = false): string {
+  return `<div class="bolt-list-row bolt-menu-item" role="presentation"><div class="bolt-list-cell"><button class="bolt-button bolt-menu-button ${disabled ? "disabled" : "enabled"} subtle flex-row flex-center bolt-focus-treatment body-m" type="button" role="menuitem" data-action="${action}"${disabled ? ' disabled aria-disabled="true"' : ""}><span class="bolt-button-text">${label}</span></button></div></div>`;
 }
 
 function sanitizeClonedNativeControl(element: HTMLElement): void {
