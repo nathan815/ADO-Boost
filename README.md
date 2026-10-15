@@ -19,13 +19,16 @@ Browser loading, native-host registration, and live Copilot inference require se
 - Explicit exact, partial, binary, unavailable, and error states. Missing data is never displayed as exact zero.
 - CRLF normalization and terminal-newline-only change handling documented and tested against a normalized Git oracle.
 - Bounded 2 MiB file analysis, bounded fetch concurrency, paginated change retrieval, and stale-result cancellation.
+- Nullable API fields are accepted, numeric-string change tracking IDs are normalized, and change-entry schema mismatches are advisory warnings, never a reason to discard a record. Deleted-file paths are recovered from `originalPath` when available. Entries still lacking information needed for a diff are retained with their original JSON, listed as unresolved in the review panel, and logged to the console; overall totals remain visibly partial, and saved review progress is preserved. Essential repository, identity, commit, pagination, and write-confirmation data still requires validation.
+- File-content fetch failures log console warnings with the file path, commit, base/source side, repository and PR IDs, and original error. Expected navigation cancellations do not produce warnings.
 - Compact PR-list badges for visible rows.
 
 ### Native Azure DevOps review workspace
 
 - Full-path search, change and extension filters, reviewed-file filtering, and opt-in generated/lockfile hiding are inserted above Azure DevOps' native file tree.
 - Hiding noise never changes the reported overall totals.
-- With no extension filters active, every native tree row stays visible, including collapsed folders and files the extension cannot identify. Tree counters cover recognized rendered files, not necessarily every file in the selected comparison.
+- All files returned by the paginated PR changes API are analyzed independently of scrolling or collapsed folders. The toolbar analysis total and search/type/noise-filter counts use the full PR file list, not currently rendered rows. Unresolved records and incomplete counts remain explicit.
+- With no extension filters active, every native tree row stays visible, including collapsed folders and files the extension cannot identify. Native reviewed-checkbox counts are labeled "in view" because Azure DevOps only exposes those checkbox states for currently rendered rows; they are not analysis coverage or whole-PR review progress.
 - Previous, next, next-unreviewed, and keyboard navigation reuse Azure DevOps' SPA file links without forcing a full page reload.
 - Azure DevOps' existing server-backed reviewed checkboxes remain authoritative. ADO Boost does not render or synchronize a second reviewed-state system.
 - The elevated `Review Assistant` button opens the discussions and review-tools side panel on completed PRs and after a review has started.

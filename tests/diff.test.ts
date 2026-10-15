@@ -38,4 +38,10 @@ describe("countChangedLines", () => {
     const unavailable = countChangedLines({ ...file, trackingId: 2 }, { before: "a", after: "b", afterSize: MAX_FILE_BYTES + 1 });
     expect(totalStats([exact, unavailable])).toEqual({ additions: 1, deletions: 1, exact: false, incomplete: 1 });
   });
+
+  it("marks totals as partial when retained changes cannot be analyzed", () => {
+    const exact = countChangedLines(file, { before: "a\n", after: "b\n" });
+    expect(totalStats([exact], 6)).toEqual({ additions: 1, deletions: 1, exact: false, incomplete: 6 });
+    expect(totalStats([], 6)).toEqual({ additions: 0, deletions: 0, exact: false, incomplete: 6 });
+  });
 });

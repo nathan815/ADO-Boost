@@ -60,7 +60,7 @@ export class PullRequestListBadges {
     const pending = this.attach(link, "…", "ADO Boost is calculating changed lines");
     try {
       const analysis = await this.analyzer.analyze(route, this.controller.signal);
-      const totals = totalStats(analysis.files);
+      const totals = totalStats(analysis.files, analysis.unresolvedChanges?.length);
       const text = `+${totals.additions} −${totals.deletions}${totals.exact ? "" : " ~"}`;
       this.cache.set(key, text);
       pending.textContent = text;

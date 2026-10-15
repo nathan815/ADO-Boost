@@ -82,10 +82,10 @@ export function isLockfile(path: string): boolean {
   return /(^|\/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|cargo\.lock|poetry\.lock|composer\.lock|packages\.lock\.json)$/i.test(path);
 }
 
-export function totalStats(files: FileStat[]): { additions: number; deletions: number; exact: boolean; incomplete: number } {
+export function totalStats(files: FileStat[], unresolvedChanges = 0): { additions: number; deletions: number; exact: boolean; incomplete: number } {
   let additions = 0;
   let deletions = 0;
-  let incomplete = 0;
+  let incomplete = unresolvedChanges;
   for (const file of files) {
     if (file.additions === null || file.deletions === null || file.state !== "exact") incomplete += 1;
     additions += file.additions ?? 0;

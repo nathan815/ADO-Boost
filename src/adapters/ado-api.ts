@@ -1,72 +1,68 @@
 import { z } from "zod";
-import type { ChangedFile, PrRoute, PullRequestContext, PullRequestThread, ReviewDraft, ThreadOverview } from "../core/types";
+import type { ChangeEntry, ChangedFile, PrRoute, PullRequestContext, PullRequestThread, ReviewDraft, ThreadOverview, UnresolvedChange } from "../core/types";
 import { legacyAnnouncementBody, readAnnouncementMetadata } from "../core/announcement-content";
+import { createResponseValidation, type ResponseWarning } from "./response-validation";
+import { readChangeEntry } from "./change-response";
 
-const identitySchema = z.object({
-  id: z.string().min(1),
-  displayName: z.string().min(1)
-}).passthrough();
-
-const pullRequestSchema = z.object({
-  pullRequestId: z.number().int().positive(),
-  title: z.string(),
-  repository: z.object({ id: z.string().min(1) }).passthrough(),
-  createdBy: identitySchema.optional()
-}).passthrough();
-
-const iterationSchema = z.object({
-  id: z.number().int().positive(),
-  sourceRefCommit: z.object({ commitId: z.string().min(1) }).passthrough(),
-  targetRefCommit: z.object({ commitId: z.string().min(1) }).passthrough(),
-  commonRefCommit: z.object({ commitId: z.string().min(1) }).passthrough()
-}).passthrough();
-
-const changeSchema = z.object({
-  changeTrackingId: z.number().int().nonnegative(),
-  changeType: z.string(),
-  originalPath: z.string().optional(),
-  item: z.object({
-    path: z.string().min(1),
-    objectId: z.string().optional(),
-    originalObjectId: z.string().optional()
-  }).passthrough()
-}).passthrough();
-
-const changesPageSchema = z.object({
-  changeEntries: z.array(changeSchema),
-  nextSkip: z.number().int().nonnegative().optional(),
-  nextTop: z.number().int().nonnegative().optional()
-}).passthrough();
-
-const threadSchema = z.object({
-  id: z.number().int().positive().optional(),
-  status: z.string().optional(),
-  isDeleted: z.boolean().optional(),
-  threadContext: z.object({
-    filePath: z.string().optional(),
-    leftFileStart: z.object({ line: z.number().int().positive(), offset: z.number().int().nonnegative() }).optional(),
-    rightFileStart: z.object({ line: z.number().int().positive(), offset: z.number().int().nonnegative() }).optional()
-  }).passthrough().nullish(),
-  properties: z.record(z.string(), z.unknown()).nullish(),
-  comments: z.array(z.object({
-    id: z.number().int().positive().optional(),
-    content: z.string().optional(),
-    author: identitySchema.optional(),
-    isDeleted: z.boolean().optional()
-  }).passthrough()).optional()
-}).passthrough();
-
-const connectionDataSchema = z.object({
-  authenticatedUser: z.object({
+function createReadSchemas(warn: ResponseWarning) {
+  const { optional } = createResponseValidation(warn);
+  const identitySchema = z.object({
     id: z.string().min(1),
-    displayName: z.string().min(1).optional(),
-    customDisplayName: z.string().min(1).optional(),
-    providerDisplayName: z.string().min(1).optional()
-  }).passthrough().transform((identity) => ({
-    id: identity.id,
-    displayName: identity.displayName ?? identity.customDisplayName ?? identity.providerDisplayName ?? "Authenticated user"
-  }))
-}).passthrough();
+    displayName: optional(z.string().min(1), "identity.displayName").transform((name) => name ?? "Unknown reviewer")
+  }).passthrough();
+
+  const pullRequestSchema = z.object({
+    pullRequestId: z.number().int().positive(),
+    title: optional(z.string(), "title").transform((title) => title ?? "Untitled pull request"),
+    repository: z.object({ id: z.string().min(1) }).passthrough(),
+    createdBy: optional(identitySchema, "createdBy")
+  }).passthrough();
+
+  const iterationSchema = z.object({
+    id: z.number().int().positive(),
+    sourceRefCommit: z.object({ commitId: z.string().min(1) }).passthrough(),
+    targetRefCommit: z.object({ commitId: z.string().min(1) }).passthrough(),
+    commonRefCommit: z.object({ commitId: z.string().min(1) }).passthrough()
+  }).passthrough();
+
+  const changesPageSchema = z.object({
+    changeEntries: z.array(z.unknown()),
+    nextSkip: z.number().int().nonnegative().nullish(),
+    nextTop: z.number().int().nonnegative().nullish()
+  }).passthrough();
+
+  const threadSchema = z.object({
+    id: z.number().int().positive().nullish(),
+    status: optional(z.string(), "thread.status"),
+    isDeleted: z.boolean().nullish(),
+    threadContext: z.object({
+      filePath: z.string().nullish(),
+      leftFileStart: z.object({ line: z.number().int().positive(), offset: z.number().int().nonnegative() }).nullish(),
+      rightFileStart: z.object({ line: z.number().int().positive(), offset: z.number().int().nonnegative() }).nullish()
+    }).passthrough().nullish(),
+    properties: optional(z.record(z.string(), z.unknown()), "thread.properties"),
+    comments: z.array(z.object({
+      id: z.number().int().positive().nullish(),
+      content: optional(z.string(), "comment.content"),
+      author: optional(identitySchema, "comment.author"),
+      isDeleted: z.boolean().nullish()
+    }).passthrough()).nullish()
+  }).passthrough();
+
+  const connectionDataSchema = z.object({
+    authenticatedUser: z.object({
+      id: z.string().min(1),
+      displayName: optional(z.string().min(1), "authenticatedUser.displayName"),
+      customDisplayName: optional(z.string().min(1), "authenticatedUser.customDisplayName"),
+      providerDisplayName: optional(z.string().min(1), "authenticatedUser.providerDisplayName")
+    }).passthrough().transform((identity) => ({
+      id: identity.id,
+      displayName: identity.displayName ?? identity.customDisplayName ?? identity.providerDisplayName ?? "Authenticated user"
+    }))
+  }).passthrough();
+
+  return { pullRequestSchema, iterationSchema, changesPageSchema, threadSchema, connectionDataSchema };
+}
 
 const createdThreadSchema = z.object({
   id: z.number().int().positive(),
@@ -87,9 +83,14 @@ export class FetchHttpClient implements HttpClient {
 }
 
 export class AdoApi {
-  constructor(private readonly http: HttpClient) {}
+  private readonly schemas: ReturnType<typeof createReadSchemas>;
+
+  constructor(private readonly http: HttpClient, private readonly warn: ResponseWarning = (message, details) => console.warn(message, details)) {
+    this.schemas = createReadSchemas(warn);
+  }
 
   async getContext(route: PrRoute, signal?: AbortSignal): Promise<PullRequestContext> {
+    const { pullRequestSchema, iterationSchema, connectionDataSchema } = this.schemas;
     const base = this.apiBase(route);
     const pr = await this.json(`${base}/git/repositories/${encodeURIComponent(route.repository)}/pullRequests/${route.pullRequestId}?api-version=7.1`, pullRequestSchema, signal);
     const iterations = await this.json(
@@ -117,29 +118,32 @@ export class AdoApi {
     };
   }
 
-  async getChanges(context: PullRequestContext, signal?: AbortSignal): Promise<ChangedFile[]> {
-    const all: ChangedFile[] = [];
+  async getChanges(context: PullRequestContext, signal?: AbortSignal): Promise<ChangeEntry[]> {
+    const all: ChangeEntry[] = [];
     let skip = 0;
     let top = 2000;
 
     do {
       const url = `${this.apiBase(context)}/git/repositories/${encodeURIComponent(context.repositoryId)}/pullRequests/${context.pullRequestId}/iterations/${context.iterationId}/changes?$top=${top}&$skip=${skip}&$compareTo=0&api-version=7.1`;
-      const page = await this.json(url, changesPageSchema, signal);
-      all.push(...page.changeEntries.map((entry) => ({
-        trackingId: entry.changeTrackingId,
-        path: entry.item.path,
-        ...(entry.originalPath ? { originalPath: entry.originalPath } : {}),
-        changeType: entry.changeType,
-        ...(entry.item.objectId ? { objectId: entry.item.objectId } : {}),
-        ...(entry.item.originalObjectId ? { originalObjectId: entry.item.originalObjectId } : {})
-      })));
+      const page = await this.json(url, this.schemas.changesPageSchema, signal);
+      const offset = all.length;
+      all.push(...page.changeEntries.map((entry, index) => readChangeEntry(entry, offset + index, this.warn)));
       skip = page.nextSkip ?? 0;
       top = page.nextTop ?? 0;
     } while (skip > 0 && top > 0);
     return all;
   }
 
+  async getChangesWithDiagnostics(context: PullRequestContext, signal?: AbortSignal): Promise<{ files: ChangedFile[]; unresolvedChanges: UnresolvedChange[] }> {
+    const entries = await this.getChanges(context, signal);
+    return {
+      files: entries.filter((entry) => entry.unresolved !== true),
+      unresolvedChanges: entries.filter((entry) => entry.unresolved === true)
+    };
+  }
+
   async getIterations(context: PullRequestContext, signal?: AbortSignal): Promise<Array<{ id: number; sourceCommit: string; mergeBaseCommit: string }>> {
+    const { iterationSchema } = this.schemas;
     const response = await this.json(
       `${this.apiBase(context)}/git/repositories/${encodeURIComponent(context.repositoryId)}/pullRequests/${context.pullRequestId}/iterations?api-version=7.1`,
       z.object({ value: z.array(iterationSchema) }).passthrough(),
@@ -329,7 +333,7 @@ export class AdoApi {
 
   private async getThreads(context: PullRequestContext, signal?: AbortSignal) {
     const url = `${this.apiBase(context)}/git/repositories/${encodeURIComponent(context.repositoryId)}/pullRequests/${context.pullRequestId}/threads?api-version=7.1`;
-    const response = await this.json(url, z.object({ value: z.array(threadSchema) }).passthrough(), signal);
+    const response = await this.json(url, z.object({ value: z.array(this.schemas.threadSchema) }).passthrough(), signal);
     return response.value.filter((thread) => !thread.isDeleted);
   }
 

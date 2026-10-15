@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AdoApi, type HttpClient } from "../src/adapters/ado-api";
 import type { PullRequestContext } from "../src/core/types";
 import type { ReviewDraft } from "../src/core/types";
@@ -78,9 +78,116 @@ describe("AdoApi", () => {
     expect(http.urls.every((url) => url.includes("%24compareTo=0") || url.includes("$compareTo=0"))).toBe(true);
   });
 
-  it("rejects malformed API responses instead of trusting assertions", async () => {
-    const http = new QueueHttp([json({ changeEntries: [{ nope: true }] })]);
-    await expect(new AdoApi(http).getChanges(context)).rejects.toThrow();
+  it("retains unresolved changes with warnings and continues pagination", async () => {
+    const warn = vi.fn();
+    const http = new QueueHttp([
+      json({
+        changeEntries: [
+          { changeTrackingId: 1, changeType: "edit", item: { path: "/a.ts" } },
+          { changeTrackingId: 2, changeType: "edit", item: { path: null } },
+          { nope: true }
+        ],
+        nextSkip: 3,
+        nextTop: 2
+      }),
+      json({ changeEntries: [{ changeTrackingId: 3, changeType: "add", item: { path: "/b.ts" } }], nextSkip: null, nextTop: null })
+    ]);
+    await expect(new AdoApi(http, warn).getChangesWithDiagnostics(context)).resolves.toEqual({
+      files: [
+        { trackingId: 1, changeType: "edit", path: "/a.ts" },
+        { trackingId: 3, changeType: "add", path: "/b.ts" }
+      ],
+      unresolvedChanges: [
+        {
+          unresolved: true,
+          trackingId: 2,
+          changeType: "edit",
+          detail: "No usable file path",
+          raw: { changeTrackingId: 2, changeType: "edit", item: { path: null } }
+        },
+        {
+          unresolved: true,
+          detail: "No usable change tracking ID; No usable change type; No usable file path",
+          raw: { nope: true }
+        }
+      ]
+    });
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn.mock.calls[0]?.[0]).toContain("changeEntries[1]");
+    expect(http.urls[1]).toContain("$skip=3");
+  });
+
+  it.each([null, undefined])("recovers a deleted file's null or missing path from originalPath: %s", async (path) => {
+    const warn = vi.fn();
+    const http = new QueueHttp([json({ changeEntries: [{ changeTrackingId: 1, changeType: "delete", originalPath: "/old.ts", item: { path } }] })]);
+    await expect(new AdoApi(http, warn).getChanges(context)).resolves.toEqual([{ trackingId: 1, changeType: "delete", path: "/old.ts", originalPath: "/old.ts" }]);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it.each([null, "", 42])("retains a record whose path cannot be recovered without inventing one: %s", async (path) => {
+    const warn = vi.fn();
+    const raw = { changeTrackingId: 1, changeType: "rename", originalPath: "/old.ts", item: { path } };
+    const api = new AdoApi(new QueueHttp([json({ changeEntries: [raw] })]), warn);
+    await expect(api.getChanges(context)).resolves.toEqual([{
+      unresolved: true, trackingId: 1, changeType: "rename", detail: "No usable file path", raw
+    }]);
+    expect(warn).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("retained unresolved"), raw);
+    expect(warn.mock.calls[0]?.[0]).not.toContain("expected string");
+  });
+
+  it("does not discard any entries because of schema mismatches", async () => {
+    const rawEntries = [null, 42, [], { unexpected: true }, { changeTrackingId: 1, changeType: "edit", item: { path: null } }];
+    const warn = vi.fn();
+    const api = new AdoApi(new QueueHttp([json({ changeEntries: rawEntries })]), warn);
+    const changes = await api.getChanges(context);
+    expect(changes).toHaveLength(rawEntries.length);
+    expect(changes.map((entry) => entry.unresolved === true ? entry.raw : entry.rawEntry)).toEqual(rawEntries);
+    expect(warn).toHaveBeenCalledTimes(rawEntries.length);
+  });
+
+  it("normalizes numeric-string tracking IDs without discarding the change", async () => {
+    const warn = vi.fn();
+    const api = new AdoApi(new QueueHttp([json({
+      changeEntries: [{ changeTrackingId: "42", changeType: "edit", item: { path: "/a.ts" } }]
+    })]), warn);
+    await expect(api.getChanges(context)).resolves.toEqual([{ trackingId: 42, changeType: "edit", path: "/a.ts" }]);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("accepts nullable optional change metadata and unknown fields", async () => {
+    const warn = vi.fn();
+    const http = new QueueHttp([json({
+      changeEntries: [{ changeTrackingId: 1, changeType: "edit", originalPath: null, item: { path: "/a.ts", objectId: null, originalObjectId: null, futureField: {} } }],
+      futureField: true
+    })]);
+    await expect(new AdoApi(http, warn).getChanges(context)).resolves.toEqual([{ trackingId: 1, changeType: "edit", path: "/a.ts" }]);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("makes schema mismatches advisory while retaining the file and raw metadata", async () => {
+    const warn = vi.fn();
+    const raw = { changeTrackingId: 1, changeType: "edit", item: { path: "/a.ts", objectId: {}, originalObjectId: 42 } };
+    const http = new QueueHttp([json({ changeEntries: [raw] })]);
+    await expect(new AdoApi(http, warn).getChanges(context)).resolves.toEqual([{ trackingId: 1, changeType: "edit", path: "/a.ts", rawEntry: raw }]);
+    expect(warn).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("the change was retained"), raw);
+  });
+
+  it("retains a rename with an invalid original path as unresolved rather than fetching the wrong base file", async () => {
+    const warn = vi.fn();
+    const raw = { changeTrackingId: 1, changeType: "rename", originalPath: {}, item: { path: "/a.ts" } };
+    const api = new AdoApi(new QueueHttp([json({
+      changeEntries: [raw]
+    })]), warn);
+    await expect(api.getChangesWithDiagnostics(context)).resolves.toEqual({
+      files: [],
+      unresolvedChanges: [{ unresolved: true, trackingId: 1, changeType: "rename", path: "/a.ts", detail: "No usable original path for the rename", raw }]
+    });
+    expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it.each([{ changeEntries: null }, { changeEntries: [], nextSkip: "2000" }])("rejects unusable envelopes or pagination: %j", async (payload) => {
+    const api = new AdoApi(new QueueHttp([json(payload)]));
+    await expect(api.getChanges(context)).rejects.toThrow("Azure DevOps response validation failed");
   });
 
   it("returns an explicit thread error state", async () => {
@@ -122,9 +229,18 @@ describe("AdoApi", () => {
     await expect(api.getThreadOverview(context)).resolves.toEqual({ state: "available", active: 1, resolved: 0, total: 1 });
   });
 
-  it.each(["invalid", 1, []])("rejects malformed thread properties: %s", async (properties) => {
-    const api = new AdoApi(new QueueHttp([json({ value: [{ id: 10, properties }] })]));
-    await expect(api.listThreads(context)).rejects.toThrow("Azure DevOps response validation failed");
+  it.each(["invalid", 1, []])("warns about malformed optional thread properties: %s", async (properties) => {
+    const warn = vi.fn();
+    const api = new AdoApi(new QueueHttp([json({ value: [{ id: 10, properties }] })]), warn);
+    await expect(api.listThreads(context)).resolves.toEqual([{ id: 10, status: "active", comments: [] }]);
+    expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it("accepts nullable thread and comment metadata", async () => {
+    const api = new AdoApi(new QueueHttp([json({
+      value: [{ id: 10, status: null, isDeleted: null, threadContext: { filePath: null, leftFileStart: null, rightFileStart: null }, comments: [{ id: 2, content: null, author: null, isDeleted: null }] }]
+    })]));
+    await expect(api.listThreads(context)).resolves.toEqual([{ id: 10, status: "active", comments: [{ id: 2, content: "", author: "Unknown reviewer", isDeleted: false }] }]);
   });
 
   it("treats a not-listed reviewer as no existing vote", async () => {
@@ -135,6 +251,17 @@ describe("AdoApi", () => {
   it("does not swallow other reviewer lookup failures", async () => {
     const http = new QueueHttp([new Response("denied", { status: 403 })]);
     await expect(new AdoApi(http).getCurrentVote(context)).rejects.toThrow("403");
+  });
+
+  it("does not turn missing repository IDs or write confirmations into warnings", async () => {
+    const warn = vi.fn();
+    const api = new AdoApi(new QueueHttp([
+      json({ pullRequestId: 7, title: null, repository: { id: null } }),
+      json({ id: null, comments: [{ id: null }] })
+    ]), warn);
+    await expect(api.getContext(context)).rejects.toThrow("Azure DevOps response validation failed");
+    await expect(api.postAnnouncement(context, "Starting review")).rejects.toThrow();
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it("requires exact operation and inline target evidence when reconciling feedback", async () => {

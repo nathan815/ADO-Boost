@@ -181,12 +181,12 @@ export class NativePrEnhancer {
     const enabled = resolveFeature(this.settings, "groupedNavigation").enabled
       || resolveFeature(this.settings, "fileSearch").enabled
       || resolveFeature(this.settings, "fileFilters").enabled;
-    if (!enabled || !this.rows.length) {
+    if (!enabled || !this.fileTree) {
       document.querySelector("[data-adopp-native-toolbar]")?.remove();
       document.querySelector("[data-adopp-next-unreviewed]")?.remove();
       return;
     }
-    const tree = this.rows[0]?.row.closest<HTMLElement>(`${ADO_FILE_TREE_SELECTOR},table,[role="treegrid"],[role="tree"]`);
+    const tree = this.fileTree;
     const mount = tree ? findToolbarMount(tree) : null;
     if (!tree || !mount) {
       document.querySelector("[data-adopp-native-toolbar]")?.remove();
@@ -429,7 +429,7 @@ export class NativePrEnhancer {
       document.querySelector("[data-adopp-total-diff]")?.remove();
       return;
     }
-    const totals = totalStats(this.analysis.files);
+    const totals = totalStats(this.analysis.files, this.analysis.unresolvedChanges?.length);
     let total = document.querySelector<HTMLElement>("[data-adopp-total-diff]");
     if (!total) {
       total = document.createElement("span");
@@ -444,9 +444,9 @@ export class NativePrEnhancer {
     total.tabIndex = 0;
     total.setAttribute("aria-label", `Pull request diff: ${totals.additions} lines added, ${totals.deletions} lines removed. ${comparisonDescription}`);
     total.innerHTML = `<span class="adopp-total-plus">+${totals.additions}</span><span class="adopp-total-minus">−${totals.deletions}</span>${totals.exact ? "" : '<span class="adopp-total-partial">partial</span>'}`;
-    total.onmouseenter = () => openTotalDiffPopover(total!, this.analysis.files);
+    total.onmouseenter = () => openTotalDiffPopover(total!, this.analysis.files, this.analysis.unresolvedChanges?.length);
     total.onmouseleave = closeTotalDiffPopover;
-    total.onfocus = () => openTotalDiffPopover(total!, this.analysis.files);
+    total.onfocus = () => openTotalDiffPopover(total!, this.analysis.files, this.analysis.unresolvedChanges?.length);
     total.onblur = closeTotalDiffPopover;
     if (status.nextElementSibling !== total) status.insertAdjacentElement("afterend", total);
     hideMergeProposalText(status);
@@ -459,18 +459,14 @@ export class NativePrEnhancer {
       || this.hideViewed
       || this.hideGenerated
       || this.hideLockfiles;
-    let visible = 0;
+    const matchingFiles = this.analysis.files.filter((file) => this.matchesFileFilters(file));
+    const matchingPaths = new Set(matchingFiles.map((file) => file.path));
     const visibleRows = new Set<HTMLElement>();
     for (const item of this.rows) {
-      const matches = (!this.query || item.file.path.toLowerCase().includes(this.query.toLowerCase()))
-        && (this.changeKind === "all" || item.file.changeType.toLowerCase().includes(this.changeKind))
-        && (this.extension === "all" || extensionOf(item.file.path) === this.extension)
-        && (!this.hideViewed || !isReviewed(item.row))
-        && (!this.hideGenerated || !item.file.generated)
-        && (!this.hideLockfiles || !item.file.lockfile);
+      const matches = matchingPaths.has(item.file.path)
+        && (!this.hideViewed || !isReviewed(item.row));
       item.row.classList.toggle("adopp-native-hidden", !matches);
       if (matches) {
-        visible++;
         visibleRows.add(item.row);
       }
     }
@@ -486,28 +482,32 @@ export class NativePrEnhancer {
       }
       updateTreeStructureVisibility(this.fileTree, this.rows, visibleRows, hasActiveFilters);
     }
-    const comparisonTotal = this.rows.length;
     const prTotal = this.analysis.files.length;
+    const unresolved = this.analysis.unresolvedChanges?.length ?? 0;
+    const metadataFiltersActive = Boolean(this.query) || this.changeKind !== "all" || this.extension !== "all" || this.hideGenerated || this.hideLockfiles;
     const count = document.querySelector<HTMLElement>(".adopp-native-visible-count");
     if (count) {
-      if (comparisonTotal < prTotal) {
-        count.textContent = hasActiveFilters
-          ? `${visible}/${comparisonTotal} recognized · ${prTotal} total in PR`
-          : `${comparisonTotal} recognized · ${prTotal} total in PR`;
-        count.title = hasActiveFilters
-          ? `${visible} of ${comparisonTotal} recognized files in the rendered ADO tree match ADO Boost filters; ${prTotal} files changed across the full pull request.`
-          : `${comparisonTotal} files are recognized in the rendered ADO tree; ${prTotal} files changed across the full pull request. Unrecognized and collapsed files are not counted here.`;
-      } else {
-        count.textContent = `${visible}/${comparisonTotal} files`;
-        count.removeAttribute("title");
-      }
+      count.textContent = metadataFiltersActive
+        ? `${matchingFiles.length}/${prTotal} matching files`
+        : `${prTotal} files analyzed`;
+      if (unresolved > 0) count.textContent += ` · ${unresolved} unresolved`;
+      const incomplete = this.analysis.files.filter((file) => file.state !== "exact").length;
+      count.title = `${prTotal} files processed across the full pull request, including offscreen and collapsed files. ${incomplete} file counts are incomplete; ${unresolved} additional change records are unresolved. Search, change type, extension, and noise-filter counts use the full PR file list. Native reviewed-state filtering is not included in this count.`;
     }
     const reviewedCount = document.querySelector<HTMLElement>(".adopp-native-reviewed-count");
     if (reviewedCount) {
       const reviewed = this.rows.filter((item) => isReviewed(item.row)).length;
-      reviewedCount.textContent = `${reviewed}/${comparisonTotal} reviewed`;
-      reviewedCount.title = `${reviewed} of ${comparisonTotal} recognized files in the rendered ADO tree are marked reviewed.`;
+      reviewedCount.textContent = this.rows.length ? `${reviewed}/${this.rows.length} reviewed in view` : "";
+      reviewedCount.title = "Native Azure DevOps checkbox state for files in the current view only, not analysis coverage or whole-PR review progress.";
     }
+  }
+
+  private matchesFileFilters(file: FileStat): boolean {
+    return (!this.query || file.path.toLowerCase().includes(this.query.toLowerCase()))
+      && (this.changeKind === "all" || file.changeType.toLowerCase().includes(this.changeKind))
+      && (this.extension === "all" || extensionOf(file.path) === this.extension)
+      && (!this.hideGenerated || !file.generated)
+      && (!this.hideLockfiles || !file.lockfile);
   }
 
   private navigateToNextUnreviewed(): void {
@@ -793,7 +793,7 @@ function hideMergeProposalText(status: HTMLElement): void {
   }
 }
 
-function openTotalDiffPopover(anchor: HTMLElement, files: FileStat[]): void {
+function openTotalDiffPopover(anchor: HTMLElement, files: FileStat[], unresolvedChanges = 0): void {
   closeTotalDiffPopover();
   const counts = {
     added: 0,
@@ -817,6 +817,7 @@ function openTotalDiffPopover(anchor: HTMLElement, files: FileStat[]): void {
     else if (file.state !== "exact") counts.incomplete++;
   }
   const detailRows = [
+    unresolvedChanges ? totalDiffPopoverRow("Unresolved changes (retained)", unresolvedChanges) : "",
     counts.generated ? totalDiffPopoverRow("Generated", counts.generated) : "",
     counts.lockfiles ? totalDiffPopoverRow("Lockfiles", counts.lockfiles) : "",
     counts.binary ? totalDiffPopoverRow("Binary", counts.binary) : "",
@@ -829,7 +830,7 @@ function openTotalDiffPopover(anchor: HTMLElement, files: FileStat[]): void {
   popover.setAttribute("role", "tooltip");
   popover.innerHTML = `
     <div class="bolt-callout-content adopp-total-popover-content">
-      <div class="adopp-total-popover-title">${files.length} files changed</div>
+      <div class="adopp-total-popover-title">${files.length} files ${unresolvedChanges ? "analyzed" : "changed"}</div>
       ${totalDiffPopoverRow("Added", counts.added)}
       ${totalDiffPopoverRow("Removed", counts.removed)}
       ${totalDiffPopoverRow("Edited", counts.edited)}

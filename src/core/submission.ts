@@ -33,7 +33,7 @@ export class SubmissionCoordinator {
     if (stale.length > 0) throw new Error(`${stale.length} selected draft${stale.length === 1 ? " is" : "s are"} tied to an older PR comparison`);
     if (selected.some((draft) => draft.delivery === "sending")) throw new Error("A selected draft is already being submitted");
     const changes = await this.api.getChanges(this.context, signal);
-    const changedByTrackingId = new Map(changes.map((change) => [change.trackingId, change]));
+    const changedByTrackingId = new Map(changes.filter((change) => change.unresolved !== true).map((change) => [change.trackingId, change]));
     for (const draft of selected) {
       if (draft.kind !== "inline") continue;
       const changed = draft.trackingId === undefined ? undefined : changedByTrackingId.get(draft.trackingId);

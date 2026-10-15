@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import type { AdoApi } from "../src/adapters/ado-api";
+import { describe, expect, it, vi } from "vitest";
+import { AdoApi } from "../src/adapters/ado-api";
 import { MemoryBrowserStore } from "../src/adapters/browser";
 import { DraftQueue } from "../src/core/drafts";
 import { DECISION_VOTES, SubmissionCoordinator } from "../src/core/submission";
@@ -22,6 +22,19 @@ const context: PullRequestContext = {
 };
 
 describe("SubmissionCoordinator", () => {
+  it("retains unresolved changes but does not use them to authorize an inline write", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({
+      changeEntries: [{ changeTrackingId: 1, changeType: "rename", originalPath: {}, item: { path: "/a.ts" } }]
+    })));
+    const api = new AdoApi({ fetch }, vi.fn());
+    const store = new MemoryBrowserStore();
+    const queue = new DraftQueue(store, context);
+    const draft = await queue.add({ kind: "inline", body: "Feedback", path: "/a.ts", trackingId: 1, line: 1, side: "right" });
+    await expect(new SubmissionCoordinator(api, store, queue, context).submit([draft.id], "approve")).rejects.toThrow("must be reanchored");
+    expect(fetch).toHaveBeenCalledOnce();
+    expect((await queue.list())[0]?.delivery).toBe("pending");
+  });
+
   it("posts feedback before applying the vote", async () => {
     const calls: string[] = [];
     const api = {

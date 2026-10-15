@@ -122,6 +122,7 @@ export class ReviewPanel {
           <div class="metric"><b>${analysis.threads.total}</b><span>all threads</span></div>
         </section>
         <main class="workspace">
+          ${this.unresolvedChangesMarkup()}
           ${this.announcementError ? `<div class="delivery error">${escapeHtml(this.announcementError)}. Start Reviewing will check again before posting.</div>` : ""}
           ${this.copilotMarkup()}
           ${resolveFeature(this.settings, "draftQueue").enabled || resolveFeature(this.settings, "threadNavigator").enabled ? this.discussion.markup() : ""}
@@ -129,6 +130,14 @@ export class ReviewPanel {
       </aside>
     `;
     this.bind();
+  }
+
+  private unresolvedChangesMarkup(): string {
+    const entries = this.dependencies.analysis.unresolvedChanges ?? [];
+    if (entries.length === 0) return "";
+    return `<details class="delivery"><summary>${entries.length} unresolved changes retained. Diff totals are partial.</summary><ul>${entries.map((entry, index) =>
+      `<li>${escapeHtml(entry.path ?? (entry.trackingId !== undefined ? `Change ${entry.trackingId}` : `Unresolved entry ${index + 1}`))}: ${escapeHtml(entry.detail)}</li>`
+    ).join("")}</ul><p>Original response records are retained and logged in the page console.</p></details>`;
   }
 
   private bind(): void {

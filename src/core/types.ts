@@ -23,13 +23,26 @@ export interface PullRequestContext extends PrRoute {
 }
 
 export interface ChangedFile {
+  unresolved?: false;
   trackingId: number;
   path: string;
   originalPath?: string;
   changeType: string;
   objectId?: string;
   originalObjectId?: string;
+  rawEntry?: unknown;
 }
+
+export interface UnresolvedChange {
+  unresolved: true;
+  raw: unknown;
+  detail: string;
+  trackingId?: number;
+  path?: string;
+  changeType?: string;
+}
+
+export type ChangeEntry = ChangedFile | UnresolvedChange;
 
 export interface FileStat extends ChangedFile {
   additions: number | null;
@@ -62,6 +75,7 @@ export interface ThreadOverview extends ThreadSummary {
 export interface PullRequestAnalysis {
   context: PullRequestContext;
   files: FileStat[];
+  unresolvedChanges?: UnresolvedChange[];
   groups: ReviewGroup[];
   threads: ThreadOverview;
   completedTrackingIds: Set<number>;

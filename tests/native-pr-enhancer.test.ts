@@ -94,6 +94,28 @@ describe("NativePrEnhancer", () => {
     enhancer = null;
   });
 
+  it("shows partial totals and retained unresolved changes without blocking the native UI", () => {
+    enhancer = new NativePrEnhancer({
+      ...analysis,
+      unresolvedChanges: Array.from({ length: 6 }, () => ({ unresolved: true, raw: { item: { path: null } }, detail: "No usable file path" }))
+    }, defaultSettings(), {
+      openDiscussions: vi.fn(),
+      startReviewing: vi.fn(),
+      isReviewAnnounced: () => false,
+      openSettings: vi.fn()
+    });
+    enhancer.start();
+    const total = document.querySelector<HTMLElement>("[data-adopp-total-diff]")!;
+    expect(total.dataset.exact).toBe("false");
+    expect(total.textContent).toContain("+8");
+    expect(total.textContent).toContain("partial");
+    expect(total.getAttribute("aria-label")).toContain("6 file counts are incomplete");
+    total.dispatchEvent(new MouseEvent("mouseenter"));
+    expect(document.querySelector("[data-adopp-total-diff-popover]")?.textContent).toContain("Unresolved changes (retained)");
+    expect(document.querySelector(".adopp-start-split")).not.toBeNull();
+    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("2 files analyzed · 6 unresolved");
+  });
+
   it("integrates totals into PR metadata and review actions beside Approve", () => {
     const openDiscussions = vi.fn();
     enhancer = createEnhancer({ openDiscussions });
@@ -370,8 +392,8 @@ describe("NativePrEnhancer", () => {
     expect(document.querySelector(".bolt-tooltip [role='tooltip']")).not.toBeNull();
     nextUnreviewed.dispatchEvent(new MouseEvent("mouseleave"));
     expect(document.querySelector("[data-adopp-tooltip]")).toBeNull();
-    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("2/2 files");
-    expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("1/2 reviewed");
+    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("2 files analyzed");
+    expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("1/2 reviewed in view");
     expect(document.querySelector(".adopp-native-summary")?.parentElement).toBe(document.querySelector("[data-adopp-native-toolbar]"));
     expect(document.querySelectorAll("[data-adopp-next-unreviewed]")).toHaveLength(1);
     expect(document.querySelectorAll("[data-adopp-next-unreviewed] .adopp-nav-double-icon path")).toHaveLength(2);
@@ -391,8 +413,8 @@ describe("NativePrEnhancer", () => {
     expect(document.querySelector('[data-row="app"]')?.classList.contains("adopp-native-hidden")).toBe(true);
     expect(document.querySelector('[data-row="new"]')?.classList.contains("adopp-native-hidden")).toBe(false);
     expect(document.querySelector(".adopp-native-filter-trigger")?.textContent).toContain("More (1)");
-    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("1/2 files");
-    expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("1/2 reviewed");
+    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("2 files analyzed");
+    expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("1/2 reviewed in view");
   });
 
   it("does not copy transient iteration-button styling into filter triggers", () => {
@@ -416,7 +438,7 @@ describe("NativePrEnhancer", () => {
     }
   });
 
-  it("distinguishes recognized rendered files from full pull-request files", () => {
+  it("counts the complete analyzed file list rather than currently rendered rows", () => {
     const comparisonAnalysis: PullRequestAnalysis = {
       ...analysis,
       files: [
@@ -432,9 +454,57 @@ describe("NativePrEnhancer", () => {
     });
     enhancer.start();
 
-    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("2 recognized · 3 total in PR");
-    expect(document.querySelector(".adopp-native-visible-count")?.getAttribute("title")).toContain("recognized in the rendered ADO tree");
-    expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("1/2 reviewed");
+    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("3 files analyzed");
+    expect(document.querySelector(".adopp-native-visible-count")?.getAttribute("title")).toContain("including offscreen and collapsed files");
+    expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("1/2 reviewed in view");
+  });
+
+  it("keeps 422-file coverage and filter counts stable as a virtualized tree recycles rows", () => {
+    const files = Array.from({ length: 422 }, (_, index) => ({
+      ...analysis.files[0]!, trackingId: index + 1, path: `/src/file-${index}.ts`
+    }));
+    const tbody = document.querySelector("tbody")!;
+    const renderRows = (start: number, count: number) => {
+      tbody.innerHTML = files.slice(start, start + count).map((file) =>
+        `<tr role="row"><td><input type="checkbox"><button title="${file.path}">${file.path.split("/").at(-1)}</button></td></tr>`
+      ).join("");
+    };
+    renderRows(0, 29);
+    enhancer = new NativePrEnhancer({ ...analysis, files }, defaultSettings(), {
+      openDiscussions: vi.fn(), startReviewing: vi.fn(), isReviewAnnounced: () => false, openSettings: vi.fn()
+    });
+    enhancer.start();
+    const toolbar = document.querySelector("[data-adopp-native-toolbar]");
+    const count = document.querySelector(".adopp-native-visible-count")!;
+    const totals = document.querySelector("[data-adopp-total-diff]")?.textContent;
+    expect(count.textContent).toBe("422 files analyzed");
+    expect(document.querySelectorAll("[data-adopp-inline-stat]")).toHaveLength(29);
+
+    renderRows(290, 8);
+    enhancer.refresh();
+    expect(count.textContent).toBe("422 files analyzed");
+    expect(document.querySelector("[data-adopp-total-diff]")?.textContent).toBe(totals);
+    expect(document.querySelectorAll("[data-adopp-inline-stat]")).toHaveLength(8);
+    expect(document.querySelector("[data-adopp-inline-stat]")?.getAttribute("data-adopp-inline-stat")).toBe("/src/file-290.ts");
+    expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("0/8 reviewed in view");
+
+    const search = document.querySelector<HTMLInputElement>(".adopp-native-search")!;
+    search.value = "file-421.ts";
+    search.dispatchEvent(new Event("input"));
+    expect(count.textContent).toBe("1/422 matching files");
+    renderRows(0, 0);
+    enhancer.refresh();
+    expect(document.querySelector("[data-adopp-native-toolbar]")).toBe(toolbar);
+    expect(count.textContent).toBe("1/422 matching files");
+    renderRows(421, 1);
+    enhancer.refresh();
+    expect(count.textContent).toBe("1/422 matching files");
+    expect(document.querySelector("tbody tr")?.classList.contains("adopp-native-hidden")).toBe(false);
+    expect(document.querySelector("[data-adopp-total-diff]")?.textContent).toBe(totals);
+
+    search.value = "";
+    search.dispatchEvent(new Event("input"));
+    expect(count.textContent).toBe("422 files analyzed");
   });
 
   it("leaves unmatched files, their discussions, and collapsed folders visible without filters", () => {
@@ -468,7 +538,7 @@ describe("NativePrEnhancer", () => {
     });
     enhancer.start();
     expect(document.querySelectorAll(".adopp-native-hidden")).toHaveLength(0);
-    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("9 recognized · 14 total in PR");
+    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("14 files analyzed");
 
     const search = document.querySelector<HTMLInputElement>(".adopp-native-search")!;
     search.value = "no-match";
@@ -514,7 +584,7 @@ describe("NativePrEnhancer", () => {
     enhancer.start();
     expect(document.querySelector('[data-row="first"] [data-adopp-inline-stat]')?.getAttribute("data-adopp-inline-stat")).toBe("/src/one/tasks/main.yml");
     expect(document.querySelector('[data-row="second"] [data-adopp-inline-stat]')?.getAttribute("data-adopp-inline-stat")).toBe("/src/two/main.yml");
-    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("2/2 files");
+    expect(document.querySelector(".adopp-native-visible-count")?.textContent).toBe("2 files analyzed");
 
     const search = document.querySelector<HTMLInputElement>(".adopp-native-search")!;
     search.value = "/two/";
@@ -737,7 +807,7 @@ describe("NativePrEnhancer", () => {
     checkbox.dispatchEvent(new Event("change", { bubbles: true }));
     await new Promise((resolve) => window.setTimeout(resolve, 0));
 
-    expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("2/2 reviewed");
+    expect(document.querySelector(".adopp-native-reviewed-count")?.textContent).toBe("2/2 reviewed in view");
   });
 });
 
