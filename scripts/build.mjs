@@ -8,7 +8,7 @@ await rm(dist, { recursive: true, force: true });
 await mkdir(dist, { recursive: true });
 await build({ configFile: fileURLToPath(new URL("../vite.config.ts", import.meta.url)) });
 await build({
-  configFile: false,
+  configFile: fileURLToPath(new URL("../vite.config.ts", import.meta.url)),
   build: {
     target: "chrome114",
     sourcemap: false,
@@ -25,7 +25,7 @@ await build({
   }
 });
 await build({
-  configFile: false,
+  configFile: fileURLToPath(new URL("../vite.config.ts", import.meta.url)),
   build: {
     target: "chrome114",
     sourcemap: false,
@@ -40,7 +40,7 @@ await build({
 await cp(new URL("../public/", import.meta.url), dist, { recursive: true });
 await mkdir(new URL("licenses/", dist), { recursive: true });
 await cp(new URL("../LICENSE", import.meta.url), new URL("LICENSE", dist));
-for (const [name, license] of [["diff", "LICENSE"], ["dompurify", "LICENSE"], ["dompurify", "LICENSE-MPL"], ["marked", "LICENSE.md"], ["zod", "LICENSE"]]) {
+for (const [name, license] of [["azure-devops-ui", "LICENSE"], ["react", "LICENSE"], ["react-dom", "LICENSE"], ["diff", "LICENSE"], ["dompurify", "LICENSE"], ["dompurify", "LICENSE-MPL"], ["marked", "LICENSE.md"], ["zod", "LICENSE"]]) {
   await cp(new URL(`../node_modules/${name}/${license}`, import.meta.url), new URL(`licenses/${name}-${license}`, dist));
 }
 

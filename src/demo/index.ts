@@ -9,7 +9,8 @@ import type { CopilotGateway } from "../core/copilot-gateway";
 
 document.body.innerHTML = `
   <header class="fake-topbar"><strong>Azure DevOps</strong><span>Repos</span><span>Pull requests</span></header>
-  <main class="fake-page">
+  <div class="fake-workspace">
+  <main class="fake-page" data-adopp-panel-content>
     <p class="fixture-label">Synthetic offline fixture</p>
     <h1>Improve resilient checkout and review telemetry</h1>
     <p class="meta">Alex Reviewer wants to merge 6 files into main</p>
@@ -18,6 +19,7 @@ document.body.innerHTML = `
 <span class="added">+ return retry(() =&gt; fetch(url), signal)</span>
 <span class="added">+   .catch(reportFailure)</span></pre></section>
   </main>
+  </div>
 `;
 
 const style = document.createElement("style");
@@ -67,7 +69,8 @@ const store = new MemoryBrowserStore();
 const settingsService = new SettingsService(new MemorySettingsStorage());
 const fixtureSettings = defaultSettings();
 fixtureSettings.presentation.theme = "light";
-new ReviewPanel({
+style.textContent += `.fake-workspace{display:flex;height:calc(100vh - 44px);overflow:hidden}.fake-page{overflow:auto;min-height:0;margin:0;padding:24px;box-shadow:none}body{margin:0}`;
+const panel = new ReviewPanel({
   analysis,
   api: new AdoApi(new OfflineHttpClient()),
   store,
@@ -88,3 +91,4 @@ new ReviewPanel({
   reviewKey: "fixture-review",
   synthetic: true
 });
+panel.openDiscussions();

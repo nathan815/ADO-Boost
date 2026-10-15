@@ -43,6 +43,12 @@ Retain Azure DevOps' native file selection, reviewed checkboxes and server persi
 
 Native review state should remain authoritative; adding a second reviewed-checkbox or persistence system risks divergence from Azure DevOps. Similarly, enhancements should preserve native file links and controls instead of replacing the tree with a separate navigation model.
 
+The discussion panel mounts as a sibling of `.repos-pr-details-page` in the native flex content region. It reserves its own width only while open and docked, stacks below the PR on narrow screens, and offers an explicit overlay toggle. A layout observer remounts it when ADO replaces that region; disposal removes owned layout attributes, styles, and listeners. A missing mount is logged explicitly and waits for native content rather than silently covering the page. The shell does not reparent or replace React-owned PR content.
+
+The header renders published `azure-devops-ui` Button components with matching bundled core/button styles inside the panel's shadow root. Native click listeners bridge React 16's document-level event delegation across the shadow boundary. Other review controls remain extension-owned, using the same ADO theme tokens, spacing, typography, and button treatment. System theme follows ADO's inherited CSS variables rather than the operating system's color preference.
+
+The shared Vite configuration suppresses the library's bare CSS side-effect imports in every build, while preserving explicit `?inline` imports for the shadow root. Allowing the component library to inject global CSS overrides the host's own Bolt controls, including split-button arrow widths. Component styles must never be appended to the page head.
+
 Prefer native app navigation controls when selecting files or moving through a review. `history.pushState` plus a synthetic `popstate` event is not a universal router API: applications may depend on their own routing state, event handling, or navigation mechanisms. Neither DOM hooks nor discovered internal functions should be described as supported browser-extension APIs.
 
 ## Public Bolt UI and Azure DevOps resources

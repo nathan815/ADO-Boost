@@ -33,6 +33,7 @@ Browser loading, native-host registration, and live Copilot inference require se
 - Previous, next, next-unreviewed, and keyboard navigation reuse Azure DevOps' SPA file links without forcing a full page reload.
 - Azure DevOps' existing server-backed reviewed checkboxes remain authoritative. ADO Boost does not render or synchronize a second reviewed-state system.
 - The elevated `Assistant` button always opens the discussions and review-tools side panel, whether or not a review has started. When Approve and Complete are removed, it stays in the title's native action row beside the overflow menu, leaving the title's copy control untouched.
+- The discussion panel docks inline beside the native PR content by default, so it never covers the file tree or diff. Narrow windows stack it below the PR instead of shrinking the diff. Its header uses the official Azure DevOps UI button components, and the panel inherits the site's theme when **System** is selected. Use the layout button in the header to switch temporarily to an overlay or dock it again; closing the panel releases the space. Escape closes the panel when no review dialog is open.
 
 ### Review coordination
 

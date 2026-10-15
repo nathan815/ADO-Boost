@@ -14,6 +14,8 @@ import { DiffDialog } from "./diff-dialog";
 import { DiscussionController } from "./discussion-controller";
 import { panelStyles } from "./styles";
 import { AnnouncementDialog } from "./announcement-dialog";
+import { AdoPanelHeader, adoComponentStyles } from "./ado-panel-header";
+import { ReviewPanelLayout } from "./review-panel-layout";
 
 interface ReviewPanelDependencies {
   analysis: PullRequestAnalysis;
@@ -31,11 +33,15 @@ interface ReviewPanelDependencies {
 export class ReviewPanel {
   private readonly host = document.createElement("div");
   private readonly root = this.host.attachShadow({ mode: "open" });
+  private readonly layout: ReviewPanelLayout;
+  private header: AdoPanelHeader | null = null;
   private readonly announcement: AnnouncementService;
   private readonly diffDialog: DiffDialog;
   private readonly discussion: DiscussionController;
   private settings: FeatureSettings;
   private open = false;
+  private overlay = false;
+  private destroyed = false;
   private announcementPosted = false;
   private announcementError = "";
   private announcementDialog: AnnouncementDialog | null = null;
@@ -51,7 +57,8 @@ export class ReviewPanel {
     this.diffDialog = new DiffDialog(dependencies.api, dependencies.analysis.context, (root, path, trackingId, line, side) => this.discussion.showInlineDraft(root, path, trackingId, line, side));
     this.discussion = new DiscussionController(dependencies.api, dependencies.store, dependencies.analysis, dependencies.writes, () => this.settings, () => this.render());
     this.host.dataset.theme = dependencies.settings.presentation.theme;
-    document.documentElement.append(this.host);
+    this.host.dataset.adoppReviewPanel = "true";
+    this.layout = new ReviewPanelLayout(this.host);
     document.addEventListener("keydown", this.onKeyDown, true);
     if (resolveFeature(this.settings, "startReviewing").enabled) {
       void this.announcement.status(dependencies.analysis.context).then((record) => {
@@ -83,14 +90,18 @@ export class ReviewPanel {
   }
 
   destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
     this.announcementDialog?.close();
+    this.header?.destroy();
     document.removeEventListener("keydown", this.onKeyDown, true);
-    this.host.remove();
+    this.layout.destroy();
   }
 
   openDiscussions(): void {
     this.open = true;
     this.render();
+    this.root.querySelector<HTMLElement>(".rail")?.focus();
   }
 
   startReviewing(): void {
@@ -102,21 +113,14 @@ export class ReviewPanel {
   }
 
   private render(): void {
+    if (this.destroyed) return;
     const analysis = this.dependencies.analysis;
+    this.header?.destroy();
+    this.layout.update(this.open, this.overlay ? "overlay" : "inline");
     this.root.innerHTML = `
-      <style>${panelStyles}</style>
-      <aside class="rail" data-open="${this.open}" aria-label="ADO Boost review navigator">
-        <header class="header">
-          <div class="header-line">
-            <h2>PR discussions</h2>
-            <div class="header-actions">
-              <button class="icon settings" type="button" title="Open ADO Boost settings" aria-label="Open settings">⚙</button>
-              <button class="icon close" type="button" aria-label="Close review navigator">✕</button>
-            </div>
-          </div>
-          <p class="subtitle">${this.dependencies.synthetic ? "Synthetic offline fixture · " : ""}Iteration ${analysis.context.iterationId} · comments stay visible while you review files</p>
-          ${this.reviewStartMarkup()}
-        </header>
+      <style>${adoComponentStyles}\n${panelStyles}</style>
+      <aside class="rail" data-open="${this.open}" aria-label="ADO Boost review navigator" tabindex="-1" ${this.open ? "" : "inert"}>
+        <header class="header"></header>
         <section class="summary" aria-label="Pull request review summary">
           <div class="metric"><b>${analysis.threads.active}</b><span>open</span></div>
           <div class="metric"><b>${analysis.threads.resolved}</b><span>resolved</span></div>
@@ -130,14 +134,24 @@ export class ReviewPanel {
         </main>
       </aside>
     `;
+    this.header = new AdoPanelHeader(this.root.querySelector<HTMLElement>(".header")!);
+    this.header.render({
+      overlay: this.overlay,
+      announcementEnabled: resolveFeature(this.settings, "startReviewing").enabled,
+      announced: this.announcementPosted,
+      subtitle: `${this.dependencies.synthetic ? "Synthetic offline fixture · " : ""}Iteration ${analysis.context.iterationId} · ${this.overlay ? "Overlay" : "Docked beside page"}`,
+      onSettings: this.dependencies.openSettings,
+      onToggleLayout: () => { this.overlay = !this.overlay; this.render(); this.root.querySelector<HTMLElement>(".panel-layout-toggle")?.focus(); },
+      onClose: () => this.closePanel(),
+      onAnnounce: () => this.startReviewing()
+    });
     this.bind();
   }
 
-  private reviewStartMarkup(): string {
-    if (!resolveFeature(this.settings, "startReviewing").enabled) return "";
-    return `<div class="review-start">${this.announcementPosted
-      ? '<p class="review-start-status" role="status" tabindex="-1">You\'ve started reviewing</p>'
-      : '<button class="primary announce-review" type="button">Announce Review Start</button>'}</div>`;
+  private closePanel(): void {
+    this.open = false;
+    this.render();
+    document.querySelector<HTMLElement>(".adopp-start-button")?.focus();
   }
 
   private unresolvedChangesMarkup(): string {
@@ -149,9 +163,6 @@ export class ReviewPanel {
   }
 
   private bind(): void {
-    this.root.querySelector(".close")?.addEventListener("click", () => { this.open = false; this.render(); });
-    this.root.querySelector(".settings")?.addEventListener("click", this.dependencies.openSettings);
-    this.root.querySelector(".announce-review")?.addEventListener("click", () => this.startReviewing());
     this.discussion.bind(this.root);
     this.root.querySelector(".copilot-health")?.addEventListener("click", () => void this.checkCopilot());
     this.root.querySelector(".copilot-groups")?.addEventListener("click", () => this.showCopilotPrivacy("groups"));
@@ -256,18 +267,24 @@ export class ReviewPanel {
   }
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
-    if (!resolveFeature(this.settings, "keyboardShortcuts").enabled || isTyping(event.target)) return;
+    if (event.key === "Escape" && this.open && !document.querySelector("[data-adopp-announcement-dialog]") && !this.root.querySelector(".dialog-backdrop")) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.closePanel();
+      return;
+    }
+    if (!resolveFeature(this.settings, "keyboardShortcuts").enabled || isTyping(event.composedPath()[0] ?? event.target)) return;
     if (event.shiftKey && event.key.toLowerCase() === "r") {
       event.preventDefault();
-      this.open = !this.open;
-      this.render();
+      if (this.open) this.closePanel();
+      else this.openDiscussions();
       return;
     }
   };
 }
 
 function isTyping(target: EventTarget | null): boolean {
-  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target instanceof HTMLElement && target.isContentEditable;
 }
 
 function escapeHtml(value: string): string {
