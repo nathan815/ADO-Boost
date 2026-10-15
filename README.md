@@ -102,6 +102,10 @@ npm run dev -- --host 127.0.0.1
 
 Open `http://127.0.0.1:5173/demo.html`. The page is visibly labeled **Synthetic offline fixture** and does not perform Azure DevOps writes.
 
+## Isolated Chrome extension testing
+
+Use the [Chrome extension E2E skill](.github/skills/chrome-extension-e2e/SKILL.md) to test the actual unpacked extension in a persistent, dedicated Chrome profile without touching your regular browser. It includes launch and CDP load/reload helpers plus the native-tree acceptance checklist, so routine updates do not require manually reloading the extension through `chrome://extensions`.
+
 ## Settings and feature flags
 
 Open the extension's options page from the browser toolbar action, the gear button in the discussion rail, or the ADO Boost action menu beside Approve. Settings are centralized in a typed registry with stable IDs, dependency explanations, a master disable switch, searchable groups, and theme selection.

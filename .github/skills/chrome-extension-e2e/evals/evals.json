@@ -1,0 +1,23 @@
+{
+  "skill_name": "chrome-extension-e2e",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Test the extension's file filters end to end in Chrome. Use a separate profile, load the real unpacked extension, and let me sign in if needed. Don't make any changes to the PR.",
+      "expected_output": "Builds dist, starts or reuses the dedicated loopback debug Chrome profile, loads it with browser-level Extensions.loadUnpacked, explicitly selects the user-provided test tab, checks native filtering/counts, and restores local test state without service writes.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "I changed the file-tree count colors. Reload the extension in our isolated Chrome and check them. There's another unrelated tab open, so don't refresh that.",
+      "expected_output": "Builds before reloading, uses the helper's returned extension ID, selects and verifies the intended PR tab before refresh, compares computed addition/deletion colors, and leaves unrelated tabs untouched.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Port 9223 is occupied by another browser. Can you still test disable and re-enable of native filters without disturbing that browser or resetting my settings?",
+      "expected_output": "Reports the port/profile conflict without killing a process, allocates a separate explicit port/profile/session if appropriate, checks filter/navigation restoration serially, restores original settings rather than defaults, and distinguishes any blocked authentication or missing coverage.",
+      "files": []
+    }
+  ]
+}
