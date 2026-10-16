@@ -25,6 +25,9 @@ describe("ADO component style isolation", () => {
     if (script?.type !== "chunk") throw new Error("Expected bundled header script");
     expect(script.code).toContain(".bolt-button");
     expect(script.code).toContain("box-sizing");
+    expect(script.code).toContain('stroke="currentColor"');
+    expect(script.code).toContain('viewBox="0 0 16 16"');
+    expect(outputs.filter((output) => output.type === "asset" && output.fileName.endsWith(".svg"))).toHaveLength(0);
     expect(script.code).not.toContain('document.createElement("style")');
     expect(script.code).not.toContain("document.head.appendChild");
   }, 20000);

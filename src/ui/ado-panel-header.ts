@@ -5,6 +5,10 @@ import { MenuButton } from "azure-devops-ui/Menu";
 import coreStyles from "azure-devops-ui/Core/core.css?inline";
 import buttonStyles from "azure-devops-ui/Components/Button/Button.css?inline";
 import expandableButtonStyles from "azure-devops-ui/Components/Button/ExpandableButton.css?inline";
+import logoSvg from "./icons/ado-boost.svg?raw";
+import settingsSvg from "./icons/settings.svg?raw";
+import layoutSvg from "./icons/layout.svg?raw";
+import closeSvg from "./icons/close.svg?raw";
 
 export const adoComponentStyles = `${coreStyles}\n${buttonStyles}\n${expandableButtonStyles}`;
 
@@ -34,7 +38,7 @@ export class AdoPanelHeader {
     render(h("div", null,
       h("div", { className: "header-line" },
         h("div", { className: "header-brand" },
-          brandLogo(),
+          inlineSvg(logoSvg),
           h("h2", null, "ADO Boost")
         ),
         h("div", { className: "header-actions" },
@@ -114,27 +118,10 @@ export class AdoPanelHeader {
 }
 
 function icon(name: "settings" | "layout" | "close") {
-  const paths = {
-    settings: "M6.5 1.5h3l.5 2 1.5 1 2-.5 1.5 2.5-1.5 1.5v2l1.5 1.5-1.5 2.5-2-.5-1.5 1-.5 2h-3l-.5-2-1.5-1-2 .5L1 10.5 2.5 9v-2L1 5.5 2.5 3l2 .5 1.5-1 .5-1ZM10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0Z",
-    layout: "M1.5 2.5h13v11h-13zM9.5 2.5v11",
-    close: "m4 4 8 8m0-8-8 8"
-  };
-  return h("svg", { width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.2, "aria-hidden": true }, h("path", { d: paths[name] }));
+  return inlineSvg({ settings: settingsSvg, layout: layoutSvg, close: closeSvg }[name]);
 }
 
-function brandLogo() {
-  return h("svg", { className: "header-logo", viewBox: "0 0 128 128", focusable: false, "aria-hidden": true },
-    h("defs", null,
-      h("linearGradient", { id: "adopp-logo-tile", x1: 10, y1: 8, x2: 118, y2: 122, gradientUnits: "userSpaceOnUse" },
-        h("stop", { stopColor: "#095A91" }),
-        h("stop", { offset: ".55", stopColor: "#173A62" }),
-        h("stop", { offset: "1", stopColor: "#10192C" })
-      )
-    ),
-    h("rect", { x: 4, y: 4, width: 120, height: 120, rx: 27, fill: "url(#adopp-logo-tile)" }),
-    h("g", { transform: "translate(14 25) scale(3.72)" },
-      h("path", { d: "M1 6.4 7.1 1v4.1l9.7-2.3L22 6.3v11.4l-5.2 3.5-9.7-2.3V23L1 17.6V6.4Zm6.1 1.2v8.8l8 1.9V5.7l-8 1.9Z", fill: "#fff" })
-    ),
-    h("path", { d: "M92 10 73 49h17L77 82l34-45H93l16-27H92Z", fill: "#45D6FF", stroke: "#17324E", strokeWidth: 3.5, strokeLinejoin: "round" })
-  );
+function inlineSvg(markup: string) {
+  // Only bundled SVG assets belong here; inline markup preserves inherited theme colors.
+  return h("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: markup } });
 }
