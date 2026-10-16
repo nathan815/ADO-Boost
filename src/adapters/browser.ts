@@ -16,6 +16,7 @@ export interface BrowserStore {
   getDrafts(key: string): Promise<ReviewDraft[]>;
   saveDrafts(key: string, drafts: ReviewDraft[]): Promise<void>;
   mutateDrafts(key: string, mutation: DraftMutation): Promise<ReviewDraft[]>;
+  subscribeDrafts(key: string, listener: (drafts: ReviewDraft[]) => void): () => void;
   getReceipts(key: string): Promise<SubmissionReceipt[]>;
   saveReceipts(key: string, receipts: SubmissionReceipt[]): Promise<void>;
 }
@@ -67,6 +68,17 @@ export class ChromeBrowserStore implements BrowserStore {
     return response.data;
   }
 
+  subscribeDrafts(key: string, listener: (drafts: ReviewDraft[]) => void): () => void {
+    const storageKey = `drafts:${key}`;
+    const handler = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      if (area !== "local" || !changes[storageKey]) return;
+      const value = changes[storageKey].newValue;
+      listener(Array.isArray(value) ? value as ReviewDraft[] : []);
+    };
+    chrome.storage.onChanged.addListener(handler);
+    return () => chrome.storage.onChanged.removeListener(handler);
+  }
+
   async getReceipts(key: string): Promise<SubmissionReceipt[]> {
     const storageKey = `receipts:${key}`;
     const value = await chrome.storage.local.get(storageKey);
@@ -84,6 +96,7 @@ export class MemoryBrowserStore implements BrowserStore {
   private readonly drafts = new Map<string, ReviewDraft[]>();
   private readonly receipts = new Map<string, SubmissionReceipt[]>();
   private readonly mutations = new SerialExecutor();
+  private readonly draftListeners = new Map<string, Set<(drafts: ReviewDraft[]) => void>>();
 
   async getReviewRecords(prKey: string): Promise<ReviewRecord[]> {
     return this.reviews.get(prKey) ?? [];
@@ -111,6 +124,7 @@ export class MemoryBrowserStore implements BrowserStore {
 
   async saveDrafts(key: string, drafts: ReviewDraft[]): Promise<void> {
     this.drafts.set(key, drafts);
+    for (const listener of this.draftListeners.get(key) ?? []) listener(drafts);
   }
 
   async mutateDrafts(key: string, mutation: DraftMutation): Promise<ReviewDraft[]> {
@@ -119,6 +133,16 @@ export class MemoryBrowserStore implements BrowserStore {
       await this.saveDrafts(key, drafts);
       return drafts;
     });
+  }
+
+  subscribeDrafts(key: string, listener: (drafts: ReviewDraft[]) => void): () => void {
+    const listeners = this.draftListeners.get(key) ?? new Set();
+    listeners.add(listener);
+    this.draftListeners.set(key, listeners);
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size === 0) this.draftListeners.delete(key);
+    };
   }
 
   async getReceipts(key: string): Promise<SubmissionReceipt[]> {

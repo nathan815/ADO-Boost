@@ -14,7 +14,7 @@ ADO Boost is an Edge-first browser extension that makes Azure DevOps pull reques
 - Overall PR and per-file added/removed line diff counts follow the user's whitespace setting supplied by ADO on PR and PR-list pages. Counts show deletions before additions, matching ADO's native header, and omit zero values. With whitespace display off, leading/trailing whitespace-only edits are ignored; enabling it includes those edits. Counts refresh when the setting changes, and tooltips say "whitespace ignored" or "whitespace included". If ADO's setting cannot be read, counts are marked unavailable rather than guessed. PR-list totals are cached separately for each policy.
 - Enhanced file filtering - file types, change types, and options to hide generated files and lockfiles
 - A docked discussion panel with thread filters, replies, and links back to native comments.
-- Browser-local drafts for general comments, replies, and inline feedback.
+- Browser-local drafts for general comments, replies, and inline feedback, rendered in the matching native Azure DevOps discussion surface with a clear draft marker.
 - A previewed **Submit Review** flow for publishing selected feedback and optionally applying a vote.
 - Announce you begin reviewing a PR with an auto-generated comment so author is aware (optional).
 - A toolbar popup with local Copilot companion status and your 100 most recently viewed PRs across organizations and repositories.
@@ -48,7 +48,7 @@ Run `npm run build` again after changing the source, then reload the extension f
 
 - Open an Azure DevOps pull request under `https://dev.azure.com/` or `https://<org>.visualstudio.com/`.
 - Use the controls beside Azure DevOps' native **Filter** control to filter by change type, file type, or optional noise rules.
-- Select **Assistant** to open discussions, draft feedback, announce the start of a review, or submit a review.
+- Use **Post** in a native Azure DevOps comment composer to publish immediately, or **Add to review** to keep the comment private for review submission. Select **Assistant** to manage discussions, drafts, review announcements, and submission.
 - Open the browser toolbar popup to see recent pull requests and a compact companion status indicator in the header. Select the indicator to open a popover beneath it with connection/sign-in details and the **Refresh** action. Click outside it or press Escape to dismiss it. Use **Clear history** to remove recent PRs after confirmation, or **Settings** to configure the extension.
 - Open settings directly from the discussion panel's gear button or the ADO Boost action menu beside the native review actions.
 

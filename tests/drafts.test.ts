@@ -55,4 +55,18 @@ describe("DraftQueue", () => {
     ]);
     expect((await first.list()).map((draft) => draft.body).sort()).toEqual(["First", "Second"]);
   });
+
+  it("defaults provenance to manual and publishes authoritative queue changes", async () => {
+    const store = new MemoryBrowserStore();
+    const queue = new DraftQueue(store, context("one"));
+    const changes: string[][] = [];
+    const unsubscribe = queue.subscribe((drafts) => changes.push(drafts.map((draft) => draft.body)));
+    const draft = await queue.add({ kind: "general", body: "First" });
+    expect(draft.source).toBe("manual");
+    await queue.update(draft.id, { body: "Updated" });
+    await queue.remove(draft.id);
+    unsubscribe();
+    await queue.add({ kind: "general", body: "Ignored", source: "copilot" });
+    expect(changes).toEqual([["First"], ["Updated"], []]);
+  });
 });

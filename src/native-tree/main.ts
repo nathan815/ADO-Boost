@@ -1,3 +1,4 @@
+import "../native-discussions/main";
 import { startNativeDiffPreferences } from "./diff-preferences-host";
 import { NativeTreeAdapter } from "./adapter";
 import { discoverHost, getHostReact } from "./host";

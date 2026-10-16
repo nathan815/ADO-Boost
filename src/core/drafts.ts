@@ -15,12 +15,13 @@ export class DraftQueue {
     return this.store.getDrafts(this.key());
   }
 
-  async add(input: Pick<ReviewDraft, "kind" | "body" | "path" | "line" | "side" | "trackingId" | "threadId">): Promise<ReviewDraft> {
+  async add(input: Pick<ReviewDraft, "kind" | "body" | "path" | "line" | "side" | "trackingId" | "threadId"> & Partial<Pick<ReviewDraft, "source">>): Promise<ReviewDraft> {
     const now = new Date().toISOString();
     const draft: ReviewDraft = {
       id: crypto.randomUUID(),
       operationId: crypto.randomUUID(),
       kind: input.kind,
+      source: input.source ?? "manual",
       body: input.body,
       ...(input.path ? { path: input.path } : {}),
       ...(input.line ? { line: input.line } : {}),
@@ -50,6 +51,10 @@ export class DraftQueue {
 
   async replace(drafts: ReviewDraft[]): Promise<void> {
     await this.store.mutateDrafts(this.key(), { kind: "replace", drafts });
+  }
+
+  subscribe(listener: (drafts: ReviewDraft[]) => void): () => void {
+    return this.store.subscribeDrafts(this.key(), listener);
   }
 
   stale(draft: ReviewDraft): boolean {

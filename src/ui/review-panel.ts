@@ -100,6 +100,7 @@ export class ReviewPanel {
     if (this.destroyed) return;
     this.destroyed = true;
     this.announcementDialog?.close();
+    this.discussion.destroy();
     this.completionMonitor.stop();
     this.header?.destroy();
     this.toast.destroy();

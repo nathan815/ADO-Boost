@@ -13,6 +13,7 @@ import { ReviewPanel } from "../ui/review-panel";
 import { PullRequestListBadges } from "./list-badges";
 import { NativePrEnhancer } from "./native-pr-enhancer";
 import { NativeTreeClient } from "../native-tree/client";
+import { NativeDiscussionClient } from "../native-discussions/client";
 import { PrVisitTracker } from "./pr-visit-tracker";
 import { DiffCountController } from "../core/diff-counts";
 import type { DiffPolicy } from "../core/types";
@@ -34,6 +35,7 @@ class ContentApp {
   private panel: ReviewPanel | null = null;
   private enhancer: NativePrEnhancer | null = null;
   private badges: PullRequestListBadges | null = null;
+  private nativeDiscussions: NativeDiscussionClient | null = null;
   private routeController: AbortController | null = null;
   private currentUrl = "";
   private currentRouteKey = "";
@@ -94,6 +96,7 @@ class ContentApp {
       && routeKey && routeKey === this.currentRouteKey && this.panel && this.enhancer) {
       this.panel.updateSettings(this.settings);
       this.enhancer.updateSettings(this.settings);
+      this.nativeDiscussions?.update(resolveFeature(this.settings, "draftQueue").enabled);
       this.enhancer.refresh();
       return;
     }
@@ -105,6 +108,8 @@ class ContentApp {
     this.panel = null;
     this.enhancer?.destroy();
     this.enhancer = null;
+    this.nativeDiscussions?.stop();
+    this.nativeDiscussions = null;
     this.badges?.stop();
     this.badges = null;
 
@@ -136,6 +141,8 @@ class ContentApp {
         this.enhancer.start();
         this.counts.setAnalysis(analysis);
         void this.counts.update(this.diffPolicy);
+        this.nativeDiscussions = new NativeDiscussionClient(analysis, this.store);
+        await this.nativeDiscussions.start(resolveFeature(this.settings, "draftQueue").enabled);
         this.currentRouteKey = routeKey;
       } catch (error) {
         if (!controller.signal.aborted) console.error("ADO Boost failed to analyze this PR", error);

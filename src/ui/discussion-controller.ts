@@ -27,6 +27,8 @@ export class DiscussionController {
   private readonly postingDraftIds = new Set<string>();
   private readonly composers = new Map<string, InlineDraftComposer>();
   private actionError: string | null = null;
+  private unsubscribeDrafts: (() => void) | null = null;
+  private preserveTransientUi = false;
 
   constructor(
     private readonly api: AdoApi,
@@ -43,9 +45,18 @@ export class DiscussionController {
 
   async load(): Promise<void> {
     this.drafts = await this.queue.list();
+    this.unsubscribeDrafts ??= this.queue.subscribe((drafts) => {
+      this.drafts = drafts;
+      if (!this.preserveTransientUi) this.onChange();
+    });
     if (this.enabled("threadNavigator")) await this.loadThreads();
     this.loading = false;
     this.onChange();
+  }
+
+  destroy(): void {
+    this.unsubscribeDrafts?.();
+    this.unsubscribeDrafts = null;
   }
 
   async loadThreads(): Promise<void> {
@@ -410,6 +421,7 @@ export class DiscussionController {
     button.dataset.submitting = "true";
     button.disabled = true;
     button.textContent = "Submitting…";
+    this.preserveTransientUi = true;
     const decision = backdrop.querySelector<HTMLSelectElement>(".decision")?.value as ReviewDecision ?? "comment";
     try {
       if (summary) {
@@ -429,6 +441,8 @@ export class DiscussionController {
       button.textContent = "Confirm submission";
       const paragraph = backdrop.querySelector("p");
       if (paragraph) paragraph.textContent = error instanceof Error ? error.message : "Submission failed";
+    } finally {
+      this.preserveTransientUi = false;
     }
   }
 

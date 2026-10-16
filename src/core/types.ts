@@ -123,11 +123,13 @@ export type AnnouncementCompletion = {
 );
 
 export type DraftKind = "general" | "inline" | "reply";
+export type DraftSource = "manual" | "copilot";
 
 export interface ReviewDraft {
   id: string;
   operationId: string;
   kind: DraftKind;
+  source?: DraftSource;
   body: string;
   path?: string;
   line?: number;
