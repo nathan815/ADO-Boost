@@ -165,6 +165,34 @@ describe("extension popup", () => {
     expect(root.textContent).not.toContain("undefined");
   });
 
+  it("shows a helpful empty state without an unusable clear action", async () => {
+    const { root } = setup({ list: async () => [], health: async () => { throw new Error("Companion unavailable"); } });
+    await vi.waitFor(() => expect(root.querySelector(".history-empty")).not.toBeNull());
+    expect(root.querySelector(".history-empty h3")?.textContent).toBe("No recent pull requests yet");
+    expect(root.querySelector(".history-empty p")?.textContent).toBe("Open a pull request in Azure DevOps. It will appear here for quick access.");
+    expect(root.querySelector(".history-empty svg")?.getAttribute("aria-hidden")).toBe("true");
+    expect(root.textContent).not.toContain("Clear history");
+    expect(root.querySelector("footer")).toBeNull();
+  });
+
+  it("does not show an empty state or clear action while history is loading", () => {
+    const { root } = setup({ list: () => new Promise(() => undefined) });
+    expect(root.querySelector(".history-empty")).toBeNull();
+    expect(root.textContent).not.toContain("Clear history");
+    expect(root.textContent).toContain("Loading recent PRs");
+  });
+
+  it("guides users to settings when empty history is disabled", async () => {
+    const settings = defaultSettings();
+    settings.masterEnabled = false;
+    const { root, deps } = setup({ list: async () => [], settings: async () => settings });
+    await vi.waitFor(() => expect(root.querySelector(".history-empty p")?.textContent).toContain("Turn on ADO Boost"));
+    expect(root.querySelector(".disabled-note")).toBeNull();
+    expect(root.textContent).not.toContain("Open a pull request in Azure DevOps");
+    button(root, "Open settings").click();
+    expect(deps.openSettings).toHaveBeenCalledOnce();
+  });
+
   it("requires confirmation to clear history and leaves cancellation untouched", async () => {
     const list = vi.fn<PopupDependencies["list"]>().mockResolvedValue([pr]);
     const clear = vi.fn(async () => { list.mockResolvedValue([]); });

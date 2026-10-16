@@ -84,6 +84,10 @@ h2 { font-size: 14px; font-weight: 600; }
 .pr-number { font-family: Consolas, "Cascadia Mono", monospace; color: var(--communication-foreground); }
 .empty { padding: 25px 24px 30px; text-align: center; }
 .empty p { margin: 5px 0 12px; }
+.history-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 22px 28px 32px; text-align: center; }
+.history-empty-icon { flex: none; margin-bottom: 4px; color: var(--communication-foreground); }
+.history-empty h3 { margin: 0; font-size: 15px; line-height: 1.4; font-weight: 600; }
+.history-empty p { max-width: 300px; font-size: 13px; line-height: 1.6; }
 .clear-confirmation { margin: 0 16px 12px; padding: 12px; border: 1px solid var(--popup-border); }
 .confirmation-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .disabled-note, .action-error { padding: 0 16px 12px; }

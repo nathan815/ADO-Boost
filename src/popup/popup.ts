@@ -2,6 +2,7 @@ import { createElement as h } from "react";
 import { render, unmountComponentAtNode } from "react-dom";
 import { Button } from "azure-devops-ui/Button";
 import { Callout } from "azure-devops-ui/Callout";
+import { Icon } from "azure-devops-ui/Icon";
 import { Link } from "azure-devops-ui/Link";
 import { Spinner, SpinnerSize } from "azure-devops-ui/Spinner";
 import { Status, Statuses, StatusSize } from "azure-devops-ui/Status";
@@ -160,24 +161,44 @@ export class ExtensionPopup {
       h("section", { className: "recent", "aria-labelledby": "recent-heading" },
         h("div", { className: "section-heading recent-heading" },
           h("h2", { id: "recent-heading" }, "Recent pull requests"),
-          h(Button, {
-            text: "Clear history", subtle: true, disabled: this.loading || this.clearing || (!this.entries.length && !this.historyError),
+          this.entries.length || this.historyError ? h(Button, {
+            text: "Clear history", subtle: true, disabled: this.loading || this.clearing,
             onClick: () => { this.confirmingClear = true; this.render(); }
-          })),
+          }) : null),
         this.confirmingClear ? h("div", { className: "clear-confirmation", role: "group", "aria-label": "Confirm clearing history" },
           h("p", null, "Clear recent PR history from this browser? Drafts and review progress will stay."),
           h("div", { className: "confirmation-actions" },
             h(Button, { text: "Cancel", autoFocus: true, disabled: this.clearing, onClick: () => { this.confirmingClear = false; this.render(); } }),
             h(Button, { text: this.clearing ? "Clearing..." : "Confirm clear", danger: true, disabled: this.clearing, onClick: () => void this.clearHistory() }))) : null,
-        !this.enabled ? h("p", { className: "disabled-note muted" }, "ADO Boost is disabled. New visits are not being recorded.") : null,
+        !this.enabled && (this.loading || this.entries.length || this.historyError) ? h("p", { className: "disabled-note muted" }, "ADO Boost is disabled. New visits are not being recorded.") : null,
         this.loading ? h("div", { className: "empty" }, h(Spinner, { label: "Loading recent PRs", size: SpinnerSize.small }))
           : this.historyError ? h("div", { className: "empty" },
             h("p", { className: "error", role: "alert" }, this.historyError),
             h(Button, { text: "Retry history", onClick: () => void this.loadHistory() }))
           : this.entries.length ? h("ol", { className: "recent-list" }, this.entries.map((pr) => this.renderPr(pr)))
-            : h("div", { className: "empty" }, h("strong", null, "No recent pull requests yet"), h("p", { className: "muted" }, "Open an Azure DevOps PR to start your history."))),
+            : this.renderEmptyHistory()),
       this.actionError ? h("p", { className: "action-error error", role: "alert" }, this.actionError) : null
     ), this.root);
+  }
+
+  private renderEmptyHistory() {
+    return h("div", { className: "history-empty" },
+      h(Icon, {
+        render: (className) => h("svg", {
+          className: `${className ?? ""} history-empty-icon`, viewBox: "0 0 24 24", width: 32, height: 32,
+          fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round",
+          "aria-hidden": true, focusable: false
+        },
+        h("circle", { cx: 6, cy: 5, r: 2.5 }),
+        h("circle", { cx: 6, cy: 19, r: 2.5 }),
+        h("circle", { cx: 18, cy: 19, r: 2.5 }),
+        h("path", { d: "M6 7.5v9M18 16.5v-4A5.5 5.5 0 0 0 12.5 7H11m3-3-3 3 3 3" }))
+      }),
+      h("h3", null, "No recent pull requests yet"),
+      h("p", { className: "muted" }, this.enabled
+        ? "Open a pull request in Azure DevOps. It will appear here for quick access."
+        : "Turn on ADO Boost in Settings to start keeping your recent pull requests here."),
+      !this.enabled ? h(Button, { text: "Open settings", onClick: () => void this.openSettings() }) : null);
   }
 
   private renderConnectionDetails(status: string) {
