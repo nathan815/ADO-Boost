@@ -2,6 +2,18 @@ import type { PullRequestThread } from "../core/types";
 
 export type DiscussionSort = "newest" | "oldest";
 
+type ThreadComment = PullRequestThread["comments"][number];
+
+export function groupThreadComments(comments: readonly ThreadComment[]): { original: ThreadComment | undefined; replies: ThreadComment[] } {
+  // IDs preserve conversation order even when publication metadata is missing.
+  const [original, ...replies] = [...comments].sort((left, right) => left.id - right.id);
+  const visible = (comment: ThreadComment) => !comment.isDeleted && !comment.isVoteUpdate && comment.author !== "Microsoft.VisualStudio.Services.TFS";
+  return {
+    original: original && visible(original) ? original : undefined,
+    replies: replies.filter(visible)
+  };
+}
+
 interface DatedEntry {
   id: number;
   publishedDate?: string;

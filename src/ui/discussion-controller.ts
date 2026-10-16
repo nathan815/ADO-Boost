@@ -7,7 +7,7 @@ import type { FeatureSettings } from "../features/registry";
 import { resolveFeature } from "../features/registry";
 import { adoFileUrl, navigateToAdoComment, navigateToAdoFile } from "./ado-navigation";
 import { renderAdoComment } from "./comment-content";
-import { sortDiscussions, sortThreads, type DiscussionSort } from "./discussion-sort";
+import { groupThreadComments, sortThreads, type DiscussionSort } from "./discussion-sort";
 import { InlineDraftComposer } from "./inline-draft-composer";
 import type { PanelToast } from "./panel-toast";
 
@@ -23,6 +23,7 @@ export class DiscussionController {
   private threadStatus = "all";
   private threadAuthor = "";
   private threadSort: DiscussionSort = "newest";
+  private readonly expandedReplies = new Set<number>();
   private readonly composers = new Map<string, InlineDraftComposer>();
   private actionError: string | null = null;
 
@@ -110,6 +111,11 @@ export class DiscussionController {
       for (const element of root.querySelectorAll<HTMLElement>("[data-thread-id]")) {
         const threadId = Number(element.dataset.threadId);
         const status = element.dataset.threadStatus ?? "active";
+        const replies = element.querySelector<HTMLDetailsElement>(".thread-replies");
+        replies?.addEventListener("toggle", () => {
+          if (replies.open) this.expandedReplies.add(threadId);
+          else this.expandedReplies.delete(threadId);
+        });
         for (const image of element.querySelectorAll<HTMLImageElement>(".comment-avatar img")) {
           image.addEventListener("error", () => image.remove(), { once: true });
         }
@@ -142,21 +148,20 @@ export class DiscussionController {
   }
 
   private filteredThreads(): PullRequestThread[] {
-    return sortThreads(this.threads.map((thread) => ({
-      ...thread,
-      comments: thread.comments.filter((comment) => !comment.isDeleted && !comment.isVoteUpdate && comment.author !== "Microsoft.VisualStudio.Services.TFS")
-    })).filter((thread) => {
-      if (!thread.comments.length) return false;
+    return sortThreads(this.threads.filter((thread) => {
+      const { original, replies } = groupThreadComments(thread.comments);
+      const comments = original ? [original, ...replies] : replies;
+      if (!comments.length) return false;
       const active = thread.status.toLowerCase() === "active";
       if (this.threadStatus === "active" && !active) return false;
       if (this.threadStatus === "resolved" && active) return false;
-      if (this.threadAuthor && !thread.comments.some((comment) => comment.author.toLowerCase().includes(this.threadAuthor.toLowerCase()))) return false;
+      if (this.threadAuthor && !comments.some((comment) => comment.author.toLowerCase().includes(this.threadAuthor.toLowerCase()))) return false;
       return true;
     }), this.threadSort);
   }
 
   private threadControls(): string {
-    return `<div class="thread-controls"><select class="select thread-status-filter" aria-label="Filter discussions by status"><option value="all">All statuses</option><option value="active" ${this.threadStatus === "active" ? "selected" : ""}>Active</option><option value="resolved" ${this.threadStatus === "resolved" ? "selected" : ""}>Resolved</option></select><input class="search thread-author-filter" value="${escapeHtml(this.threadAuthor)}" placeholder="Filter author" aria-label="Filter discussions by author"><label class="thread-sort-label">Sort comments<select class="select thread-sort" aria-label="Sort comments"><option value="newest" ${this.threadSort === "newest" ? "selected" : ""}>Newest first</option><option value="oldest" ${this.threadSort === "oldest" ? "selected" : ""}>Oldest first</option></select></label></div>`;
+    return `<div class="thread-controls"><select class="select thread-status-filter" aria-label="Filter discussions by status"><option value="all">All statuses</option><option value="active" ${this.threadStatus === "active" ? "selected" : ""}>Active</option><option value="resolved" ${this.threadStatus === "resolved" ? "selected" : ""}>Resolved</option></select><input class="search thread-author-filter" value="${escapeHtml(this.threadAuthor)}" placeholder="Filter author" aria-label="Filter discussions by author"><label class="thread-sort-label">Sort threads<select class="select thread-sort" aria-label="Sort threads"><option value="newest" ${this.threadSort === "newest" ? "selected" : ""}>Newest first</option><option value="oldest" ${this.threadSort === "oldest" ? "selected" : ""}>Oldest first</option></select></label></div>`;
   }
 
   private draftMarkup(draft: ReviewDraft): string {
@@ -166,14 +171,17 @@ export class DiscussionController {
   }
 
   private threadMarkup(thread: PullRequestThread): string {
-    const comments = sortDiscussions(thread.comments, this.threadSort);
+    const { original, replies } = groupThreadComments(thread.comments);
     const active = thread.status.toLowerCase() === "active";
     const location = thread.path ? `${thread.path}${thread.line ? `:${thread.line}` : ""}` : "";
     const locationMarkup = thread.path
       ? `<a class="file-link thread-file-link" data-path="${escapeHtml(thread.path)}" href="${escapeHtml(adoFileUrl(thread.path))}"><strong>${escapeHtml(location)}</strong></a>`
       : "";
     return `<article class="thread-item" data-thread-id="${thread.id}" data-thread-status="${escapeHtml(thread.status)}">
-      <div>${comments.map((comment) => this.commentMarkup(comment)).join("")}</div>
+      <div class="thread-conversation">
+        ${original ? this.commentMarkup(original) : '<p class="muted thread-original-unavailable">Original comment hidden or deleted.</p>'}
+        ${replies.length ? `<details class="thread-replies" ${this.expandedReplies.has(thread.id) ? "open" : ""}><summary>${replies.length} ${replies.length === 1 ? "reply" : "replies"}</summary><div class="thread-reply-list">${replies.map((comment) => this.commentMarkup(comment)).join("")}</div></details>` : ""}
+      </div>
       ${this.enabled("draftQueue") ? this.composers.get(`reply:${thread.id}`)?.markup() ?? "" : ""}
       <footer class="thread-footer"><div class="thread-metadata">${locationMarkup}<div><small class="thread-id">Thread ${thread.id}</small><span class="status">${escapeHtml(thread.status)}</span></div></div><div class="thread-actions">${this.enabled("draftQueue") ? '<button class="icon reply-draft" type="button">Reply draft</button>' : ""}<button class="icon thread-status" type="button">${active ? "Resolve" : "Reopen"}</button></div></footer>
     </article>`;

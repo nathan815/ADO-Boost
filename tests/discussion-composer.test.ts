@@ -191,14 +191,22 @@ describe("Sidebar discussions", () => {
     expect(discussionThreads[0]!.comments).toContain(systemComment);
   });
 
-  it("defaults to newest first for threads and replies and supports oldest first with filters", async () => {
+  it("defaults to newest threads first while keeping originals first and replies collapsed", async () => {
     const { root } = await mount();
     const ids = () => [...root.querySelectorAll<HTMLElement>("[data-thread-id]")].map((element) => element.dataset.threadId);
     const commentIds = () => [...root.querySelectorAll<HTMLElement>('[data-thread-id="1"] [data-comment-id]')].map((element) => element.dataset.commentId);
     expect(ids()).toEqual(["2", "1"]);
-    expect(commentIds()).toEqual(["2", "1"]);
+    expect(commentIds()).toEqual(["1", "2"]);
+    const original = root.querySelector('[data-thread-id="1"] .thread-conversation > .thread-comment')!;
+    expect(original.getAttribute("data-comment-id")).toBe("1");
+    const replies = root.querySelector<HTMLDetailsElement>('[data-thread-id="1"] .thread-replies')!;
+    expect(replies.open).toBe(false);
+    expect(replies.querySelector("summary")!.textContent).toBe("1 reply");
+    expect(replies.querySelector(".thread-comment")!.getAttribute("data-comment-id")).toBe("2");
+    expect(root.querySelector('[data-thread-id="2"] .thread-replies')).toBeNull();
     expect(root.textContent).not.toContain("Deleted");
     const sort = root.querySelector<HTMLSelectElement>(".thread-sort")!;
+    expect(sort.getAttribute("aria-label")).toBe("Sort threads");
     expect(sort.value).toBe("newest");
     sort.value = "oldest";
     sort.dispatchEvent(new Event("change"));
@@ -209,6 +217,54 @@ describe("Sidebar discussions", () => {
     status.dispatchEvent(new Event("change"));
     expect(ids()).toEqual(["1"]);
     expect(root.querySelector<HTMLSelectElement>(".thread-sort")!.value).toBe("oldest");
+  });
+
+  it("keeps expanded reply groups across rerenders, sorting, filtering, and draft editing", async () => {
+    const { root, render } = await mount();
+    const replyGroup = () => root.querySelector<HTMLDetailsElement>('[data-thread-id="1"] .thread-replies')!;
+    replyGroup().open = true;
+    replyGroup().dispatchEvent(new Event("toggle"));
+    render();
+    expect(replyGroup().open).toBe(true);
+    const sort = root.querySelector<HTMLSelectElement>(".thread-sort")!;
+    sort.value = "oldest";
+    sort.dispatchEvent(new Event("change"));
+    expect(replyGroup().open).toBe(true);
+    const status = root.querySelector<HTMLSelectElement>(".thread-status-filter")!;
+    status.value = "resolved";
+    status.dispatchEvent(new Event("change"));
+    expect(replyGroup()).toBeNull();
+    const reset = root.querySelector<HTMLSelectElement>(".thread-status-filter")!;
+    reset.value = "all";
+    reset.dispatchEvent(new Event("change"));
+    expect(replyGroup().open).toBe(true);
+    click(root, '[data-thread-id="1"] .reply-draft');
+    type(root, "reply:1", "Keep my reply draft");
+    render();
+    expect(replyGroup().open).toBe(true);
+    expect(root.querySelector<HTMLTextAreaElement>('[data-composer-key="reply:1"] textarea')!.value).toBe("Keep my reply draft");
+    replyGroup().open = false;
+    replyGroup().dispatchEvent(new Event("toggle"));
+    render();
+    expect(replyGroup().open).toBe(false);
+  });
+
+  it("renders replies under a placeholder when the original is hidden, rather than promoting a reply", async () => {
+    const { root } = await mount(new MemoryBrowserStore(), [{
+      id: 5, status: "active", comments: [
+        { id: 1, content: "Hidden original", author: "Alice", isDeleted: true },
+        { id: 3, content: "Second reply", author: "Alice", isDeleted: false },
+        { id: 2, content: "First reply", author: "Bob", isDeleted: false }
+      ]
+    }]);
+    const conversation = root.querySelector(".thread-conversation")!;
+    expect(conversation.querySelector(":scope > .thread-comment")).toBeNull();
+    expect(conversation.querySelector(".thread-original-unavailable")!.textContent).toBe("Original comment hidden or deleted.");
+    const replies = conversation.querySelector<HTMLDetailsElement>(".thread-replies")!;
+    expect(replies.open).toBe(false);
+    expect(replies.querySelector("summary")!.textContent).toBe("2 replies");
+    expect([...replies.querySelectorAll<HTMLElement>("[data-comment-id]")].map((element) => element.dataset.commentId)).toEqual(["2", "3"]);
+    expect(root.textContent).not.toContain("Hidden original");
   });
 
   it("hides voted events and vote-only threads while preserving normal comments about voting", async () => {
