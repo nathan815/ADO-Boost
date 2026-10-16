@@ -75,6 +75,7 @@ describe("native discussion page surface", () => {
     });
     expect(document.querySelector("[data-adopp-native-draft]")?.textContent).toContain("Draft");
     expect(document.querySelector("[data-adopp-native-draft]")?.textContent).toContain("Private feedback");
+    expect(document.getElementById("adopp-native-discussion-styles")?.textContent).not.toContain("background-color");
     expect(document.querySelector("[data-adopp-native-draft] .activity-feed-sequence .ms-Icon--Chat")).not.toBeNull();
     expect(document.querySelector("[data-adopp-native-draft] .bolt-timeline-cell-content .repos-comment-card")).not.toBeNull();
     expect(document.querySelector("[data-native-composer]")?.nextElementSibling?.hasAttribute("data-adopp-native-draft")).toBe(true);

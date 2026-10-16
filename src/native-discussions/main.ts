@@ -1,5 +1,6 @@
 import { DISCUSSION_CHANNEL, discussionCommandSchema, type DiscussionConfiguration } from "./protocol";
 import { InlineDraftSurface } from "./inline";
+import { OverviewDraftSurface, discoverActivityList, type NativeItemProvider, type NativeList } from "./overview";
 
 let config: DiscussionConfiguration | null = null;
 let observer: MutationObserver | null = null;
@@ -8,6 +9,7 @@ let renderedPage = "";
 const pendingComposers = new Map<string, HTMLTextAreaElement>();
 const nativeEditingDrafts = new Set<string>();
 const inlineDrafts = new InlineDraftSurface();
+const overviewDrafts = new OverviewDraftSurface();
 let nativeComposer: NativeComposerContract | null = null;
 let activeNativeEditor: ActiveNativeEditor | null = null;
 
@@ -29,18 +31,6 @@ interface NativeComposerContract {
     };
     onDirtyChange: () => void;
   }) => unknown;
-}
-
-interface NativeItemProvider {
-  internalItems: unknown[];
-  splice(index: number, deleteCount: number, ...items: unknown[]): void;
-}
-
-interface NativeList {
-  props: {
-    renderRow(index: number, item: unknown, details: unknown): unknown;
-  };
-  forceUpdate(): void;
 }
 
 interface ActiveNativeEditor {
@@ -76,7 +66,7 @@ function reconcile(): void {
     orderDrafts();
     report(inlineAvailable ? "active" : "unavailable", inlineAvailable
       ? "Native draft comments and Add to review actions are active."
-      : "The inline draft editor is unavailable. Drafts are preserved in the review sidebar.");
+      : "A native draft surface is unavailable. Drafts are preserved in the review sidebar.");
   } finally {
     if (config) observer?.observe(document.body, { childList: true, subtree: true });
   }
@@ -91,6 +81,8 @@ function renderDrafts(): boolean {
     card.dataset.adoppDraftSignature = draftSignature(draft);
     return card;
   });
+  const overviewAvailable = overviewDrafts.render(isFilesView() ? [] : config!.drafts
+    .filter((draft) => draft.kind === "inline").sort(compareDrafts), (draft) => draftCard(draft, "reply"));
   for (const draft of config!.drafts) {
     if (draft.kind === "inline") continue;
     const existing = document.querySelector<HTMLElement>(`[data-adopp-native-draft="${draft.id}"]`);
@@ -147,7 +139,7 @@ function renderDrafts(): boolean {
       continue;
     }
   }
-  return inlineAvailable;
+  return inlineAvailable && overviewAvailable;
 }
 
 function draftCard(draft: DiscussionConfiguration["drafts"][number], placement: "general" | "inline" | "reply"): HTMLElement {
@@ -157,9 +149,6 @@ function draftCard(draft: DiscussionConfiguration["drafts"][number], placement: 
     : placement === "inline"
       ? "repos-editor-discussion margin-vertical-8 adopp-native-draft adopp-native-draft-inline"
       : "repos-comment-card flex-row flex-grow bolt-card-no-vertical-padding no-padding bolt-card flex-column depth-8 bolt-card-white adopp-native-draft adopp-native-draft-general";
-  const nativeCard = document.querySelector<HTMLElement>(placement === "inline"
-    ? ".repos-editor-discussion:not(.adopp-native-draft)" : ".repos-comment-card:not(.adopp-native-draft)");
-  if (nativeCard) card.style.setProperty("--adopp-native-card-background", getComputedStyle(nativeCard).backgroundColor);
   const locationMarkup = draft.kind === "reply" ? `<span class="adopp-draft-location">Reply to thread ${draft.threadId}</span>` : "";
   const status = draft.delivery === "failed" ? "Failed draft" : draft.delivery === "ambiguous" ? "Posting uncertain" : "Draft";
   const reviewer = escapeHtml(config!.reviewer.displayName);
@@ -403,10 +392,7 @@ function tryNativeDraftEdit(draft: DiscussionConfiguration["drafts"][number]): b
       h("div", { className: "flex-grow scroll-hidden" },
         h("div", { className: "flex-row flex-grow padding-bottom-16 scroll-hidden padding-left-8 padding-right-4" },
           h("div", {
-            className: "repos-comment-card flex-row flex-grow bolt-card-no-vertical-padding no-padding bolt-card flex-column depth-8 bolt-card-white adopp-native-draft adopp-native-draft-general",
-            style: {
-              "--adopp-native-card-background": nativeCardBackground()
-            }
+            className: "repos-comment-card flex-row flex-grow bolt-card-no-vertical-padding no-padding bolt-card flex-column depth-8 bolt-card-white adopp-native-draft adopp-native-draft-general"
           }, h("div", { className: "bolt-card-content flex-row flex-grow" },
             h("div", { className: "adopp-native-draft-editor-shell flex-grow" }, editor))))))));
   };
@@ -431,23 +417,6 @@ function tryNativeDraftEdit(draft: DiscussionConfiguration["drafts"][number]): b
   return true;
 }
 
-function discoverActivityList(): { list: NativeList; provider: NativeItemProvider } | null {
-  const feed = document.querySelector(".activity-feed-list");
-  const key = feed && Object.getOwnPropertyNames(feed).find((name) => name.startsWith("__reactFiber$"));
-  let fiber: unknown = key ? Reflect.get(feed, key) : null;
-  const seen = new Set<unknown>();
-  for (let depth = 0; isRecord(fiber) && depth < 30 && !seen.has(fiber); depth++) {
-    seen.add(fiber);
-    const props = fiber.memoizedProps;
-    const list = fiber.stateNode;
-    if (isRecord(props) && isNativeItemProvider(props.itemProvider) && isNativeList(list)) {
-      return { list, provider: props.itemProvider };
-    }
-    fiber = fiber.return;
-  }
-  return null;
-}
-
 function cleanupNativeEditor(): void {
   const active = activeNativeEditor;
   if (!active) return;
@@ -470,24 +439,10 @@ function normalizeNativeDraftEditors(): void {
   }
 }
 
-function nativeCardBackground(): string {
-  const nativeCard = document.querySelector<HTMLElement>(".repos-comment-card:not(.adopp-native-draft)");
-  return nativeCard ? getComputedStyle(nativeCard).backgroundColor : "var(--background-color, #fff)";
-}
-
 function hashDraftId(value: string): number {
   let hash = 0;
   for (const character of value) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
   return hash || 1;
-}
-
-function isNativeItemProvider(value: unknown): value is NativeItemProvider {
-  return isRecord(value) && Array.isArray(value.internalItems) && typeof value.splice === "function";
-}
-
-function isNativeList(value: unknown): value is NativeList {
-  return isRecord(value) && isRecord(value.props) && typeof value.props.renderRow === "function"
-    && typeof value.forceUpdate === "function";
 }
 
 function addComposerDraft(editor: HTMLElement, textarea: HTMLTextAreaElement, button: HTMLButtonElement): void {
@@ -592,15 +547,18 @@ function isFilesView(): boolean {
 }
 
 function removeOwnedDrafts(): void {
+  overviewDrafts.clear();
   inlineDrafts.clear();
-  for (const element of document.querySelectorAll("[data-adopp-native-draft]")) element.remove();
+  for (const element of document.querySelectorAll("[data-adopp-native-draft]")) {
+    if (!element.hasAttribute("data-adopp-overview-inline")) element.remove();
+  }
 }
 
 function removeStaleDrafts(): void {
   const current = new Set(config?.drafts.map((draft) => draft.id) ?? []);
   for (const element of document.querySelectorAll<HTMLElement>("[data-adopp-native-draft]")) {
     const id = element.dataset.adoppNativeDraft;
-    if (!id || !current.has(id)) element.remove();
+    if (!element.hasAttribute("data-adopp-overview-inline") && (!id || !current.has(id))) element.remove();
   }
 }
 
@@ -612,12 +570,14 @@ function orderDrafts(): void {
   const composer = body ? findComposerRow(body) : null;
   if (body && composer) {
     let cursor = composer;
-    for (const draft of drafts.filter((candidate) => candidate.kind === "general")) {
-      const row = activeNativeEditor?.draftId === draft.id
+    for (const draft of drafts.filter((candidate) => candidate.kind === "general" || candidate.kind === "inline")) {
+      const projected = activeNativeEditor?.draftId === draft.id
         ? document.querySelector<HTMLElement>(`[data-adopp-native-editor="${draft.id}"]`)
         : document.querySelector<HTMLElement>(`[data-adopp-native-draft="${draft.id}"]`);
+      const ownedActivity = projected?.hasAttribute("data-adopp-overview-inline");
+      const row = ownedActivity ? projected?.closest<HTMLElement>(".bolt-timeline-row") : projected;
       if (!row || row.parentElement !== body) continue;
-      if (cursor.nextElementSibling !== row) cursor.after(row);
+      if (!ownedActivity && cursor.nextElementSibling !== row) cursor.after(row);
       cursor = row;
     }
   }
@@ -682,9 +642,9 @@ function ensureStyles(): void {
   if (document.getElementById("adopp-native-discussion-styles")) return;
   const style = document.createElement("style");
   style.id = "adopp-native-discussion-styles";
-  style.textContent = `.adopp-native-draft{position:relative}.adopp-native-draft-general,.adopp-native-draft-inline,.adopp-native-draft-reply .repos-comment-viewer{background-color:color-mix(in srgb,var(--communication-foreground,var(--palette-primary-80,#0078d4)) 3%,var(--adopp-native-card-background,var(--background-color,#fff)))}.adopp-native-draft-editor-shell{box-sizing:border-box;min-width:0;margin:4px;padding:8px 12px}.adopp-draft-badge{border:1px solid var(--communication-foreground,var(--palette-primary-80,#0078d4));border-radius:10px;padding:1px 7px;font-size:11px;font-weight:600;color:var(--communication-foreground,var(--palette-primary-80,#0078d4));white-space:nowrap}.adopp-draft-location{margin-left:8px;color:var(--text-secondary-color,rgba(0,0,0,.65));font-size:12px}.adopp-draft-edit+.adopp-draft-remove{margin-inline-start:4px}.adopp-draft-body{white-space:pre-wrap}.adopp-draft-editor textarea{min-height:64px;resize:vertical}.adopp-draft-error{margin-top:8px;color:var(--status-error-text,#a4262c)}.adopp-add-review{margin-inline-end:8px}`;
+  style.textContent = `.adopp-native-draft{position:relative}.adopp-native-draft-editor-shell{box-sizing:border-box;min-width:0;margin:4px;padding:8px 12px}.adopp-draft-badge{border:1px solid var(--communication-foreground,var(--palette-primary-80,#0078d4));border-radius:10px;padding:1px 7px;font-size:11px;font-weight:600;color:var(--communication-foreground,var(--palette-primary-80,#0078d4));white-space:nowrap}.adopp-draft-location{margin-left:8px;color:var(--text-secondary-color,rgba(0,0,0,.65));font-size:12px}.adopp-draft-edit+.adopp-draft-remove{margin-inline-start:4px}.adopp-draft-body{white-space:pre-wrap}.adopp-draft-editor textarea{min-height:64px;resize:vertical}.adopp-draft-error{margin-top:8px;color:var(--status-error-text,#a4262c)}.adopp-add-review{margin-inline-end:8px}`;
   document.head.append(style);
-  style.textContent += ".adopp-inline-draft-zone{overflow:hidden;z-index:1}.adopp-inline-draft-content{display:flex;flex-direction:column;gap:8px;padding:0 12px 0 0;box-sizing:border-box;user-select:text;-webkit-user-select:text}.adopp-inline-draft-content>.adopp-native-draft-inline{flex:0 0 auto;min-height:0;background-color:color-mix(in srgb,var(--communication-foreground,var(--palette-primary-80,#0078d4)) 3%,var(--adopp-native-card-background,var(--background-color,#fff)))}";
+  style.textContent += ".adopp-inline-draft-zone{overflow:hidden;z-index:1}.adopp-inline-draft-content{display:flex;flex-direction:column;gap:8px;padding:0 12px 0 0;box-sizing:border-box;user-select:text;-webkit-user-select:text}.adopp-inline-draft-content>.adopp-native-draft-inline{flex:0 0 auto;min-height:0}";
 }
 
 function setDraftButtonDisabled(button: HTMLButtonElement, disabled: boolean): void {
