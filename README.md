@@ -2,7 +2,8 @@
 
 ADO Boost is an Edge-first browser extension that makes Azure DevOps pull request reviews easier to navigate, discuss, and submit.
 
-> ADO Boost is pre-release software. Build it from source and load it as an unpacked extension.
+> [!NOTE] 
+> ADO Boost is not yet available on the Edge Add-Ons Store or Chrome Web Store. See below on how to install it as an unpacked extension.
 
 ## What it adds
 
