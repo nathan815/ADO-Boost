@@ -56,15 +56,15 @@ describe("ReviewPanel native shell", () => {
     root.querySelector<HTMLButtonElement>(".settings")!.click();
     expect(openSettings).toHaveBeenCalledOnce();
     root.querySelector<HTMLButtonElement>(".panel-layout-toggle")!.click();
-    expect(root.querySelector<HTMLElement>(".panel-layout-menu")!.hidden).toBe(false);
+    expect(document.querySelector(".adopp-layout-callout .bolt-menu")).not.toBeNull();
     expect(host.dataset.layout).toBe("inline");
-    expect(root.querySelector('[data-overlay="false"]')!.getAttribute("aria-checked")).toBe("true");
-    root.querySelector<HTMLButtonElement>('[data-overlay="true"]')!.click();
+    expect(document.querySelector(".adopp-layout-docked")!.getAttribute("aria-checked")).toBe("true");
+    document.querySelector<HTMLElement>(".adopp-layout-overlay")!.click();
     expect(host.dataset.layout).toBe("overlay");
     expect(document.querySelector("[data-adopp-panel-main]")).toBeNull();
     expect(root.activeElement?.classList.contains("panel-layout-toggle")).toBe(true);
     root.querySelector<HTMLButtonElement>(".panel-layout-toggle")!.click();
-    root.querySelector<HTMLButtonElement>('[data-overlay="false"]')!.click();
+    document.querySelector<HTMLElement>(".adopp-layout-docked")!.click();
     expect(host.dataset.layout).toBe("inline");
     root.querySelector<HTMLButtonElement>(".close")!.click();
     expect(host.dataset.open).toBe("false");
@@ -73,22 +73,66 @@ describe("ReviewPanel native shell", () => {
     expect(root.querySelector(".rail")!.hasAttribute("inert")).toBe(true);
   });
 
-  it("supports layout menu keyboard navigation and dismisses it without closing the panel", () => {
+  it("opens the official menu from the keyboard and dismisses it without closing the panel", () => {
     const { host, root } = mountPanel();
     panel!.openDiscussions();
     const trigger = root.querySelector<HTMLButtonElement>(".panel-layout-toggle")!;
     trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, composed: true }));
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    expect(root.activeElement).toBe(root.querySelector('[data-overlay="false"]'));
-    root.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, composed: true }));
-    expect(root.activeElement).toBe(root.querySelector('[data-overlay="true"]'));
-    root.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true }));
+    expect(document.querySelector(".adopp-layout-callout .bolt-menu")).not.toBeNull();
+    const docked = document.querySelector<HTMLElement>(".adopp-layout-docked")!;
+    const overlay = document.querySelector<HTMLElement>(".adopp-layout-overlay")!;
+    vi.spyOn(docked, "offsetHeight", "get").mockReturnValue(32);
+    vi.spyOn(overlay, "offsetHeight", "get").mockReturnValue(32);
+    docked.focus();
+    docked.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", keyCode: 40, bubbles: true }));
+    expect(document.activeElement).toBe(overlay);
+    overlay.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", keyCode: 27, bubbles: true }));
     expect(host.dataset.open).toBe("true");
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(root.activeElement).toBe(trigger);
+  });
+
+  it("removes the official menu portal when the panel is destroyed", () => {
+    const { root } = mountPanel();
+    panel!.openDiscussions();
+    const trigger = root.querySelector<HTMLButtonElement>(".panel-layout-toggle")!;
     trigger.click();
-    document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
-    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    const portal = document.querySelector(".adopp-layout-callout")!.closest(".bolt-portal")!;
+    panel!.destroy();
+    expect(document.querySelector(".adopp-layout-callout")).toBeNull();
+    expect(portal.isConnected).toBe(false);
+  });
+
+  it.each(["keydown", "keypress", "keyup"])("isolates unused layout menu %s shortcuts without blocking native menu keys", (type) => {
+    const { root } = mountPanel();
+    panel!.openDiscussions();
+    root.querySelector<HTMLButtonElement>(".panel-layout-toggle")!.click();
+    const item = document.querySelector<HTMLElement>(".adopp-layout-docked")!;
+    const shortcut = vi.fn();
+    document.addEventListener(type, shortcut);
+    try {
+      for (const key of ["e", "n", "R"]) {
+        item.dispatchEvent(new KeyboardEvent(type, { key, shiftKey: key === "R", bubbles: true }));
+      }
+      expect(shortcut).not.toHaveBeenCalled();
+      item.dispatchEvent(new KeyboardEvent(type, { key: "ArrowDown", keyCode: 40, bubbles: true }));
+      expect(shortcut).toHaveBeenCalledOnce();
+    } finally {
+      document.removeEventListener(type, shortcut);
+    }
+  });
+
+  it("dismisses the official menu when focus moves outside it", async () => {
+    const { host, root } = mountPanel();
+    panel!.openDiscussions();
+    const trigger = root.querySelector<HTMLButtonElement>(".panel-layout-toggle")!;
+    trigger.click();
+    document.querySelector<HTMLElement>(".adopp-layout-docked")!.focus();
+    document.querySelector<HTMLButtonElement>(".adopp-start-button")!.focus();
+    await vi.waitFor(() => expect(document.querySelector(".adopp-layout-callout")).toBeNull());
+    expect(host.dataset.open).toBe("true");
+    expect(root.querySelector(".panel-layout-toggle")!.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("closes with Escape but does not toggle while typing across the shadow boundary", () => {
