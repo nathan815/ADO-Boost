@@ -9,6 +9,7 @@ import { adoFileUrl, navigateToAdoComment, navigateToAdoFile } from "./ado-navig
 import { renderAdoComment } from "./comment-content";
 import { sortDiscussions, sortThreads, type DiscussionSort } from "./discussion-sort";
 import { InlineDraftComposer } from "./inline-draft-composer";
+import type { PanelToast } from "./panel-toast";
 
 type DraftInput = Pick<ReviewDraft, "kind" | "path" | "trackingId" | "line" | "side" | "threadId">;
 
@@ -31,7 +32,8 @@ export class DiscussionController {
     private readonly analysis: PullRequestAnalysis,
     private readonly writes: WriteGateway,
     private readonly getSettings: () => FeatureSettings,
-    private readonly onChange: () => void
+    private readonly onChange: () => void,
+    private readonly toast: Pick<PanelToast, "show" | "dismiss">
   ) {
     this.queue = new DraftQueue(store, analysis.context);
   }
@@ -112,7 +114,7 @@ export class DiscussionController {
           image.addEventListener("error", () => image.remove(), { once: true });
         }
         for (const button of element.querySelectorAll<HTMLButtonElement>(".jump-comment")) {
-          button.addEventListener("click", () => void this.jumpToComment(button));
+          button.addEventListener("click", () => void this.jumpToComment(button, threadId));
         }
         element.querySelector<HTMLAnchorElement>(".thread-file-link")?.addEventListener("click", (event) => {
           event.preventDefault();
@@ -182,16 +184,13 @@ export class DiscussionController {
     return `<div class="thread-comment" data-comment-id="${comment.id}"><header class="comment-header"><span class="comment-avatar" aria-hidden="true">${escapeHtml(initials)}${comment.authorImageUrl ? `<img src="${escapeHtml(comment.authorImageUrl)}" alt="" width="28" height="28" loading="lazy" referrerpolicy="no-referrer">` : ""}</span><div class="comment-author"><strong>${escapeHtml(comment.author)}</strong>${comment.publishedDate ? `<time datetime="${escapeHtml(comment.publishedDate)}">${escapeHtml(new Date(comment.publishedDate).toLocaleString())}</time>` : ""}</div><button class="icon jump-comment" type="button" aria-label="Jump to comment by ${escapeHtml(comment.author)}" title="${comment.publishedDate ? "Jump to comment in Azure DevOps" : "Comment location unavailable: no publication time"}" data-published-date="${escapeHtml(comment.publishedDate ?? "")}" ${comment.publishedDate ? "" : "disabled"}><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3H3v10h10v-3M8 2h6v6M14 2l-7 7" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/></svg></button></header><div class="thread-content">${renderAdoComment(comment.content)}</div></div>`;
   }
 
-  private async jumpToComment(button: HTMLButtonElement): Promise<void> {
+  private async jumpToComment(button: HTMLButtonElement, threadId: number): Promise<void> {
     button.disabled = true;
-    const hadError = this.actionError !== null;
-    this.actionError = null;
+    this.toast.dismiss();
     try {
-      await navigateToAdoComment(button.dataset.publishedDate ?? "");
-      if (hadError) this.onChange();
+      await navigateToAdoComment(button.dataset.publishedDate ?? "", document, window, this.threads.find((thread) => thread.id === threadId));
     } catch (error) {
-      this.actionError = error instanceof Error ? error.message : "Could not locate this comment in Azure DevOps.";
-      this.onChange();
+      this.toast.show(error instanceof Error ? error.message : "Couldn't jump to this comment. Try again, or open the discussion directly in Azure DevOps.");
     } finally {
       button.disabled = false;
     }

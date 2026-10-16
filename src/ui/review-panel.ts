@@ -17,6 +17,7 @@ import { AnnouncementDialog } from "./announcement-dialog";
 import { AdoPanelHeader, adoComponentStyles } from "./ado-panel-header";
 import { ReviewPanelLayout } from "./review-panel-layout";
 import { isTypingEvent } from "./keyboard";
+import { PanelToast } from "./panel-toast";
 
 interface ReviewPanelDependencies {
   analysis: PullRequestAnalysis;
@@ -34,6 +35,7 @@ interface ReviewPanelDependencies {
 export class ReviewPanel {
   private readonly host = document.createElement("div");
   private readonly root = this.host.attachShadow({ mode: "open" });
+  private readonly toast = new PanelToast(this.root);
   private readonly layout: ReviewPanelLayout;
   private header: AdoPanelHeader | null = null;
   private readonly announcement: AnnouncementService;
@@ -56,7 +58,7 @@ export class ReviewPanel {
     this.settings = dependencies.settings;
     this.announcement = new AnnouncementService(dependencies.api, dependencies.store);
     this.diffDialog = new DiffDialog(dependencies.api, dependencies.analysis.context, (root, path, trackingId, line, side) => this.discussion.showInlineDraft(root, path, trackingId, line, side));
-    this.discussion = new DiscussionController(dependencies.api, dependencies.store, dependencies.analysis, dependencies.writes, () => this.settings, () => this.render());
+    this.discussion = new DiscussionController(dependencies.api, dependencies.store, dependencies.analysis, dependencies.writes, () => this.settings, () => this.render(), this.toast);
     this.host.dataset.theme = dependencies.settings.presentation.theme;
     this.host.dataset.adoppReviewPanel = "true";
     this.layout = new ReviewPanelLayout(this.host);
@@ -96,6 +98,7 @@ export class ReviewPanel {
     this.destroyed = true;
     this.announcementDialog?.close();
     this.header?.destroy();
+    this.toast.destroy();
     document.removeEventListener("keydown", this.onKeyDown, true);
     for (const type of ["keydown", "keypress", "keyup"]) this.root.removeEventListener(type, this.onPanelKeyboardEvent);
     this.layout.destroy();
@@ -150,11 +153,13 @@ export class ReviewPanel {
       onAnnounce: () => this.startReviewing()
     });
     this.bind();
+    this.toast.mount();
     const workspace = this.root.querySelector(".workspace");
     if (workspace) workspace.scrollTop = scrollTop;
   }
 
   private closePanel(): void {
+    this.toast.dismiss();
     this.open = false;
     this.render();
     document.querySelector<HTMLElement>(".adopp-start-button")?.focus();

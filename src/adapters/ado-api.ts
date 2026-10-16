@@ -201,7 +201,8 @@ export class AdoApi {
       status: thread.status ?? "active",
       ...(thread.publishedDate ? { publishedDate: thread.publishedDate } : {}),
       ...(thread.threadContext?.filePath ? { path: thread.threadContext.filePath } : {}),
-      ...(thread.threadContext?.rightFileStart?.line ? { line: thread.threadContext.rightFileStart.line } : {}),
+      ...(thread.threadContext?.rightFileStart ? { line: thread.threadContext.rightFileStart.line }
+        : thread.threadContext?.leftFileStart ? { line: thread.threadContext.leftFileStart.line } : {}),
       comments: (thread.comments ?? []).filter((comment) => comment.id).map((comment) => ({
         id: comment.id!,
         content: comment.content ?? "",

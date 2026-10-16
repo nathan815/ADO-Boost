@@ -29,13 +29,14 @@ const analysis: PullRequestAnalysis = {
 };
 
 const writes = {} as WriteGateway;
+const toast = { show: () => undefined, dismiss: () => undefined };
 
 describe("DiscussionController feature gating", () => {
   it("renders no discussion surface when drafts and threads are disabled", async () => {
     const settings = defaultSettings();
     settings.features.draftQueue = false;
     settings.features.threadNavigator = false;
-    const controller = new DiscussionController({} as AdoApi, new MemoryBrowserStore(), analysis, writes, () => settings, () => undefined);
+    const controller = new DiscussionController({} as AdoApi, new MemoryBrowserStore(), analysis, writes, () => settings, () => undefined, toast);
     await controller.load();
     expect(controller.markup()).toBe("");
   });
@@ -44,7 +45,7 @@ describe("DiscussionController feature gating", () => {
     const settings = defaultSettings();
     settings.features.draftQueue = false;
     const api = { listThreads: async () => [] } as unknown as AdoApi;
-    const controller = new DiscussionController(api, new MemoryBrowserStore(), analysis, writes, () => settings, () => undefined);
+    const controller = new DiscussionController(api, new MemoryBrowserStore(), analysis, writes, () => settings, () => undefined, toast);
     await controller.load();
     const markup = controller.markup();
     expect(markup).toContain("Discussion threads");
@@ -57,7 +58,7 @@ describe("DiscussionController feature gating", () => {
     const settings = defaultSettings();
     settings.features.feedbackExport = false;
     settings.features.submitReview = false;
-    const controller = new DiscussionController({ listThreads: async () => [] } as unknown as AdoApi, new MemoryBrowserStore(), analysis, writes, () => settings, () => undefined);
+    const controller = new DiscussionController({ listThreads: async () => [] } as unknown as AdoApi, new MemoryBrowserStore(), analysis, writes, () => settings, () => undefined, toast);
     await controller.load();
     const markup = controller.markup();
     expect(markup).toContain("Add general draft");

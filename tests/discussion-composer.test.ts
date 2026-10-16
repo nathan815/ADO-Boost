@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @vitest-environment-options {"url":"https://dev.azure.com/org/project/_git/repo/pullrequest/7"}
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AdoApi } from "../src/adapters/ado-api";
@@ -8,6 +9,7 @@ import type { PullRequestAnalysis, PullRequestThread } from "../src/core/types";
 import type { WriteGateway } from "../src/core/write-gateway";
 import { defaultSettings } from "../src/features/registry";
 import { DiscussionController } from "../src/ui/discussion-controller";
+import { PanelToast } from "../src/ui/panel-toast";
 
 const analysis: PullRequestAnalysis = {
   context: {
@@ -28,14 +30,19 @@ const threads: PullRequestThread[] = [
   ] }
 ];
 
+const toasts: PanelToast[] = [];
+
 afterEach(() => {
+  for (const toast of toasts.splice(0)) toast.destroy();
   document.body.innerHTML = "";
+  history.replaceState({}, "", "/org/project/_git/repo/pullrequest/7");
 });
 
 async function mount(store = new MemoryBrowserStore(), discussionThreads = threads) {
   const settings = defaultSettings();
   const fetch = vi.fn(async () => new Response(JSON.stringify({ value: discussionThreads.map((thread) => ({
     ...thread,
+    ...(thread.path ? { threadContext: { filePath: thread.path, rightFileStart: { line: thread.line ?? 1, offset: 1 } } } : {}),
     comments: thread.comments.map((comment) => ({ ...comment, commentType: comment.isVoteUpdate ? "system" : "text", author: { id: comment.author, displayName: comment.author, imageUrl: comment.authorImageUrl } }))
   })) }), { status: 200 }));
   const writes: WriteGateway = {
@@ -44,8 +51,10 @@ async function mount(store = new MemoryBrowserStore(), discussionThreads = threa
   const host = document.createElement("div");
   document.body.append(host);
   const root = host.attachShadow({ mode: "open" });
-  const render = () => { root.innerHTML = controller.markup(); controller.bind(root); };
-  const controller = new DiscussionController(new AdoApi({ fetch }), store, analysis, writes, () => settings, render);
+  const toast = new PanelToast(root);
+  toasts.push(toast);
+  const render = () => { root.innerHTML = controller.markup(); controller.bind(root); toast.mount(); };
+  const controller = new DiscussionController(new AdoApi({ fetch }), store, analysis, writes, () => settings, render, toast);
   await controller.load();
   return { root, store, settings, writes, render, controller, queue: new DraftQueue(store, analysis.context) };
 }
@@ -97,11 +106,68 @@ describe("Sidebar discussions", () => {
     expect(root.querySelector<HTMLTextAreaElement>(".draft-body")!.value).toBe("Keep this draft");
   });
 
-  it("shows an actionable error when the native comment cannot be located", async () => {
+  it("shows a dismissible toast without rerendering the composer when a jump fails", async () => {
     const { root } = await mount();
+    click(root, ".add-general");
+    type(root, "general", "Keep my draft and cursor");
+    const textarea = root.querySelector<HTMLTextAreaElement>(".draft-body")!;
+    textarea.focus();
+    textarea.setSelectionRange(4, 7);
     click(root, ".jump-comment");
-    await vi.waitFor(() => expect(root.querySelector(".delivery.error")!.textContent).toContain("Open the PR Overview tab"));
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')!.textContent).toContain("Open the PR Overview tab"));
+    expect(root.querySelector(".delivery.error")).toBeNull();
+    expect(root.querySelector(".draft-body")).toBe(textarea);
+    expect(textarea.value).toBe("Keep my draft and cursor");
+    expect(textarea.selectionStart).toBe(4);
+    expect(root.activeElement).toBe(textarea);
     expect(root.querySelector<HTMLButtonElement>(".jump-comment")!.disabled).toBe(false);
+    root.querySelector<HTMLButtonElement>('[aria-label="Dismiss notification"]')!.click();
+    expect(root.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("clears the previous jump error when retrying successfully", async () => {
+    const { root } = await mount();
+    click(root, '[data-thread-id="2"] .jump-comment');
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')).not.toBeNull());
+    const native = document.createElement("div");
+    native.className = "repos-discussion-comment";
+    native.innerHTML = '<div class="repos-discussion-comment-header"><time datetime="2026-10-15T12:00:00Z"></time></div>';
+    native.scrollIntoView = vi.fn();
+    document.body.append(native);
+    click(root, '[data-thread-id="2"] .jump-comment');
+    expect(root.querySelector('[role="alert"]')).toBeNull();
+    await vi.waitFor(() => expect(document.activeElement).toBe(native));
+  });
+
+  it("jumps anchored replies to the native file thread instead of their Overview copy", async () => {
+    const thread = { ...threads[0]!, path: "/src/app.ts", line: 12 };
+    const date = thread.comments[1]!.publishedDate!;
+    const native = document.createElement("div");
+    native.className = "repos-discussion-comment";
+    native.innerHTML = `<div class="repos-discussion-comment-header"><time datetime="${date}"></time></div>`;
+    native.scrollIntoView = vi.fn();
+    const link = document.createElement("a");
+    link.className = "comment-file-header-link";
+    link.href = `?_a=files&path=${encodeURIComponent(thread.path)}&discussionId=${thread.id}`;
+    let navigated = false;
+    const inlineComment = native.cloneNode(true) as HTMLElement;
+    inlineComment.scrollIntoView = vi.fn();
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      navigated = true;
+      history.pushState({}, "", link.href);
+      const host = document.createElement("div");
+      host.className = "repos-editor-discussion-host";
+      host.append(inlineComment);
+      document.body.append(host);
+    });
+    document.body.append(native, link);
+    const { root } = await mount(new MemoryBrowserStore(), [thread]);
+    click(root, '[data-comment-id="2"] .jump-comment');
+    expect(navigated).toBe(true);
+    await vi.waitFor(() => expect(document.activeElement).toBe(inlineComment));
+    expect(native.scrollIntoView).not.toHaveBeenCalled();
+    expect(inlineComment.scrollIntoView).toHaveBeenCalledOnce();
   });
 
   it("hides TFS system comments and system-only threads without hiding reviewer replies", async () => {

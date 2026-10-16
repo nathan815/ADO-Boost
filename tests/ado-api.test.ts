@@ -256,6 +256,19 @@ describe("AdoApi", () => {
     }]);
   });
 
+  it.each([
+    { leftFileStart: { line: 12, offset: 1 }, rightFileStart: null, expectedLine: 12 },
+    { leftFileStart: null, rightFileStart: { line: 24, offset: 1 }, expectedLine: 24 },
+    { leftFileStart: { line: 12, offset: 1 }, rightFileStart: { line: 24, offset: 1 }, expectedLine: 24 }
+  ])("retains the file anchor for old-side and new-side comments: %j", async ({ expectedLine, ...positions }) => {
+    const api = new AdoApi(new QueueHttp([json({ value: [{
+      id: 10, threadContext: { filePath: "/file.ts", ...positions }
+    }] })]));
+    await expect(api.listThreads(context)).resolves.toEqual([{
+      id: 10, status: "active", path: "/file.ts", line: expectedLine, comments: []
+    }]);
+  });
+
   it("retains comment author photos", async () => {
     const imageUrl = "https://dev.azure.com/org/_apis/GraphProfile/MemberAvatars/reviewer";
     const api = new AdoApi(new QueueHttp([json({ value: [{
