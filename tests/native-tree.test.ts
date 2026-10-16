@@ -7,6 +7,7 @@ import { discoverHost } from "../src/native-tree/host";
 import type { HostReact, NativeChanges, NativeColumn, NativeElement, NativeHost } from "../src/native-tree/host";
 import { CHANNEL, commandSchema, configurationSchema, matchesFilters, record } from "../src/native-tree/protocol";
 import type { TreeConfiguration, TreeFile } from "../src/native-tree/protocol";
+import type { PullRequestAnalysis } from "../src/core/types";
 
 const react: HostReact = {
   createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
@@ -162,6 +163,7 @@ describe("native tree adapter", () => {
     expect(JSON.stringify(rendered)).toContain("+3");
     expect(JSON.stringify(rendered)).toContain('"className":"adopp-native-stat-plus"');
     expect(JSON.stringify(rendered)).toContain('"className":"adopp-native-stat-minus"');
+    expect(JSON.stringify(rendered).indexOf("adopp-native-stat-minus")).toBeLessThan(JSON.stringify(rendered).indexOf("adopp-native-stat-plus"));
     expect(JSON.stringify(rendered)).toContain("native menu");
     f.host.tree.render();
     expect(JSON.stringify(f.column.renderCell(0, 1, f.column, { underlyingItem: { data: { path: "/one/app.ts" } } })).match(/adopp-react-stat/g)).toHaveLength(1);
@@ -195,6 +197,39 @@ describe("native tree adapter", () => {
     for (const data of [{ path: "/one/app.ts", isFolder: true }, { path: "/one/app.ts", thread: {} }]) {
       expect(JSON.stringify(f.column.renderCell(0, 1, f.column, { underlyingItem: { data } }))).not.toContain("adopp-react-stat");
     }
+    f.adapter.dispose();
+  });
+
+  it.each([
+    [11, 0, "exact", true, false, true],
+    [0, 3, "exact", false, true, true],
+    [0, 0, "exact", false, false, false],
+    [0, 0, "partial", false, false, true]
+  ] as const)("omits zero tree counts for +%s -%s (%s)", (additions, deletions, state, plus, minus, badge) => {
+    const f = fixture(configuration([file("/one/app.ts", { additions, deletions, state })]));
+    f.adapter.start();
+    f.host.tree.render();
+    const rendered = JSON.stringify(f.column.renderCell(0, 1, f.column, { underlyingItem: { data: { path: "/one/app.ts" } } }));
+    expect(rendered.includes("adopp-native-stat-plus")).toBe(plus);
+    expect(rendered.includes("adopp-native-stat-minus")).toBe(minus);
+    expect(rendered.includes("data-adopp-react-stat")).toBe(badge);
+    expect(rendered).not.toMatch(/[+−]0/);
+    if (state === "partial") expect(rendered).toContain("~");
+    f.adapter.dispose();
+  });
+
+  it("refreshes badges when only analyzed counts change", () => {
+    const f = fixture();
+    f.adapter.start();
+    f.host.tree.render();
+    const updated = { ...f.config, files: f.config.files.map((value) => ({ ...value, additions: 11, deletions: 0 })) };
+    vi.mocked(f.host.tree.forceUpdate).mockClear();
+    f.adapter.update(updated);
+    expect(f.host.tree.forceUpdate).toHaveBeenCalled();
+    f.host.tree.render();
+    const rendered = JSON.stringify(f.column.renderCell(0, 1, f.column, { underlyingItem: { data: { path: "/one/app.ts" } } }));
+    expect(rendered).toContain("+11");
+    expect(rendered).not.toContain("+3");
     f.adapter.dispose();
   });
 
@@ -345,11 +380,12 @@ describe("native tree contracts", () => {
 
 describe("native tree bridge client", () => {
   let client: NativeTreeClient;
+  let analysis: PullRequestAnalysis;
 
   beforeEach(() => {
     vi.useFakeTimers();
     vi.spyOn(window, "postMessage").mockImplementation(() => {});
-    client = new NativeTreeClient({
+    analysis = {
       context: {
         origin: location.origin, organization: "org", project: "project", repository: "repo", repositoryId: "repo-id",
         pullRequestId: 7, title: "PR", sourceCommit: "source", targetCommit: "target", mergeBaseCommit: "base",
@@ -357,7 +393,8 @@ describe("native tree bridge client", () => {
       },
       files: configuration().files, groups: [], completedTrackingIds: new Set(),
       threads: { state: "available", active: 0, resolved: 0, total: 0 }
-    });
+    };
+    client = new NativeTreeClient(analysis);
   });
 
   describe("native tree page bridge lifecycle", () => {
@@ -434,6 +471,23 @@ describe("native tree bridge client", () => {
     expect(command).not.toHaveProperty("identity");
     client.configure({ ...configuration().filters, extension: "ts" }, true);
     expect(window.postMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it("sends updated counts and suppresses stale badges while recalculating", () => {
+    configured();
+    analysis.countsUpdating = true;
+    client.configure(configuration().filters, true);
+    expect(window.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({ countsEnabled: false }), location.origin);
+    analysis.files[0]!.additions = 11;
+    analysis.files[0]!.deletions = 0;
+    analysis.countsUpdating = false;
+    analysis.diffPolicy = { ignoreTrimWhitespace: true };
+    client.configure(configuration().filters, true);
+    const last = vi.mocked(window.postMessage).mock.calls.at(-1)![0];
+    expect(last).toMatchObject({
+      countsEnabled: true, files: [expect.objectContaining({ additions: 11, deletions: 0 }), expect.anything()],
+      countDescription: "whitespace ignored"
+    });
   });
 
   it("accepts only validated status from the same window, origin, and session", () => {

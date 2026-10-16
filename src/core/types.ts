@@ -76,12 +76,18 @@ export interface ThreadOverview extends ThreadSummary {
 }
 
 export interface PullRequestAnalysis {
+  diffPolicy?: DiffPolicy;
+  countsUpdating?: boolean;
   context: PullRequestContext;
   files: FileStat[];
   unresolvedChanges?: UnresolvedChange[];
   groups: ReviewGroup[];
   threads: ThreadOverview;
   completedTrackingIds: Set<number>;
+}
+
+export interface DiffPolicy {
+  ignoreTrimWhitespace: boolean | null;
 }
 
 export interface ReviewRecord {

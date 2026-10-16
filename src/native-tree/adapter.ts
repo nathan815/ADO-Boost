@@ -2,6 +2,7 @@ import type { NativeChanges, NativeCollection, NativeColumn, NativeElement, Nati
 import { columns, nativeChanges } from "./host";
 import { hasFilters, matchesFilters, record } from "./protocol";
 import type { TreeConfiguration, TreeFile, TreeStatus } from "./protocol";
+import { lineCountParts } from "../core/line-counts";
 
 export type ReportStatus = (state: TreeStatus["state"], detail: string, fileCount: number | null) => void;
 
@@ -82,7 +83,9 @@ export class NativeTreeAdapter {
     const changed = JSON.stringify(this.config.filters) !== JSON.stringify(config.filters)
       || this.config.comparison.source !== config.comparison.source
       || this.config.comparison.base !== config.comparison.base
-      || this.config.countsEnabled !== config.countsEnabled;
+      || this.config.countsEnabled !== config.countsEnabled
+      || this.config.countDescription !== config.countDescription
+      || JSON.stringify(this.config.files) !== JSON.stringify(config.files);
     this.config = config;
     this.files = new Map(config.files.map((file) => [file.path, file]));
     if (changed) {
@@ -257,20 +260,23 @@ export class NativeTreeAdapter {
       return original;
     }
     const countsAvailable = file.additions !== null && file.deletions !== null;
+    const parts = file.additions !== null && file.deletions !== null ? lineCountParts(file.additions, file.deletions) : [];
+    if (countsAvailable && parts.length === 0 && file.state === "exact") return original;
     const text = countsAvailable
-      ? `+${file.additions} \u2212${file.deletions}${file.state === "exact" ? "" : " ~"}` : file.state;
-    const countChildren = countsAvailable ? [
-      react.createElement("span", { className: "adopp-native-stat-plus" }, `+${file.additions}`),
-      " ",
-      react.createElement("span", { className: "adopp-native-stat-minus" }, `\u2212${file.deletions}`),
-      file.state === "exact" ? "" : " ~"
-    ] : [file.state];
+      ? [...parts.map((part) => part.text), ...(file.state === "exact" ? [] : ["~"])].join(" ") : file.state;
+    const countChildren: unknown[] = [];
+    for (const part of parts) {
+      if (countChildren.length) countChildren.push(" ");
+      countChildren.push(react.createElement("span", { className: `adopp-native-stat-${part.kind}` }, part.text));
+    }
+    if (!countsAvailable) countChildren.push(file.state);
+    else if (file.state !== "exact") countChildren.push(parts.length ? " ~" : "~");
     const count = react.createElement("span", {
       key: "adopp-count",
       "data-adopp-react-stat": file.path,
       "data-state": file.state,
       className: "adopp-native-stat",
-      title: `ADO Boost merge-base counts: ${text}`,
+      title: `ADO Boost merge-base counts: ${text}${this.config.countDescription ? `. ${this.config.countDescription}` : ""}`,
       "aria-label": `ADO Boost: ${text}`,
       style: { flexShrink: 0, marginInlineStart: 6, fontSize: 11, fontVariantNumeric: "tabular-nums" }
     }, ...countChildren);

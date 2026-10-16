@@ -35,6 +35,55 @@ const analysis: PullRequestAnalysis = {
 let enhancer: NativePrEnhancer | null = null;
 
 describe("NativePrEnhancer", () => {
+  it("shows a pending state instead of stale totals and describes the effective whitespace policy", () => {
+    const value: PullRequestAnalysis = {
+      ...analysis, countsUpdating: true, diffPolicy: { ignoreTrimWhitespace: true }
+    };
+    enhancer = new NativePrEnhancer(value, defaultSettings(), {
+      openDiscussions: vi.fn(), startReviewing: vi.fn(), isReviewAnnounced: () => false, openSettings: vi.fn()
+    });
+    enhancer.start();
+    const total = document.querySelector<HTMLElement>("[data-adopp-total-diff]")!;
+    expect(total.textContent).toBe("Updating diff counts...");
+    expect(total.querySelector(".adopp-total-plus")).toBeNull();
+    value.countsUpdating = false;
+    enhancer.refresh();
+    expect(total.textContent).toBe("−3+8");
+    expect(total.firstElementChild?.className).toBe("adopp-total-minus");
+    expect(total.title).toBe("whitespace ignored");
+    expect(total.getAttribute("aria-label")).toContain("whitespace ignored");
+  });
+
+  it("reports unavailable counts when ADO does not provide its whitespace setting", () => {
+    const value: PullRequestAnalysis = {
+      ...analysis, diffPolicy: { ignoreTrimWhitespace: null },
+      files: [{ ...analysis.files[0]!, additions: null, deletions: null, state: "unavailable" }]
+    };
+    enhancer = new NativePrEnhancer(value, defaultSettings(), {
+      openDiscussions: vi.fn(), startReviewing: vi.fn(), isReviewAnnounced: () => false, openSettings: vi.fn()
+    });
+    enhancer.start();
+    const total = document.querySelector<HTMLElement>("[data-adopp-total-diff]")!;
+    expect(total.textContent).toBe("Diff counts unavailable");
+    expect(total.title).toBe("whitespace setting unavailable");
+  });
+
+  it.each([
+    [11, 0, "exact", "+11"],
+    [0, 3, "exact", "−3"],
+    [0, 0, "exact", null],
+    [0, 0, "partial", "partial"]
+  ] as const)("omits zero PR totals for +%s -%s (%s)", (additions, deletions, state, text) => {
+    const value: PullRequestAnalysis = {
+      ...analysis, files: [{ ...analysis.files[0]!, additions, deletions, state }]
+    };
+    enhancer = new NativePrEnhancer(value, defaultSettings(), {
+      openDiscussions: vi.fn(), startReviewing: vi.fn(), isReviewAnnounced: () => false, openSettings: vi.fn()
+    });
+    enhancer.start();
+    expect(document.querySelector("[data-adopp-total-diff]")?.textContent ?? null).toBe(text);
+  });
+
   it("uses the native bridge by default without inserting badges or hiding native rows", () => {
     const settings = defaultSettings();
     settings.features.hideGenerated = true;

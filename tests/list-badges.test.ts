@@ -48,8 +48,9 @@ describe("PullRequestListBadges", () => {
     const secondBadge = links[1]?.querySelector<HTMLElement>(".adopp-list-badge");
     expect(firstBadge?.parentElement).toBe(links[0]?.querySelector(".bolt-table-two-line-cell-item"));
     expect(secondBadge?.parentElement).toBe(links[1]?.querySelector(".bolt-table-two-line-cell-item"));
-    expect(firstBadge?.textContent).toBe("+101−1");
-    expect(secondBadge?.textContent).toBe("+202−2");
+    expect(firstBadge?.textContent).toBe("−1+101");
+    expect(secondBadge?.textContent).toBe("−2+202");
+    expect(firstBadge?.firstElementChild?.className).toBe("adopp-list-badge-deletions");
     expect(firstBadge?.querySelector(".adopp-list-badge-additions")?.textContent).toBe("+101");
     expect(firstBadge?.querySelector(".adopp-list-badge-deletions")?.textContent).toBe("−1");
     expect(document.getElementById("adopp-list-badge-styles")?.textContent).toContain("140ms ease-out");
@@ -88,7 +89,7 @@ describe("PullRequestListBadges", () => {
     await vi.waitFor(() => expect(link.querySelector(".adopp-list-badge")?.textContent).toBe("…"));
 
     link.href = "/org/project/_git/repo/pullrequest/202";
-    await vi.waitFor(() => expect(link.querySelector(".adopp-list-badge")?.textContent).toBe("+202−2"));
+    await vi.waitFor(() => expect(link.querySelector(".adopp-list-badge")?.textContent).toBe("−2+202"));
     expect(link.querySelectorAll(".adopp-list-badge")).toHaveLength(1);
 
     resolveFirst(analysisFor({
@@ -99,7 +100,7 @@ describe("PullRequestListBadges", () => {
       pullRequestId: 101
     }));
     await Promise.resolve();
-    expect(link.querySelector(".adopp-list-badge")?.textContent).toBe("+202−2");
+    expect(link.querySelector(".adopp-list-badge")?.textContent).toBe("−2+202");
     expect(stats.resolve).toHaveBeenCalledTimes(2);
   });
 
@@ -126,13 +127,13 @@ describe("PullRequestListBadges", () => {
     badges = new PullRequestListBadges(stats.service);
     badges.start();
     const link = document.querySelector<HTMLAnchorElement>("a")!;
-    await vi.waitFor(() => expect(link.querySelector(".adopp-list-badge")?.textContent).toBe("+101−1"));
+    await vi.waitFor(() => expect(link.querySelector(".adopp-list-badge")?.textContent).toBe("−1+101"));
 
     link.querySelector(".bolt-table-two-line-cell-item")?.replaceWith(
       createTitleLine("First PR remounted")
     );
 
-    await vi.waitFor(() => expect(link.querySelector(".adopp-list-badge")?.textContent).toBe("+101−1"));
+    await vi.waitFor(() => expect(link.querySelector(".adopp-list-badge")?.textContent).toBe("−1+101"));
     expect(link.querySelectorAll(".adopp-list-badge")).toHaveLength(1);
     expect(link.querySelector<HTMLElement>(".adopp-list-badge")?.title).toContain("cached");
     expect(stats.resolve).toHaveBeenCalledTimes(1);
@@ -159,7 +160,28 @@ describe("PullRequestListBadges", () => {
     badges = new PullRequestListBadges(stats.service);
     badges.start();
 
-    await vi.waitFor(() => expect(document.querySelector(".adopp-list-badge")?.textContent).toBe("+101−1"));
+    await vi.waitFor(() => expect(document.querySelector(".adopp-list-badge")?.textContent).toBe("−1+101"));
+  });
+
+  it.each([
+    [11, 0, true, "+11", "inline-flex"],
+    [0, 3, true, "−3", "inline-flex"],
+    [0, 0, true, "", "none"],
+    [0, 0, false, "~", "inline-flex"]
+  ] as const)("omits zero list counts for +%s -%s (exact %s)", async (additions, deletions, exact, text, display) => {
+    document.body.innerHTML = '<a href="/org/project/_git/repo/pullrequest/101"><div class="bolt-table-two-line-cell"><div class="bolt-table-two-line-cell-item">PR</div></div></a>';
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 100, 20));
+    const stats = createStats(async (route) => {
+      const value = analysisFor(route);
+      Object.assign(value.files[0]!, { additions, deletions, state: exact ? "exact" : "partial" });
+      return value;
+    });
+    badges = new PullRequestListBadges(stats.service);
+    badges.start();
+    await vi.waitFor(() => expect(document.querySelector(".adopp-list-badge")?.textContent).toBe(text));
+    const badge = document.querySelector<HTMLElement>(".adopp-list-badge")!;
+    expect(badge.style.display).toBe(display);
+    expect(badge.textContent).not.toMatch(/[+−]0/);
   });
 });
 
@@ -173,7 +195,8 @@ function createStats(analyze: (route: PrRoute) => Promise<PullRequestAnalysis>):
     const analysis = await analyze(route);
     const file = analysis.files[0]!;
     const stat: PullRequestListStat = {
-      version: 1,
+      version: 2,
+      ignoreTrimWhitespace: true,
       additions: file.additions ?? 0,
       deletions: file.deletions ?? 0,
       exact: file.state === "exact",

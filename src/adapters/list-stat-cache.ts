@@ -72,6 +72,7 @@ function isPullRequestListStat(value: unknown): value is PullRequestListStat {
   if (!value || typeof value !== "object") return false;
   const stat = value as Partial<PullRequestListStat>;
   return stat.version === LIST_STAT_CACHE_VERSION
+    && typeof stat.ignoreTrimWhitespace === "boolean"
     && Number.isFinite(stat.additions)
     && Number.isFinite(stat.deletions)
     && typeof stat.exact === "boolean"

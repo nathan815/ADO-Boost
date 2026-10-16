@@ -1,6 +1,7 @@
 import type { PullRequestListStat, PullRequestListStatService } from "../core/list-stats";
 import { parsePrRoute } from "../core/route";
 import type { PrRoute } from "../core/types";
+import { lineCountParts } from "../core/line-counts";
 
 const MAX_VISIBLE_ANALYSES = 4;
 const STYLE_ID = "adopp-list-badge-styles";
@@ -99,9 +100,9 @@ export class PullRequestListBadges {
   }
 
   private async analyzeLink({ link, route, key }: QueuedAnalysis): Promise<void> {
-    if (!linkMatchesKey(link, key)) return;
+    if (this.controller.signal.aborted || !linkMatchesKey(link, key)) return;
     const cached = this.stats.peek(route) ?? await this.stats.getCached(route);
-    if (!linkMatchesKey(link, key)) return;
+    if (this.controller.signal.aborted || !linkMatchesKey(link, key)) return;
     let badge: HTMLElement | null;
     if (cached) {
       badge = this.attach(link, key, statText(cached), statTitle(cached, "checking"));
@@ -111,6 +112,7 @@ export class PullRequestListBadges {
     if (!badge) return;
     try {
       const resolution = await this.stats.resolve(route, cached, this.controller.signal);
+      if (this.controller.signal.aborted) return;
       this.resolved.add(key);
       if (!this.ownsBadge(link, key, badge)) return;
       setBadgeContent(badge, statText(resolution.stat, resolution.freshness === "unverified"));
@@ -136,9 +138,9 @@ export class PullRequestListBadges {
     if (!mount) return null;
     const badge = document.createElement("span");
     badge.className = "adopp-list-badge";
-    setBadgeContent(badge, text);
     badge.title = title;
     badge.style.cssText = "display:inline-flex;flex:none;align-items:center;gap:4px;margin-inline-start:8px;font:600 11px/1.4 Consolas,'Cascadia Mono',monospace;white-space:nowrap;vertical-align:middle";
+    setBadgeContent(badge, text);
     mount.append(badge);
     this.badges.set(link, { key, element: badge });
     return badge;
@@ -167,17 +169,20 @@ function setBadgeContent(badge: HTMLElement, text: string): void {
   const match = /^\+(\d+) −(\d+)( ~)?$/.exec(text);
   if (!match) {
     badge.textContent = text;
+    badge.style.display = text ? "inline-flex" : "none";
     return;
   }
-  const additions = document.createElement("span");
-  additions.className = "adopp-list-badge-additions";
-  additions.style.color = "var(--status-success-foreground,#107c10)";
-  additions.textContent = `+${match[1]}`;
-  const deletions = document.createElement("span");
-  deletions.className = "adopp-list-badge-deletions";
-  deletions.style.color = "var(--status-error-foreground,#a4262c)";
-  deletions.textContent = `−${match[2]}${match[3] ?? ""}`;
-  badge.replaceChildren(additions, deletions);
+  const parts = lineCountParts(Number(match[1]), Number(match[2]));
+  const children: Node[] = parts.map((part) => {
+    const element = document.createElement("span");
+    element.className = `adopp-list-badge-${part.kind === "minus" ? "deletions" : "additions"}`;
+    element.style.color = part.kind === "minus" ? "var(--status-error-foreground,#a4262c)" : "var(--status-success-foreground,#107c10)";
+    element.textContent = part.text;
+    return element;
+  });
+  if (match[3]) children.push(document.createTextNode(parts.length ? " ~" : "~"));
+  badge.replaceChildren(...children);
+  badge.style.display = children.length ? "inline-flex" : "none";
 }
 
 function ensureStyles(): void {
@@ -203,7 +208,7 @@ function statTitle(
   state: "checking" | "fresh" | "validated" | "recalculated" | "unverified",
   error?: string
 ): string {
-  const base = `${stat.fileCount} files · iteration ${stat.iterationId} · merge-base comparison${stat.exact ? "" : " · partial"}`;
+  const base = `${stat.fileCount} files · iteration ${stat.iterationId} · merge-base comparison${stat.exact ? "" : " · partial"} · ${stat.ignoreTrimWhitespace ? "whitespace ignored" : "whitespace included"}`;
   if (state === "checking") return `${base} · checking for updates`;
   if (state === "fresh") return `${base} · cached`;
   if (state === "validated") return `${base} · cache validated`;

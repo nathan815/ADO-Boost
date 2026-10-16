@@ -1,6 +1,7 @@
 import type { PullRequestAnalysis } from "../core/types";
 import { CHANNEL, statusSchema } from "./protocol";
 import type { TreeConfiguration, TreeFilters, TreeStatus } from "./protocol";
+import { describeDiffPolicy } from "./diff-preferences";
 
 export interface NativeTreePort {
   readonly status: TreeStatus | null;
@@ -16,15 +17,14 @@ export class NativeTreeClient implements NativeTreePort {
   private active = false;
   private timeout = 0;
   private signature = "";
-  private readonly files;
-
-  constructor(private readonly analysis: PullRequestAnalysis, private readonly scope = window) {
-    this.files = analysis.files.map(({ path, trackingId, changeType, additions, deletions, state, generated, lockfile }) =>
-      ({ path, trackingId, changeType, additions, deletions, state, generated, lockfile }));
-  }
+  constructor(private readonly analysis: PullRequestAnalysis, private readonly scope = window) {}
 
   configure(filters: TreeFilters, countsEnabled: boolean): void {
-    const signature = JSON.stringify({ filters, countsEnabled });
+    countsEnabled &&= !this.analysis.countsUpdating;
+    const files = this.analysis.files.map(({ path, trackingId, changeType, additions, deletions, state, generated, lockfile }) =>
+      ({ path, trackingId, changeType, additions, deletions, state, generated, lockfile }));
+    const countDescription = describeDiffPolicy(this.analysis.diffPolicy);
+    const signature = JSON.stringify({ filters, countsEnabled, files, countDescription });
     if (this.active && signature === this.signature) return;
     this.signature = signature;
     if (!this.active) {
@@ -46,7 +46,7 @@ export class NativeTreeClient implements NativeTreePort {
       channel: CHANNEL, kind: "configure", session: this.session,
       page: this.scope.location.origin + this.scope.location.pathname,
       comparison: { iteration: context.iterationId, source: context.sourceCommit, base: context.mergeBaseCommit },
-      files: this.files, filters, countsEnabled
+      files, filters, countsEnabled, countDescription
     };
     this.scope.postMessage(configuration, this.scope.location.origin);
   }

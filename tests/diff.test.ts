@@ -23,6 +23,25 @@ const cases = [
 ] as const;
 
 describe("countChangedLines", () => {
+  it.each([
+    ["indentation", "alpha\n  beta\n", " alpha \nbeta\n", 0, 0],
+    ["internal whitespace", "alpha beta\n", "alpha  beta\n", 1, 1],
+    ["inserted blank line", "alpha\nbeta\n", "alpha\n   \nbeta\n", 1, 0],
+    ["removed blank line", "alpha\n \nbeta\n", "alpha\nbeta\n", 0, 1],
+    ["blank line formatting", "alpha\n \nbeta\n", "alpha\n\t\nbeta\n", 0, 0],
+    ["substantive edit", "one\n  old\nthree\n", " one \n  new\nthree\n", 1, 1],
+    ["repeated lines", " a\nb\na\nb\n", "a\nb\n b \na\n", 1, 1],
+    ["line endings and EOF", "alpha\r\n beta\r\n", " alpha\nbeta", 0, 0]
+  ] as const)("follows ADO trim-whitespace semantics for %s", (_name, before, after, additions, deletions) => {
+    expect(countChangedLines(file, { before, after }, true)).toMatchObject({ additions, deletions, state: "exact" });
+  });
+
+  it("keeps the whitespace policy explicit and reversible", () => {
+    const pair = { before: "alpha\n  beta\n", after: "alpha\nbeta \n" };
+    expect(countChangedLines(file, pair, false)).toMatchObject({ additions: 1, deletions: 1 });
+    expect(countChangedLines(file, pair, true)).toMatchObject({ additions: 0, deletions: 0 });
+  });
+
   it.each(cases)("matches the normalized Git oracle for %s", (_name, before, after, additions, deletions) => {
     const result = countChangedLines(file, { before, after });
     expect([result.additions, result.deletions, result.state]).toEqual([additions, deletions, "exact"]);

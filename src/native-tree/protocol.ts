@@ -36,7 +36,8 @@ export const configurationSchema = z.object({
   }).strict(),
   files: z.array(fileSchema).max(20000),
   filters: filtersSchema,
-  countsEnabled: z.boolean()
+  countsEnabled: z.boolean(),
+  countDescription: z.string().max(300).optional()
 }).strict();
 
 export const commandSchema = z.discriminatedUnion("kind", [

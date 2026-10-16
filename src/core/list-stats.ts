@@ -3,12 +3,13 @@ import type { PullRequestAnalyzer } from "./analyzer";
 import { totalStats } from "./diff";
 import type { PrRoute, PullRequestComparison } from "./types";
 
-export const LIST_STAT_CACHE_VERSION = 1;
+export const LIST_STAT_CACHE_VERSION = 2;
 export const LIST_STAT_VALIDATION_TTL_MS = 5 * 60 * 1000;
 export const LIST_STAT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 export const LIST_STAT_MAX_ENTRIES = 5_000;
 
 export interface PullRequestListStat {
+  ignoreTrimWhitespace: boolean;
   version: typeof LIST_STAT_CACHE_VERSION;
   additions: number;
   deletions: number;
@@ -49,18 +50,21 @@ export class PullRequestListStatService {
     private readonly analyzer: Pick<PullRequestAnalyzer, "analyzeFiles">,
     private readonly store: PullRequestListStatStore,
     private readonly now: () => Date = () => new Date(),
-    private readonly validationTtlMs = LIST_STAT_VALIDATION_TTL_MS
+    private readonly validationTtlMs = LIST_STAT_VALIDATION_TTL_MS,
+    private readonly ignoreTrimWhitespace: () => boolean | null = () => true
   ) {}
 
-  key(route: PrRoute): string {
-    return `${route.origin}/${route.organization}/${route.project}/${route.repository}/${route.pullRequestId}`;
+  key(route: PrRoute, ignoreTrimWhitespace = this.ignoreTrimWhitespace()): string {
+    return `${route.origin}/${route.organization}/${route.project}/${route.repository}/${route.pullRequestId}/ignore-trim:${ignoreTrimWhitespace}`;
   }
 
   peek(route: PrRoute): PullRequestListStat | null {
+    if (this.ignoreTrimWhitespace() === null) return null;
     return this.memory.get(this.key(route)) ?? null;
   }
 
   async getCached(route: PrRoute): Promise<PullRequestListStat | null> {
+    if (this.ignoreTrimWhitespace() === null) return null;
     const key = this.key(route);
     const memory = this.memory.get(key);
     if (memory) return memory;
@@ -86,6 +90,9 @@ export class PullRequestListStatService {
   }
 
   private async resolveOnce(route: PrRoute, cached: PullRequestListStat | null, signal?: AbortSignal): Promise<PullRequestListStatResolution> {
+    const ignoreTrimWhitespace = this.ignoreTrimWhitespace();
+    if (ignoreTrimWhitespace === null) throw new Error("ADO whitespace setting unavailable");
+    if (cached?.ignoreTrimWhitespace !== ignoreTrimWhitespace) cached = null;
     if (cached && this.isFresh(cached)) return { stat: cached, freshness: "fresh" };
     let comparison: PullRequestComparison;
     try {
@@ -103,10 +110,11 @@ export class PullRequestListStatService {
       await this.save(route, validated);
       return { stat: validated, freshness: "validated" };
     }
-    const analysis = await this.analyzer.analyzeFiles(comparison, signal);
+    const analysis = await this.analyzer.analyzeFiles(comparison, signal, ignoreTrimWhitespace);
     const totals = totalStats(analysis.files, analysis.unresolvedChanges.length);
     const timestamp = this.now().toISOString();
     const stat: PullRequestListStat = {
+      ignoreTrimWhitespace,
       version: LIST_STAT_CACHE_VERSION,
       additions: totals.additions,
       deletions: totals.deletions,
@@ -132,7 +140,7 @@ export class PullRequestListStatService {
   }
 
   private async save(route: PrRoute, stat: PullRequestListStat): Promise<void> {
-    const key = this.key(route);
+    const key = this.key(route, stat.ignoreTrimWhitespace);
     this.memory.set(key, stat);
     await this.store.save(key, stat);
   }

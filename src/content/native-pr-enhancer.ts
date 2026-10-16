@@ -5,6 +5,8 @@ import { resolveFeature } from "../features/registry";
 import { navigateToAdoFile } from "../ui/ado-navigation";
 import { isTypingEvent } from "../ui/keyboard";
 import type { NativeTreePort } from "../native-tree/client";
+import { describeDiffPolicy } from "../native-tree/diff-preferences";
+import { lineCountParts } from "../core/line-counts";
 
 interface NativePrEnhancerActions {
   openDiscussions(): void;
@@ -404,6 +406,12 @@ export class NativePrEnhancer {
       return;
     }
     const totals = totalStats(this.analysis.files, this.analysis.unresolvedChanges?.length);
+    const parts = lineCountParts(totals.additions, totals.deletions);
+    if (!this.analysis.countsUpdating && totals.exact && parts.length === 0) {
+      document.querySelector("[data-adopp-total-diff]")?.remove();
+      closeTotalDiffPopover();
+      return;
+    }
     let total = document.querySelector<HTMLElement>("[data-adopp-total-diff]");
     if (!total) {
       total = document.createElement("span");
@@ -414,13 +422,28 @@ export class NativePrEnhancer {
     const comparisonDescription = totals.exact
       ? `Merge-base comparison across ${this.analysis.files.length} files`
       : `Known merge-base comparison totals. ${totals.incomplete} file counts are incomplete.`;
-    total.removeAttribute("title");
+    total.title = describeDiffPolicy(this.analysis.diffPolicy);
     total.tabIndex = 0;
-    total.setAttribute("aria-label", `Pull request diff: ${totals.additions} lines added, ${totals.deletions} lines removed. ${comparisonDescription}`);
-    total.innerHTML = `<span class="adopp-total-plus">+${totals.additions}</span><span class="adopp-total-minus">−${totals.deletions}</span>${totals.exact ? "" : '<span class="adopp-total-partial">partial</span>'}`;
-    total.onmouseenter = () => openTotalDiffPopover(total!, this.analysis.files, this.analysis.unresolvedChanges?.length);
+    const countDescription = [
+      ...(totals.deletions > 0 ? [`${totals.deletions} lines removed`] : []),
+      ...(totals.additions > 0 ? [`${totals.additions} lines added`] : [])
+    ].join(", ") || "Line counts incomplete";
+    total.setAttribute("aria-label", `Pull request diff: ${countDescription}. ${comparisonDescription}`);
+    total.innerHTML = `${parts.map((part) => `<span class="adopp-total-${part.kind}">${part.text}</span>`).join("")}${totals.exact ? "" : '<span class="adopp-total-partial">partial</span>'}`;
+    if (this.analysis.countsUpdating) {
+      closeTotalDiffPopover();
+      total.textContent = "Updating diff counts...";
+      total.setAttribute("aria-label", "Updating diff counts for ADO's whitespace setting");
+    } else if (this.analysis.diffPolicy?.ignoreTrimWhitespace === null) {
+      closeTotalDiffPopover();
+      total.textContent = "Diff counts unavailable";
+      total.setAttribute("aria-label", "Diff counts unavailable: ADO whitespace setting unavailable");
+    } else {
+      total.setAttribute("aria-label", `${total.getAttribute("aria-label")}. ${describeDiffPolicy(this.analysis.diffPolicy)}`);
+    }
+    total.onmouseenter = () => { if (!this.analysis.countsUpdating && this.analysis.diffPolicy?.ignoreTrimWhitespace !== null) openTotalDiffPopover(total!, this.analysis.files, this.analysis.unresolvedChanges?.length); };
     total.onmouseleave = closeTotalDiffPopover;
-    total.onfocus = () => openTotalDiffPopover(total!, this.analysis.files, this.analysis.unresolvedChanges?.length);
+    total.onfocus = () => { if (!this.analysis.countsUpdating && this.analysis.diffPolicy?.ignoreTrimWhitespace !== null) openTotalDiffPopover(total!, this.analysis.files, this.analysis.unresolvedChanges?.length); };
     total.onblur = closeTotalDiffPopover;
     if (status.nextElementSibling !== total) status.insertAdjacentElement("afterend", total);
     hideMergeProposalText(status);

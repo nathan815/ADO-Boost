@@ -14,12 +14,19 @@ import { PullRequestListBadges } from "./list-badges";
 import { NativePrEnhancer } from "./native-pr-enhancer";
 import { NativeTreeClient } from "../native-tree/client";
 import { PrVisitTracker } from "./pr-visit-tracker";
+import { DiffCountController } from "../core/diff-counts";
+import type { DiffPolicy } from "../core/types";
+import { NativeDiffPreferencesClient, readPageDiffPreference } from "../native-tree/diff-preferences";
 
 class ContentApp {
   private readonly api = new AdoApi(new FetchHttpClient());
   private readonly store = new ChromeBrowserStore();
   private readonly analyzer = new PullRequestAnalyzer(this.api, this.store);
-  private readonly listStats = new PullRequestListStatService(this.api, this.analyzer, new ChromePullRequestListStatStore());
+  private diffPolicy: DiffPolicy = { ignoreTrimWhitespace: readPageDiffPreference(document) };
+  private readonly counts = new DiffCountController(this.analyzer, () => this.enhancer?.refresh());
+  private readonly preferences = new NativeDiffPreferencesClient((value) => this.onDiffPreference(value));
+  private readonly listStats = new PullRequestListStatService(this.api, this.analyzer, new ChromePullRequestListStatStore(),
+    () => new Date(), undefined, () => this.diffPolicy.ignoreTrimWhitespace);
   private readonly settingsService = new SettingsService(new ChromeSettingsStorage());
   private readonly writes = new RuntimeWriteGateway();
   private readonly copilot = new RuntimeCopilotGateway();
@@ -40,6 +47,7 @@ class ContentApp {
   };
 
   async start(): Promise<void> {
+    this.preferences.start();
     this.settings = await this.settingsService.load();
     this.unsubscribe = this.settingsService.subscribe((settings) => {
       this.settings = settings;
@@ -47,6 +55,21 @@ class ContentApp {
     });
     this.observeNavigation();
     await this.mount();
+  }
+
+  private onDiffPreference(ignoreTrimWhitespace: boolean | null): void {
+    this.setDiffPolicy({ ignoreTrimWhitespace });
+  }
+
+  private setDiffPolicy(policy: DiffPolicy): void {
+    const modeChanged = this.diffPolicy.ignoreTrimWhitespace !== policy.ignoreTrimWhitespace;
+    this.diffPolicy = policy;
+    void this.counts.update(policy);
+    if (modeChanged && this.badges) {
+      this.badges.stop();
+      this.badges = new PullRequestListBadges(this.listStats);
+      this.badges.start();
+    }
   }
 
   private observeNavigation(): void {
@@ -75,7 +98,9 @@ class ContentApp {
       return;
     }
     this.routeController?.abort();
+    this.counts.setAnalysis(null);
     this.routeController = new AbortController();
+    const controller = this.routeController;
     this.panel?.destroy();
     this.panel = null;
     this.enhancer?.destroy();
@@ -86,8 +111,10 @@ class ContentApp {
     if (!this.settings.masterEnabled) return;
     if (route && resolveFeature(this.settings, "prOverview").enabled) {
       try {
-        const analysis = await this.analyzer.analyze(route, this.routeController.signal);
-        if (this.routeController.signal.aborted) return;
+        const policy = this.diffPolicy;
+        const analysis = await this.analyzer.analyze(route, controller.signal, policy.ignoreTrimWhitespace);
+        if (controller.signal.aborted) return;
+        analysis.diffPolicy = policy;
         this.panel = new ReviewPanel({
           analysis,
           api: this.api,
@@ -107,9 +134,11 @@ class ContentApp {
           openSettings: this.openSettings
         }, new NativeTreeClient(analysis));
         this.enhancer.start();
+        this.counts.setAnalysis(analysis);
+        void this.counts.update(this.diffPolicy);
         this.currentRouteKey = routeKey;
       } catch (error) {
-        if (!this.routeController.signal.aborted) console.error("ADO Boost failed to analyze this PR", error);
+        if (!controller.signal.aborted) console.error("ADO Boost failed to analyze this PR", error);
       }
     } else if (resolveFeature(this.settings, "prListBadges").enabled) {
       this.currentRouteKey = "";

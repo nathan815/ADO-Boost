@@ -1,8 +1,11 @@
+import { startNativeDiffPreferences } from "./diff-preferences-host";
 import { NativeTreeAdapter } from "./adapter";
 import { discoverHost, getHostReact } from "./host";
 import type { NativeHost } from "./host";
 import { CHANNEL, commandSchema, hasFilters } from "./protocol";
 import type { TreeConfiguration, TreeStatus } from "./protocol";
+
+startNativeDiffPreferences(window);
 
 let config: TreeConfiguration | null = null;
 let adapter: NativeTreeAdapter | null = null;

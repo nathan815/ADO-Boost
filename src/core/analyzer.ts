@@ -31,10 +31,10 @@ export class PullRequestAnalyzer {
     private readonly logger: Pick<Console, "warn"> = console
   ) {}
 
-  async analyze(route: PrRoute, signal?: AbortSignal): Promise<PullRequestAnalysis> {
+  async analyze(route: PrRoute, signal?: AbortSignal, ignoreTrimWhitespace: boolean | null = false): Promise<PullRequestAnalysis> {
     const context = await this.api.getContext(route, signal);
     const [changeResult, threads] = await Promise.all([
-      this.analyzeFiles(context, signal),
+      this.analyzeFiles(context, signal, ignoreTrimWhitespace),
       this.api.getThreadOverview(context, signal)
     ]);
     const reviewKey = this.reviewKey(context);
@@ -52,13 +52,21 @@ export class PullRequestAnalyzer {
     };
   }
 
-  async analyzeFiles(context: PullRequestComparison, signal?: AbortSignal): Promise<{
+  async analyzeFiles(context: PullRequestComparison, signal?: AbortSignal, ignoreTrimWhitespace: boolean | null = false): Promise<{
     changes: ChangedFile[];
     files: FileStat[];
     unresolvedChanges: UnresolvedChange[];
   }> {
     const { files: changes, unresolvedChanges } = await this.api.getChangesWithDiagnostics(context, signal);
-    const files = await mapConcurrent(changes, FETCH_CONCURRENCY, (change) => this.analyzeFile(context, change, signal));
+    if (ignoreTrimWhitespace === null) {
+      const detail = "ADO whitespace setting unavailable";
+      this.logger.warn(`ADO Boost cannot calculate diff counts: ${detail}`);
+      return {
+        changes, unresolvedChanges,
+        files: changes.map((change) => ({ ...unavailableStat(change, detail), state: "unavailable" as const }))
+      };
+    }
+    const files = await mapConcurrent(changes, FETCH_CONCURRENCY, (change) => this.analyzeFile(context, change, signal, ignoreTrimWhitespace));
     return { changes, files, unresolvedChanges };
   }
 
@@ -69,7 +77,8 @@ export class PullRequestAnalyzer {
   private async analyzeFile(
     context: PullRequestComparison,
     change: ChangedFile,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    ignoreTrimWhitespace = false
   ): Promise<FileStat> {
     try {
       const type = change.changeType.toLowerCase();
@@ -85,7 +94,7 @@ export class PullRequestAnalyzer {
         after: after?.text ?? null,
         ...(before ? { beforeSize: before.size } : {}),
         ...(after ? { afterSize: after.size } : {})
-      });
+      }, ignoreTrimWhitespace);
     } catch (error) {
       if (signal?.aborted) throw error;
       this.logger.warn("ADO Boost failed to analyze a file diff", { path: change.path, repositoryId: context.repositoryId, pullRequestId: context.pullRequestId }, error);

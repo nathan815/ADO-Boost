@@ -44,6 +44,38 @@ function createHttp(unresolvedChange: boolean): HttpClient {
 }
 
 describe("PullRequestAnalyzer response recovery", () => {
+  it("preserves PR metadata but does not fetch or guess file counts when the whitespace setting is unavailable", async () => {
+    const http = createHttp(false);
+    const fetched = vi.fn((input: RequestInfo | URL, init?: RequestInit) => http.fetch(input, init));
+    const logger = { warn: vi.fn() };
+    const result = await new PullRequestAnalyzer(new AdoApi({ fetch: fetched }), new MemoryBrowserStore(), logger)
+      .analyze(route, undefined, null);
+    expect(result.files[0]).toMatchObject({
+      path: "/a.ts", additions: null, deletions: null, state: "unavailable", detail: "ADO whitespace setting unavailable"
+    });
+    expect(result.threads.state).toBe("available");
+    expect(fetched.mock.calls.some(([input]) => new URL(String(input)).pathname.endsWith("/items"))).toBe(false);
+    expect(logger.warn).toHaveBeenCalledOnce();
+  });
+
+  it("applies the selected whitespace policy to fetched file contents", async () => {
+    const http = createHttp(false);
+    const api = new AdoApi({
+      fetch(input, init) {
+        const url = new URL(String(input));
+        if (url.pathname.endsWith("/items")) {
+          return Promise.resolve(new Response(url.searchParams.get("versionDescriptor.version") === "source" ? "alpha\nbeta \n" : "alpha\n  beta\n"));
+        }
+        return http.fetch(input, init);
+      }
+    });
+    const analyzer = new PullRequestAnalyzer(api, new MemoryBrowserStore());
+    const ignored = await analyzer.analyze(route, undefined, true);
+    const strict = await analyzer.analyze(route, undefined, false);
+    expect(ignored.files[0]).toMatchObject({ additions: 0, deletions: 0, state: "exact" });
+    expect(strict.files[0]).toMatchObject({ additions: 1, deletions: 1, state: "exact" });
+  });
+
   it("analyzes all 422 files across API pages without depending on rendered DOM rows", async () => {
     const http = createHttp(false);
     const changes = Array.from({ length: 422 }, (_, index) => ({

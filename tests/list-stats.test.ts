@@ -17,6 +17,38 @@ const route: PrRoute = {
 const now = new Date("2026-10-16T05:00:00.000Z");
 
 describe("PullRequestListStatService", () => {
+  it("does not use cached counts or calculate new ones without the user's actual setting", async () => {
+    const api = { getLatestComparison: vi.fn() };
+    const analyzer = { analyzeFiles: vi.fn() };
+    const service = new PullRequestListStatService(api, analyzer, new MemoryPullRequestListStatStore(),
+      () => now, undefined, () => null);
+    expect(service.peek(route)).toBeNull();
+    expect(await service.getCached(route)).toBeNull();
+    await expect(service.resolve(route, stat())).rejects.toThrow("ADO whitespace setting unavailable");
+    expect(api.getLatestComparison).not.toHaveBeenCalled();
+    expect(analyzer.analyzeFiles).not.toHaveBeenCalled();
+  });
+
+  it("separates cached and in-flight results by whitespace policy even if the policy changes mid-request", async () => {
+    let mode = true;
+    const api = { getLatestComparison: vi.fn().mockResolvedValue(comparison()) };
+    const analyzer = { analyzeFiles: vi.fn(async (_context, _signal, ignore: boolean | null) => ({
+      changes: [], files: [file({ additions: ignore ? 7 : 16, deletions: ignore ? 3 : 12 })], unresolvedChanges: []
+    })) };
+    const service = new PullRequestListStatService(api, analyzer, new MemoryPullRequestListStatStore(), () => now, undefined, () => mode);
+    const ignoredKey = service.key(route);
+    const ignored = service.resolve(route, null);
+    mode = false;
+    expect(service.key(route)).not.toBe(ignoredKey);
+    const strict = service.resolve(route, null);
+    await expect(ignored).resolves.toMatchObject({ stat: { additions: 7, deletions: 3, ignoreTrimWhitespace: true } });
+    await expect(strict).resolves.toMatchObject({ stat: { additions: 16, deletions: 12, ignoreTrimWhitespace: false } });
+    expect(service.peek(route)?.additions).toBe(16);
+    mode = true;
+    expect((await service.getCached(route))?.additions).toBe(7);
+    mode = false;
+    await expect(service.resolve(route, stat())).resolves.toMatchObject({ stat: { ignoreTrimWhitespace: false }, freshness: "recalculated" });
+  });
   it("uses a recently validated persisted result without an API request", async () => {
     const store = new MemoryPullRequestListStatStore();
     const cached = stat();
@@ -64,7 +96,7 @@ describe("PullRequestListStatService", () => {
       freshness: "recalculated",
       stat: { additions: 5, deletions: 2, iterationId: 4, sourceCommit: "source-2", exact: true }
     });
-    expect(analyzer.analyzeFiles).toHaveBeenCalledExactlyOnceWith(latest, undefined);
+    expect(analyzer.analyzeFiles).toHaveBeenCalledExactlyOnceWith(latest, undefined, true);
     expect(await store.get(service.key(route))).toMatchObject({ additions: 5, iterationId: 4 });
   });
 
@@ -138,7 +170,8 @@ function comparison(overrides: Partial<PullRequestComparison> = {}): PullRequest
 
 function stat(overrides: Partial<PullRequestListStat> = {}): PullRequestListStat {
   return {
-    version: 1,
+    version: 2,
+    ignoreTrimWhitespace: true,
     additions: 10,
     deletions: 4,
     exact: true,

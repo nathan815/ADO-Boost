@@ -24,7 +24,7 @@ export function looksBinary(text: string): boolean {
   return text.includes("\0");
 }
 
-export function countChangedLines(file: ChangedFile, pair: TextPair): FileStat {
+export function countChangedLines(file: ChangedFile, pair: TextPair, ignoreTrimWhitespace = false): FileStat {
   const path = file.path.toLowerCase();
   const base = {
     ...file,
@@ -52,7 +52,7 @@ export function countChangedLines(file: ChangedFile, pair: TextPair): FileStat {
   let additions = 0;
   let deletions = 0;
 
-  for (const part of diffLines(before, after, { newlineIsToken: false, ignoreNewlineAtEof: true })) {
+  for (const part of diffLines(before, after, { newlineIsToken: false, ignoreNewlineAtEof: true, ignoreWhitespace: ignoreTrimWhitespace })) {
     if (part.added) additions += lineCount(part.value);
     if (part.removed) deletions += lineCount(part.value);
   }

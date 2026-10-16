@@ -11,7 +11,7 @@ ADO Boost is an Edge-first browser extension that makes Azure DevOps pull reques
 
 ## What it adds
 
-- Overall PR and per-file added/removed line diff counts.
+- Overall PR and per-file added/removed line diff counts follow the user's whitespace setting supplied by ADO on PR and PR-list pages. Counts show deletions before additions, matching ADO's native header, and omit zero values. With whitespace display off, leading/trailing whitespace-only edits are ignored; enabling it includes those edits. Counts refresh when the setting changes, and tooltips say "whitespace ignored" or "whitespace included". If ADO's setting cannot be read, counts are marked unavailable rather than guessed. PR-list totals are cached separately for each policy.
 - Enhanced file filtering - file types, change types, and options to hide generated files and lockfiles
 - A docked discussion panel with thread filters, replies, and links back to native comments.
 - Browser-local drafts for general comments, replies, and inline feedback.
