@@ -244,7 +244,7 @@ describe("Native announcement dialog", () => {
     expect(document.querySelector("[data-adopp-announcement-dialog]")).toBeNull();
   });
 
-  it("announces from the Assistant sidebar without modifying Approve", async () => {
+  it("announces from the ADO Boost sidebar without modifying Approve", async () => {
     const analysis: PullRequestAnalysis = {
       context: {
         origin: "https://dev.azure.com", organization: "org", project: "project", repository: "repo",
@@ -293,7 +293,8 @@ describe("Native announcement dialog", () => {
       sidebar()!.querySelector<HTMLButtonElement>(".announce-review")!.click();
       expect(panel.isReviewAnnounced()).toBe(false);
       expect(approve.outerHTML).toBe(originalApprove);
-      expect(document.querySelector(".adopp-start-button")!.textContent).toContain("Assistant");
+      expect(document.querySelector(".adopp-start-button")!.textContent?.trim()).toBe("");
+      expect(document.querySelector(".adopp-start-button")!.getAttribute("aria-label")).toBe("ADO Boost");
       button("confirm").click();
       await vi.waitFor(() => expect(document.querySelector('[role="alert"]')?.textContent).toContain("Network failed"));
       expect(sidebar()!.querySelector(".announce-review")).not.toBeNull();

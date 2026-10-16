@@ -334,14 +334,15 @@ describe("NativePrEnhancer", () => {
     total.dispatchEvent(new MouseEvent("mouseleave"));
     expect(document.querySelector("[data-adopp-total-diff-popover]")).toBeNull();
     expect(actions.textContent).not.toContain("ADO Boost");
-    expect(actions.textContent).toContain("Assistant");
+    expect(actions.textContent).not.toContain("Assistant");
     expect(getComputedStyle(document.querySelector("[data-adopp-action-group]")!).marginRight).toBe("0px");
     expect(document.querySelector(".adopp-start-split")?.getAttribute("data-review-started")).toBe("false");
     expect(document.querySelectorAll(".adopp-start-review-icon path")).toHaveLength(2);
     expect(document.querySelectorAll(".adopp-start-review-icon circle")).toHaveLength(0);
     expect(document.querySelector(".adopp-start-review-icon")?.getAttribute("aria-hidden")).toBe("true");
     expect([...actions.children].at(-1)?.textContent?.trim()).toBe("Approve");
-    expect(document.querySelector(".adopp-start-button")?.textContent).toContain("Assistant");
+    expect(document.querySelector(".adopp-start-button")?.textContent?.trim()).toBe("");
+    expect(document.querySelector(".adopp-start-button")?.getAttribute("aria-label")).toBe("ADO Boost");
     const hiddenProposalText = document.querySelector<HTMLElement>("[data-adopp-merge-proposal-text]")!;
     expect(hiddenProposalText.textContent).toBe("·");
     expect(hiddenProposalText.dataset.adoppOriginalText).toBe("proposes to merge");
@@ -353,7 +354,7 @@ describe("NativePrEnhancer", () => {
     expect(Number.parseFloat(getComputedStyle(clonedDivider).width)).toBe(0.5);
     expect(Number.parseFloat(getComputedStyle(clonedDivider).flexBasis)).toBe(0.5);
     expect(document.querySelector(".adopp-start-split > .inline-flex-row > .adopp-action-menu-button")).not.toBeNull();
-    expect(document.querySelector(".adopp-action-menu-button .ms-Icon--ChevronDownSmall")).not.toBeNull();
+    expect(document.querySelector(".adopp-action-menu-button .ms-Icon--ChevronDownMed.small")).not.toBeNull();
     expect(document.querySelector(".adopp-action-menu-button")?.hasAttribute("aria-controls")).toBe(false);
     expect(document.querySelector(".adopp-action-menu-button")?.hasAttribute("data-command")).toBe(false);
 
@@ -362,6 +363,9 @@ describe("NativePrEnhancer", () => {
     document.querySelector<HTMLButtonElement>(".adopp-action-menu-button")?.click();
     const actionMenu = document.querySelector<HTMLElement>(".adopp-action-menu")!;
     expect(actionMenu.querySelector(".bolt-menu .bolt-list")).not.toBeNull();
+    expect(actionMenu.querySelector(".adopp-menu-label")?.textContent).toBe("ADO Boost");
+    expect(actionMenu.querySelector('[data-action="settings"]')?.textContent).toBe("Settings");
+    expect(actionMenu.textContent).not.toContain("ADO Boost settings");
     expect(Number.parseFloat(actionMenu.style.width)).toBeGreaterThan(233);
     expect(Number.parseFloat(actionMenu.style.width)).toBeLessThanOrEqual(320);
     expect(actionMenu.style.maxWidth).toBe(actionMenu.style.width);
@@ -384,7 +388,7 @@ describe("NativePrEnhancer", () => {
     expect(staleStyle.textContent).toContain(".adopp-total-diff");
   });
 
-  it("leaves Approve untouched and keeps Assistant available before and after review starts", () => {
+  it("leaves Approve untouched and keeps ADO Boost available before and after review starts", () => {
     let announced = false;
     const startReviewing = vi.fn();
     const openDiscussions = vi.fn();
@@ -413,8 +417,8 @@ describe("NativePrEnhancer", () => {
     window.dispatchEvent(new CustomEvent("adopp:announcement-changed"));
 
     const button = document.querySelector<HTMLButtonElement>(".adopp-start-button")!;
-    expect(button.textContent).toContain("Assistant");
-    expect(button.getAttribute("aria-label")).toBe("Assistant");
+    expect(button.textContent?.trim()).toBe("");
+    expect(button.getAttribute("aria-label")).toBe("ADO Boost");
     expect(approve.textContent).toBe("Approve");
     expect(approve.hasAttribute("aria-label")).toBe(false);
     expect(approve.querySelector(".bolt-button-text")!.firstChild).toBe(originalLabel);
@@ -428,7 +432,7 @@ describe("NativePrEnhancer", () => {
     expect(getComputedStyle(document.querySelector(".adopp-start-split")!).boxShadow).toContain("0 1px 2px");
   });
 
-  it.each([false, true])("opens the assistant for an already-started review when announcements are enabled=%s", (enabled) => {
+  it.each([false, true])("opens ADO Boost for an already-started review when announcements are enabled=%s", (enabled) => {
     const openDiscussions = vi.fn();
     enhancer = createEnhancer({ isReviewAnnounced: () => true, openDiscussions });
     const settings = defaultSettings();
@@ -439,12 +443,13 @@ describe("NativePrEnhancer", () => {
     const button = document.querySelector<HTMLButtonElement>(".adopp-start-button")!;
     expect(button.hidden).toBe(false);
     expect(button.disabled).toBe(false);
-    expect(button.textContent).toContain("Assistant");
+    expect(button.textContent?.trim()).toBe("");
+    expect(button.getAttribute("aria-label")).toBe("ADO Boost");
     button.click();
     expect(openDiscussions).toHaveBeenCalledOnce();
   });
 
-  it("starts reviews from the Assistant menu and disables the entry after success", () => {
+  it("starts reviews from the ADO Boost menu and disables the entry after success", () => {
     let announced = false;
     const startReviewing = vi.fn();
     enhancer = createEnhancer({ startReviewing, isReviewAnnounced: () => announced });
@@ -466,7 +471,7 @@ describe("NativePrEnhancer", () => {
     expect(startReviewing).toHaveBeenCalledOnce();
   });
 
-  it("keeps Assistant and its review-start option without an Approve button", () => {
+  it("keeps ADO Boost and its review-start option without an Approve button", () => {
     const actions = document.querySelector(".actions")!;
     actions.innerHTML = '<button class="bolt-button">Complete</button>';
     const complete = actions.firstElementChild!;
@@ -476,7 +481,8 @@ describe("NativePrEnhancer", () => {
     enhancer.start();
     enhancer.refresh();
     expect(complete.outerHTML).toBe(original);
-    expect(actions.querySelector(".adopp-start-button")?.textContent).toBe("Assistant");
+    expect(actions.querySelector(".adopp-start-button")?.textContent?.trim()).toBe("");
+    expect(actions.querySelector(".adopp-start-button")?.getAttribute("aria-label")).toBe("ADO Boost");
     document.querySelector<HTMLButtonElement>(".adopp-action-menu-button")!.click();
     document.querySelector<HTMLButtonElement>('[data-action="start-review"]')!.click();
     expect(startReviewing).toHaveBeenCalledOnce();
@@ -535,7 +541,7 @@ describe("NativePrEnhancer", () => {
     expect(startReviewing).not.toHaveBeenCalled();
   });
 
-  it.each([false, true])("shows an elevated assistant on completed PRs without Approve when announced=%s", (announced) => {
+  it.each([false, true])("shows ADO Boost on completed PRs without Approve when announced=%s", (announced) => {
     document.querySelector(".status")!.textContent = "Completed";
     document.querySelector(".actions")!.innerHTML = '<button class="bolt-button enabled bolt-focus-treatment">Reactivate</button>';
     const startReviewing = vi.fn();
@@ -549,7 +555,8 @@ describe("NativePrEnhancer", () => {
 
     const button = document.querySelector<HTMLButtonElement>(".adopp-start-button")!;
     expect(document.querySelectorAll("[data-adopp-action-group]")).toHaveLength(1);
-    expect(button.textContent).toContain("Assistant");
+    expect(button.textContent?.trim()).toBe("");
+    expect(button.getAttribute("aria-label")).toBe("ADO Boost");
     expect(button.disabled).toBe(false);
     expect(button.hidden).toBe(false);
     button.click();
@@ -571,11 +578,12 @@ describe("NativePrEnhancer", () => {
     enhancer.start();
     enhancer.refresh();
 
-    expect(actions.querySelector(".adopp-start-button")!.textContent).toContain("Assistant");
+    expect(actions.querySelector(".adopp-start-button")!.textContent?.trim()).toBe("");
+    expect(actions.querySelector(".adopp-start-button")!.getAttribute("aria-label")).toBe("ADO Boost");
     expect(actions.querySelectorAll("[data-adopp-action-group]")).toHaveLength(1);
   });
 
-  it("switches to the assistant when a PR completes and Approve is removed", () => {
+  it("switches to ADO Boost when a PR completes and Approve is removed", () => {
     enhancer = createEnhancer();
     enhancer.start();
     document.querySelector(".status")!.textContent = "Completed";
@@ -583,7 +591,8 @@ describe("NativePrEnhancer", () => {
     document.querySelector(".actions")!.insertAdjacentHTML("beforeend", '<button class="bolt-button">Reactivate</button>');
     enhancer.refresh();
 
-    expect(document.querySelector(".adopp-start-button")!.textContent).toContain("Assistant");
+    expect(document.querySelector(".adopp-start-button")!.textContent?.trim()).toBe("");
+    expect(document.querySelector(".adopp-start-button")!.getAttribute("aria-label")).toBe("ADO Boost");
     expect(document.querySelectorAll("[data-adopp-action-group]")).toHaveLength(1);
   });
 
@@ -612,7 +621,7 @@ describe("NativePrEnhancer", () => {
     expect(row.querySelectorAll("[data-adopp-action-group]")).toHaveLength(1);
   });
 
-  it("moves the assistant out of a stale clipboard mount when a PR completes", () => {
+  it("moves ADO Boost out of a stale clipboard mount when a PR completes", () => {
     const titleSlot = document.querySelector(".title-slot")!;
     titleSlot.classList.add("repos-pr-title-row");
     titleSlot.insertAdjacentHTML("beforeend", '<div class="bolt-clipboard-button"><button aria-label="Copy to clipboard">Copy</button></div>');
@@ -627,7 +636,8 @@ describe("NativePrEnhancer", () => {
     expect(group.parentElement).toBe(document.querySelector(".pr-header-row"));
     expect(group.previousElementSibling).toBe(titleSlot);
     expect(document.querySelector(".bolt-clipboard-button [data-adopp-action-group]")).toBeNull();
-    expect(group.querySelector(".adopp-start-button")!.textContent).toContain("Assistant");
+    expect(group.querySelector(".adopp-start-button")!.textContent?.trim()).toBe("");
+    expect(group.querySelector(".adopp-start-button")!.getAttribute("aria-label")).toBe("ADO Boost");
   });
 
   it("does not mount into unrelated page actions when the native PR header is absent", () => {

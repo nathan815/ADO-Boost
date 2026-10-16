@@ -33,7 +33,10 @@ export class AdoPanelHeader {
   render(options: PanelHeaderOptions): void {
     render(h("div", null,
       h("div", { className: "header-line" },
-        h("h2", null, "PR discussions"),
+        h("div", { className: "header-brand" },
+          brandLogo(),
+          h("h2", null, "ADO Boost")
+        ),
         h("div", { className: "header-actions" },
           h(Button, { className: "settings", subtle: true, ariaLabel: "Open settings" }, icon("settings")),
           h(MenuButton, {
@@ -60,7 +63,7 @@ export class AdoPanelHeader {
               }
             }
           }, icon("layout")),
-          h(Button, { className: "close", subtle: true, ariaLabel: "Close review navigator" }, icon("close"))
+          h(Button, { className: "close", subtle: true, ariaLabel: "Close ADO Boost" }, icon("close"))
         )
       ),
       h("p", { className: "subtitle" }, options.subtitle),
@@ -117,4 +120,21 @@ function icon(name: "settings" | "layout" | "close") {
     close: "m4 4 8 8m0-8-8 8"
   };
   return h("svg", { width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.2, "aria-hidden": true }, h("path", { d: paths[name] }));
+}
+
+function brandLogo() {
+  return h("svg", { className: "header-logo", viewBox: "0 0 128 128", focusable: false, "aria-hidden": true },
+    h("defs", null,
+      h("linearGradient", { id: "adopp-logo-tile", x1: 10, y1: 8, x2: 118, y2: 122, gradientUnits: "userSpaceOnUse" },
+        h("stop", { stopColor: "#095A91" }),
+        h("stop", { offset: ".55", stopColor: "#173A62" }),
+        h("stop", { offset: "1", stopColor: "#10192C" })
+      )
+    ),
+    h("rect", { x: 4, y: 4, width: 120, height: 120, rx: 27, fill: "url(#adopp-logo-tile)" }),
+    h("g", { transform: "translate(14 25) scale(3.72)" },
+      h("path", { d: "M1 6.4 7.1 1v4.1l9.7-2.3L22 6.3v11.4l-5.2 3.5-9.7-2.3V23L1 17.6V6.4Zm6.1 1.2v8.8l8 1.9V5.7l-8 1.9Z", fill: "#fff" })
+    ),
+    h("path", { d: "M92 10 73 49h17L77 82l34-45H93l16-27H92Z", fill: "#45D6FF", stroke: "#17324E", strokeWidth: 3.5, strokeLinejoin: "round" })
+  );
 }

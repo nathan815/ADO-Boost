@@ -109,7 +109,7 @@ describe("ReviewPanel completion lifecycle", () => {
 
 describe("ReviewPanel native shell", () => {
   function mountPanel() {
-    document.body.innerHTML = '<div class="region-content"><main class="repos-pr-details-page">Native PR content</main></div><button class="adopp-start-button">Assistant</button>';
+    document.body.innerHTML = '<div class="region-content"><main class="repos-pr-details-page">Native PR content</main></div><button class="adopp-start-button" aria-label="ADO Boost"></button>';
     const settings = defaultSettings();
     settings.features.startReviewing = false;
     settings.features.threadNavigator = false;
