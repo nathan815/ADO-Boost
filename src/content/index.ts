@@ -94,6 +94,7 @@ class ContentApp {
           openDiscussions: () => this.panel?.openDiscussions(),
           startReviewing: () => this.panel?.startReviewing(),
           isReviewAnnounced: () => this.panel?.isReviewAnnounced() ?? false,
+          isReviewFinished: () => this.panel?.isReviewFinished() ?? false,
           openSettings: this.openSettings
         }, new NativeTreeClient(analysis));
         this.enhancer.start();

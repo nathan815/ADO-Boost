@@ -4,8 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AdoApi } from "../src/adapters/ado-api";
 import { MemoryBrowserStore } from "../src/adapters/browser";
 import { RuntimeCopilotGateway } from "../src/core/copilot-gateway";
-import type { PullRequestAnalysis } from "../src/core/types";
-import { RuntimeWriteGateway } from "../src/core/write-gateway";
+import { AnnouncementService } from "../src/core/announcement";
+import type { AnnouncementRecord, PullRequestAnalysis } from "../src/core/types";
+import { RuntimeWriteGateway, type WriteGateway } from "../src/core/write-gateway";
 import { defaultSettings } from "../src/features/registry";
 import { MemorySettingsStorage, SettingsService } from "../src/features/settings-service";
 import { ReviewPanel } from "../src/ui/review-panel";
@@ -16,6 +17,94 @@ afterEach(() => {
   panel?.destroy();
   panel = undefined;
   document.body.innerHTML = "";
+  vi.useRealTimers();
+});
+
+describe("ReviewPanel completion lifecycle", () => {
+  async function fixture(announcementsEnabled = true) {
+    vi.useFakeTimers();
+    document.body.innerHTML = '<div class="region-content"><main class="repos-pr-details-page">Native PR content</main></div>';
+    const analysis: PullRequestAnalysis = {
+      context: {
+        origin: "https://dev.azure.com", organization: "org", project: "project", repository: "repo",
+        repositoryId: "repo-id", pullRequestId: 7, title: "PR", sourceCommit: "source", targetCommit: "target",
+        mergeBaseCommit: "base", iterationId: 3, identity: "identity", reviewer: { id: "me", displayName: "Me" }
+      },
+      files: [], groups: [], threads: { state: "available", active: 1, resolved: 0, total: 1 }, completedTrackingIds: new Set()
+    };
+    const settings = defaultSettings();
+    settings.features.startReviewing = announcementsEnabled;
+    settings.features.threadNavigator = false;
+    const api = new AdoApi({ fetch: vi.fn() });
+    const store = new MemoryBrowserStore();
+    const announcement = new AnnouncementService(api, store);
+    const record: AnnouncementRecord = {
+      key: announcement.key(analysis.context), status: "posted", threadId: 8, commentId: 1, body: announcement.body(analysis.context)
+    };
+    await store.saveAnnouncement(record);
+    const finishReview = vi.fn<WriteGateway["finishReview"]>().mockResolvedValue(record);
+    panel = new ReviewPanel({
+      analysis, api, store, settings,
+      settingsService: new SettingsService(new MemorySettingsStorage()), reviewKey: "org/project/repo-id/7",
+      writes: { postAnnouncement: vi.fn(), finishReview, submitReview: vi.fn(), retryDecision: vi.fn(), setThreadStatus: vi.fn() },
+      copilot: new RuntimeCopilotGateway(), openSettings: vi.fn()
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    panel.openDiscussions();
+    const root = document.querySelector("[data-adopp-review-panel]")!.shadowRoot!;
+    return { root, record, finishReview, settings };
+  }
+
+  it("checks on focus after a submission closed the thread and preserves unsaved draft text", async () => {
+    const { root, record, finishReview } = await fixture();
+    root.querySelector<HTMLButtonElement>(".add-general")!.click();
+    const textarea = root.querySelector<HTMLTextAreaElement>(".draft-body")!;
+    textarea.value = "Keep my unsaved feedback";
+    textarea.dispatchEvent(new Event("input"));
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(finishReview).toHaveBeenCalledOnce();
+    window.dispatchEvent(new Event("focus"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(root.querySelector(".draft-body")).toBe(textarea);
+    finishReview.mockResolvedValue({
+      ...record, completions: [{ id: "review-1", kind: "submission", commentCount: 2, at: "2026-10-16T04:00:00Z", status: "closed" }]
+    });
+    window.dispatchEvent(new Event("focus"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(panel!.isReviewFinished()).toBe(true);
+    expect(root.querySelector(".review-start-status")?.textContent).toBe("You've finished reviewing");
+    expect(root.querySelector<HTMLTextAreaElement>(".draft-body")!.value).toBe("Keep my unsaved feedback");
+    window.dispatchEvent(new Event("focus"));
+    await vi.advanceTimersByTimeAsync(0);
+    window.dispatchEvent(new Event("focus"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(finishReview).toHaveBeenCalledTimes(5);
+    panel!.destroy();
+    window.dispatchEvent(new Event("focus"));
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(finishReview).toHaveBeenCalledTimes(5);
+  });
+
+  it("stops on feature disablement and resumes when enabled again", async () => {
+    const { settings, finishReview } = await fixture();
+    settings.features.startReviewing = false;
+    panel!.updateSettings(settings);
+    window.dispatchEvent(new Event("focus"));
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(finishReview).toHaveBeenCalledOnce();
+    settings.features.startReviewing = true;
+    panel!.updateSettings(settings);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(finishReview).toHaveBeenCalledTimes(2);
+  });
+
+  it("discovers an existing announcement when the feature was initially disabled", async () => {
+    const { settings, finishReview } = await fixture(false);
+    expect(finishReview).not.toHaveBeenCalled();
+    panel!.updateSettings({ ...settings, features: { ...settings.features, startReviewing: true } });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(finishReview).toHaveBeenCalledOnce();
+  });
 });
 
 describe("ReviewPanel native shell", () => {

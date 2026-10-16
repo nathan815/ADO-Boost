@@ -79,6 +79,7 @@ const panel = new ReviewPanel({
   openSettings: () => undefined,
   writes: {
     postAnnouncement: async () => { throw new Error("Synthetic fixture does not perform writes"); },
+    finishReview: async () => { throw new Error("Synthetic fixture does not perform writes"); },
     submitReview: async () => { throw new Error("Synthetic fixture does not perform writes"); },
     retryDecision: async () => { throw new Error("Synthetic fixture does not perform writes"); },
     setThreadStatus: async () => { throw new Error("Synthetic fixture does not perform writes"); }

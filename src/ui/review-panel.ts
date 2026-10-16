@@ -18,6 +18,7 @@ import { AdoPanelHeader, adoComponentStyles } from "./ado-panel-header";
 import { ReviewPanelLayout } from "./review-panel-layout";
 import { isTypingEvent } from "./keyboard";
 import { PanelToast } from "./panel-toast";
+import { ReviewCompletionMonitor } from "./review-completion-monitor";
 
 interface ReviewPanelDependencies {
   analysis: PullRequestAnalysis;
@@ -41,11 +42,14 @@ export class ReviewPanel {
   private readonly announcement: AnnouncementService;
   private readonly diffDialog: DiffDialog;
   private readonly discussion: DiscussionController;
+  private readonly completionMonitor: ReviewCompletionMonitor;
   private settings: FeatureSettings;
   private open = false;
   private overlay = false;
   private destroyed = false;
   private announcementPosted = false;
+  private announcementFinished = false;
+  private completionSignature = "";
   private announcementError = "";
   private announcementDialog: AnnouncementDialog | null = null;
   private copilotGroups: ReviewGroup[] | null = null;
@@ -56,40 +60,39 @@ export class ReviewPanel {
 
   constructor(private readonly dependencies: ReviewPanelDependencies) {
     this.settings = dependencies.settings;
+    this.completionMonitor = new ReviewCompletionMonitor(
+      () => this.checkReviewCompletion(),
+      (message) => {
+        console.error("ADO Boost could not finish the review announcement:", message);
+        this.toast.show(`Couldn't finish the review-start announcement: ${message}`);
+      }
+    );
     this.announcement = new AnnouncementService(dependencies.api, dependencies.store);
     this.diffDialog = new DiffDialog(dependencies.api, dependencies.analysis.context, (root, path, trackingId, line, side) => this.discussion.showInlineDraft(root, path, trackingId, line, side));
-    this.discussion = new DiscussionController(dependencies.api, dependencies.store, dependencies.analysis, dependencies.writes, () => this.settings, () => this.render(), this.toast);
+    this.discussion = new DiscussionController(dependencies.api, dependencies.store, dependencies.analysis, dependencies.writes, () => this.settings, () => this.render(), this.toast, () => this.completionMonitor.refresh());
     this.host.dataset.theme = dependencies.settings.presentation.theme;
     this.host.dataset.adoppReviewPanel = "true";
     this.layout = new ReviewPanelLayout(this.host);
     for (const type of ["keydown", "keypress", "keyup"]) this.root.addEventListener(type, this.onPanelKeyboardEvent);
     document.addEventListener("keydown", this.onKeyDown, true);
-    if (resolveFeature(this.settings, "startReviewing").enabled) {
-      void this.announcement.status(dependencies.analysis.context).then((record) => {
-        if (!this.host.isConnected) return;
-        this.announcementPosted ||= record?.status === "posted";
-        this.render();
-        window.dispatchEvent(new CustomEvent("adopp:announcement-changed"));
-      }).catch((error: unknown) => {
-        if (!this.host.isConnected) return;
-        this.announcementError = error instanceof Error ? error.message : "Review announcement lookup failed";
-        this.render();
-      });
-    }
+    if (resolveFeature(this.settings, "startReviewing").enabled) void this.loadAnnouncementStatus();
     void this.discussion.load();
     this.render();
   }
 
   updateSettings(settings: FeatureSettings): void {
     const threadsWereEnabled = resolveFeature(this.settings, "threadNavigator").enabled;
+    const announcementsWereEnabled = resolveFeature(this.settings, "startReviewing").enabled;
     this.settings = settings;
     if (!resolveFeature(settings, "startReviewing").enabled) this.announcementDialog?.close();
+    this.updateCompletionMonitor();
     this.host.dataset.theme = settings.presentation.theme;
     if (!settings.masterEnabled) {
       this.destroy();
       return;
     }
     if (!threadsWereEnabled && resolveFeature(settings, "threadNavigator").enabled) void this.discussion.loadThreads().then(() => this.render());
+    if (!announcementsWereEnabled && resolveFeature(settings, "startReviewing").enabled) void this.loadAnnouncementStatus();
     this.render();
   }
 
@@ -97,6 +100,7 @@ export class ReviewPanel {
     if (this.destroyed) return;
     this.destroyed = true;
     this.announcementDialog?.close();
+    this.completionMonitor.stop();
     this.header?.destroy();
     this.toast.destroy();
     document.removeEventListener("keydown", this.onKeyDown, true);
@@ -116,6 +120,50 @@ export class ReviewPanel {
 
   isReviewAnnounced(): boolean {
     return this.announcementPosted;
+  }
+
+  isReviewFinished(): boolean {
+    return this.announcementFinished;
+  }
+
+  private async loadAnnouncementStatus(): Promise<void> {
+    try {
+      const record = await this.announcement.status(this.dependencies.analysis.context);
+      if (this.destroyed || !resolveFeature(this.settings, "startReviewing").enabled) return;
+      this.announcementPosted ||= record?.status === "posted";
+      this.announcementFinished = record?.completions?.some((completion) => completion.status === "closed") ?? false;
+      this.completionSignature = JSON.stringify(record?.completions ?? []);
+      this.announcementError = "";
+      this.updateCompletionMonitor();
+      this.render();
+      window.dispatchEvent(new CustomEvent("adopp:announcement-changed"));
+    } catch (error) {
+      if (this.destroyed || !resolveFeature(this.settings, "startReviewing").enabled) return;
+      this.announcementError = error instanceof Error ? error.message : "Review announcement lookup failed";
+      this.render();
+    }
+  }
+
+  private updateCompletionMonitor(): void {
+    if (!this.destroyed && this.announcementPosted && resolveFeature(this.settings, "startReviewing").enabled) this.completionMonitor.start();
+    else this.completionMonitor.stop();
+  }
+
+  private async checkReviewCompletion(): Promise<boolean> {
+    if (this.destroyed || !resolveFeature(this.settings, "startReviewing").enabled) return true;
+    const record = await this.dependencies.writes.finishReview(this.dependencies.analysis.context);
+    if (this.destroyed || !resolveFeature(this.settings, "startReviewing").enabled) return true;
+    if (!record) return true;
+    const signature = JSON.stringify(record.completions ?? []);
+    if (signature === this.completionSignature) return false;
+    this.completionSignature = signature;
+    this.announcementFinished = record.completions?.some((completion) => completion.status === "closed") ?? false;
+    if (resolveFeature(this.settings, "threadNavigator").enabled) await this.discussion.loadThreads();
+    if (!this.destroyed) {
+      this.render();
+      window.dispatchEvent(new CustomEvent("adopp:announcement-changed"));
+    }
+    return false;
   }
 
   private render(): void {
@@ -146,6 +194,7 @@ export class ReviewPanel {
       overlay: this.overlay,
       announcementEnabled: resolveFeature(this.settings, "startReviewing").enabled,
       announced: this.announcementPosted,
+      finished: this.announcementFinished,
       subtitle: `${this.dependencies.synthetic ? "Synthetic offline fixture · " : ""}Iteration ${analysis.context.iterationId}`,
       onSettings: this.dependencies.openSettings,
       onLayoutChange: (overlay) => { this.overlay = overlay; this.render(); this.root.querySelector<HTMLElement>(".panel-layout-toggle")?.focus(); },
@@ -262,9 +311,12 @@ export class ReviewPanel {
       pullRequestId: this.dependencies.analysis.context.pullRequestId,
       body: this.announcement.body(this.dependencies.analysis.context),
       onConfirm: async () => {
-        await this.dependencies.writes.postAnnouncement(this.dependencies.analysis.context);
+        const record = await this.dependencies.writes.postAnnouncement(this.dependencies.analysis.context);
         if (!this.host.isConnected) return;
         this.announcementPosted = true;
+        this.announcementFinished = record?.completions?.some((completion) => completion.status === "closed") ?? false;
+        this.completionSignature = JSON.stringify(record?.completions ?? []);
+        this.updateCompletionMonitor();
         this.announcementError = "";
         this.render();
         window.dispatchEvent(new CustomEvent("adopp:announcement-changed"));

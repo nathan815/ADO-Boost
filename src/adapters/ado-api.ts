@@ -1,6 +1,6 @@
 import { z } from "zod";
-import type { ChangeEntry, ChangedFile, PrRoute, PullRequestContext, PullRequestThread, ReviewDraft, ThreadOverview, UnresolvedChange } from "../core/types";
-import { legacyAnnouncementBody, readAnnouncementMetadata } from "../core/announcement-content";
+import type { AnnouncementCompletion, ChangeEntry, ChangedFile, PrRoute, PullRequestContext, PullRequestThread, ReviewDraft, ReviewVote, ThreadOverview, UnresolvedChange } from "../core/types";
+import { legacyAnnouncementBody, readAnnouncementMetadata, readReviewCompletion, reviewCompletionBody } from "../core/announcement-content";
 import { createResponseValidation, type ResponseWarning } from "./response-validation";
 import { readChangeEntry } from "./change-response";
 
@@ -82,6 +82,15 @@ const createdThreadSchema = z.object({
 
 const createdCommentSchema = z.object({ id: z.number().int().positive() }).passthrough();
 const reviewerSchema = z.object({ vote: z.number().int() }).passthrough();
+const voteEventSchema = z.object({
+  id: z.number().int().positive(),
+  publishedDate: z.iso.datetime({ offset: true }).optional(),
+  properties: z.object({
+    CodeReviewVotedByIdentity: z.object({ $value: z.string() }),
+    CodeReviewVoteResult: z.object({ $value: z.union([z.string(), z.number().int()]) })
+  }),
+  identities: z.record(z.string(), z.object({ id: z.string().min(1) }))
+});
 
 export interface HttpClient {
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
@@ -223,19 +232,30 @@ export class AdoApi {
     return reviewerSchema.parse(await response.json()).vote;
   }
 
+  async getVoteTimestamp(context: PullRequestContext, vote: ReviewVote, signal?: AbortSignal): Promise<string> {
+    const events = (await this.getThreads(context, signal)).flatMap((thread) => {
+      const type = thread.properties?.CodeReviewThreadType;
+      if (!type || typeof type !== "object" || !("$value" in type) || type.$value !== "VoteUpdate") return [];
+      const parsed = voteEventSchema.safeParse(thread);
+      if (!parsed.success) {
+        throw new Error(`Azure DevOps vote event validation failed: ${z.prettifyError(parsed.error)}`);
+      }
+      const voter = parsed.data.identities[parsed.data.properties.CodeReviewVotedByIdentity.$value];
+      if (!voter) throw new Error("Azure DevOps did not identify the reviewer for a vote event");
+      return voter.id.toLowerCase() === context.reviewer.id.toLowerCase() ? [parsed.data] : [];
+    });
+    // Event order must not fall back to an older vote when the latest event has no timestamp.
+    const latest = events.sort((left, right) => right.id - left.id)[0];
+    if (!latest?.publishedDate || String(latest.properties.CodeReviewVoteResult.$value) !== String(vote)) {
+      throw new Error("Azure DevOps has not provided a timestamp for your current vote. Return to the tab or reload to check again.");
+    }
+    return latest.publishedDate;
+  }
+
   async postDraft(context: PullRequestContext, draft: ReviewDraft, signal?: AbortSignal): Promise<{ threadId: number; commentId: number }> {
     if (draft.kind === "reply") {
       if (!draft.threadId) throw new Error("Reply draft is missing its thread");
-      const url = `${this.apiBase(context)}/git/repositories/${encodeURIComponent(context.repositoryId)}/pullRequests/${context.pullRequestId}/threads/${draft.threadId}/comments?api-version=7.1`;
-      const response = await this.http.fetch(url, {
-        method: "POST",
-        ...(signal ? { signal } : {}),
-        headers: { Accept: "application/json", "Content-Type": "application/json" },
-        body: JSON.stringify({ parentCommentId: 0, content: draft.body, commentType: 1 })
-      });
-      if (!response.ok) throw new Error(`Reply failed (${response.status})`);
-      const comment = createdCommentSchema.parse(await response.json());
-      return { threadId: draft.threadId, commentId: comment.id };
+      return this.postReply(context, draft.threadId, 0, draft.body, signal);
     }
 
     const payload: Record<string, unknown> = {
@@ -318,12 +338,7 @@ export class AdoApi {
       for (const comment of thread.comments ?? []) {
         if (!thread.id || !comment.id || comment.isDeleted || comment.author?.id !== context.reviewer.id || !comment.content) continue;
         const metadata = readAnnouncementMetadata(comment.content);
-        const matches = metadata
-          ? metadata.repositoryId === context.repositoryId
-            && metadata.pullRequestId === context.pullRequestId
-            && metadata.reviewerId === context.reviewer.id
-          : comment.content.trim() === body.trim() || comment.content.trim() === legacyAnnouncementBody(context);
-        if (matches) return {
+        if (matchesAnnouncement(context, comment.content, body)) return {
           threadId: thread.id,
           commentId: comment.id,
           body: comment.content,
@@ -345,6 +360,43 @@ export class AdoApi {
     if (!response.ok) throw new Error(`Announcement failed (${response.status})`);
     const created = createdThreadSchema.parse(await response.json());
     return { threadId: created.id, commentId: created.comments[0]!.id };
+  }
+
+  async getAnnouncementState(context: PullRequestContext, threadId: number, commentId: number, body: string, signal?: AbortSignal): Promise<{ closed: boolean; completions: AnnouncementCompletion[] }> {
+    const url = `${this.apiBase(context)}/git/repositories/${encodeURIComponent(context.repositoryId)}/pullRequests/${context.pullRequestId}/threads/${threadId}?api-version=7.1`;
+    const thread = await this.json(url, this.schemas.threadSchema, signal);
+    const original = thread.comments?.find((comment) => comment.id === commentId && !comment.isDeleted);
+    if (thread.id !== threadId || thread.isDeleted || thread.threadContext || original?.author?.id !== context.reviewer.id || !original.content || !matchesAnnouncement(context, original.content, body)) {
+      throw new Error("The review-start announcement could not be verified for the current reviewer");
+    }
+    const completions = (thread.comments ?? [])
+      .filter((comment) => comment.id && comment.id !== commentId && !comment.isDeleted && comment.author?.id === context.reviewer.id)
+      .sort((left, right) => left.id! - right.id!)
+      .flatMap((comment) => {
+        const completion = readReviewCompletion(comment.content ?? "", comment.id!);
+        return completion ? [completion] : [];
+      });
+    return {
+      closed: thread.status?.toLowerCase() === "closed",
+      completions
+    };
+  }
+
+  async postAnnouncementCompletion(context: PullRequestContext, threadId: number, commentId: number, completion: AnnouncementCompletion, signal?: AbortSignal): Promise<{ threadId: number; commentId: number }> {
+    return this.postReply(context, threadId, commentId, reviewCompletionBody(completion), signal);
+  }
+
+  private async postReply(context: PullRequestContext, threadId: number, parentCommentId: number, body: string, signal?: AbortSignal): Promise<{ threadId: number; commentId: number }> {
+    const url = `${this.apiBase(context)}/git/repositories/${encodeURIComponent(context.repositoryId)}/pullRequests/${context.pullRequestId}/threads/${threadId}/comments?api-version=7.1`;
+    const response = await this.http.fetch(url, {
+      method: "POST",
+      ...(signal ? { signal } : {}),
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ parentCommentId, content: body, commentType: 1 })
+    });
+    if (!response.ok) throw new Error(`Reply failed (${response.status})`);
+    const comment = createdCommentSchema.parse(await response.json());
+    return { threadId, commentId: comment.id };
   }
 
   private async getThreads(context: PullRequestContext, signal?: AbortSignal) {
@@ -376,4 +428,13 @@ export class AdoApi {
     }
     return parsed.data;
   }
+}
+
+function matchesAnnouncement(context: PullRequestContext, content: string, body: string): boolean {
+  const metadata = readAnnouncementMetadata(content);
+  return metadata
+    ? metadata.repositoryId === context.repositoryId
+      && metadata.pullRequestId === context.pullRequestId
+      && metadata.reviewerId === context.reviewer.id
+    : content.trim() === body.trim() || content.trim() === legacyAnnouncementBody(context);
 }

@@ -1,9 +1,10 @@
-import type { AnnouncementRecord, PullRequestContext, ReviewDecision, SubmissionReceipt } from "./types";
+import type { AnnouncementRecord, PullRequestContext, ReviewCompletionTrigger, ReviewDecision, SubmissionReceipt } from "./types";
 import type { SubmissionResult } from "./submission";
 
 export interface WriteGateway {
   postAnnouncement(route: PullRequestContext): Promise<AnnouncementRecord>;
-  submitReview(route: PullRequestContext, draftIds: string[], decision: ReviewDecision): Promise<SubmissionResult>;
+  finishReview(route: PullRequestContext, trigger?: ReviewCompletionTrigger): Promise<AnnouncementRecord | null>;
+  submitReview(route: PullRequestContext, draftIds: string[], decision: ReviewDecision, finishAnnouncement?: boolean): Promise<SubmissionResult>;
   retryDecision(route: PullRequestContext, receipt: SubmissionReceipt): Promise<SubmissionReceipt>;
   setThreadStatus(route: PullRequestContext, threadId: number, status: 1 | 2): Promise<void>;
 }
@@ -13,8 +14,12 @@ export class RuntimeWriteGateway implements WriteGateway {
     return this.send("announcement", { route });
   }
 
-  submitReview(route: PullRequestContext, draftIds: string[], decision: ReviewDecision): Promise<SubmissionResult> {
-    return this.send("submit", { route, draftIds, decision, expectedIdentity: route.identity });
+  finishReview(route: PullRequestContext, trigger: ReviewCompletionTrigger = { kind: "vote" }): Promise<AnnouncementRecord | null> {
+    return this.send("finish-review", { route, trigger });
+  }
+
+  submitReview(route: PullRequestContext, draftIds: string[], decision: ReviewDecision, finishAnnouncement = false): Promise<SubmissionResult> {
+    return this.send("submit", { route, draftIds, decision, finishAnnouncement, expectedIdentity: route.identity });
   }
 
   retryDecision(route: PullRequestContext, receipt: SubmissionReceipt): Promise<SubmissionReceipt> {

@@ -3,7 +3,7 @@ import { AdoApi } from "../src/adapters/ado-api";
 import { MemoryBrowserStore } from "../src/adapters/browser";
 import { DraftQueue } from "../src/core/drafts";
 import { DECISION_VOTES, SubmissionCoordinator } from "../src/core/submission";
-import type { PullRequestContext } from "../src/core/types";
+import type { PullRequestContext, SubmissionReceipt } from "../src/core/types";
 
 const context: PullRequestContext = {
   origin: "https://dev.azure.com",
@@ -33,6 +33,74 @@ describe("SubmissionCoordinator", () => {
     await expect(new SubmissionCoordinator(api, store, queue, context).submit([draft.id], "approve")).rejects.toThrow("must be reanchored");
     expect(fetch).toHaveBeenCalledOnce();
     expect((await queue.list())[0]?.delivery).toBe("pending");
+  });
+
+  describe("Submission announcement completion", () => {
+    async function fixture() {
+      const api = new AdoApi({ fetch: vi.fn() });
+      vi.spyOn(api, "getChanges").mockResolvedValue([]);
+      vi.spyOn(api, "getCurrentVote").mockResolvedValue(0);
+      vi.spyOn(api, "findDraftDelivery").mockResolvedValue(null);
+      const post = vi.spyOn(api, "postDraft").mockResolvedValue({ threadId: 1, commentId: 1 });
+      const vote = vi.spyOn(api, "setVote").mockResolvedValue(undefined);
+      const finish = vi.fn<(receipt: SubmissionReceipt) => Promise<void>>().mockResolvedValue(undefined);
+      const store = new MemoryBrowserStore();
+      const queue = new DraftQueue(store, context);
+      const first = await queue.add({ kind: "general", body: "First" });
+      const second = await queue.add({ kind: "general", body: "Second" });
+      const coordinator = new SubmissionCoordinator(api, store, queue, context, undefined, finish);
+      return { api, store, queue, post, vote, finish, first, second, coordinator };
+    }
+
+    it("finishes only after all selected comments and the requested vote succeed", async () => {
+      const { coordinator, first, second, finish, post, vote } = await fixture();
+      const result = await coordinator.submit([first.id, second.id], "approve");
+      expect(finish).toHaveBeenCalledExactlyOnceWith(result.receipt);
+      expect(result.receipt.postedDraftIds).toEqual([first.id, second.id]);
+      expect(post.mock.invocationCallOrder[1]).toBeLessThan(vote.mock.invocationCallOrder[0]!);
+      expect(vote.mock.invocationCallOrder[0]).toBeLessThan(finish.mock.invocationCallOrder[0]!);
+    });
+
+    it("passes only successfully posted selected comments to a comment-only completion", async () => {
+      const { coordinator, first, second, finish, vote, queue } = await fixture();
+      const result = await coordinator.submit([first.id], "comment");
+      expect(finish).toHaveBeenCalledExactlyOnceWith(result.receipt);
+      expect(result.receipt).toMatchObject({ decision: "comment", postedDraftIds: [first.id] });
+      expect((await queue.list()).find((draft) => draft.id === second.id)?.delivery).toBe("pending");
+      expect(vote).not.toHaveBeenCalled();
+    });
+
+    it("does not announce completion when comment delivery fails", async () => {
+      const { coordinator, first, second, finish, post, vote } = await fixture();
+      post.mockRejectedValueOnce(new Error("Posting failed"));
+      const result = await coordinator.submit([first.id, second.id], "reject");
+      expect(result.receipt.failedDraftIds).toEqual([first.id]);
+      expect(finish).not.toHaveBeenCalled();
+      expect(vote).not.toHaveBeenCalled();
+    });
+
+    it("finishes after a successful decision-only retry without replaying comments", async () => {
+      const { coordinator, first, finish, post, vote } = await fixture();
+      vote.mockRejectedValueOnce(new Error("Vote failed"));
+      const result = await coordinator.submit([first.id], "wait-author");
+      expect(finish).not.toHaveBeenCalled();
+      const retried = await coordinator.retryVote(result.receipt);
+      expect(finish).toHaveBeenCalledExactlyOnceWith(retried);
+      expect(retried.voteApplied).toBe(true);
+      expect(post).toHaveBeenCalledOnce();
+    });
+
+    it("records announcement failures separately from successful comment and vote delivery", async () => {
+      const { coordinator, first, finish, queue, store } = await fixture();
+      finish.mockRejectedValueOnce(new Error("Announcement close failed"));
+      const result = await coordinator.submit([first.id], "approve");
+      expect(result.receipt).toMatchObject({
+        voteApplied: true, postedDraftIds: [first.id], failedDraftIds: [], announcementError: "Announcement close failed"
+      });
+      expect(result.receipt.completedAt).toBeDefined();
+      expect(await store.getReceipts(queue.key())).toEqual([result.receipt]);
+      expect((await queue.list())[0]?.delivery).toBe("posted");
+    });
   });
 
   it("posts feedback before applying the vote", async () => {

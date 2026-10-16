@@ -47,7 +47,7 @@ async function mount(store = new MemoryBrowserStore(), discussionThreads = threa
     comments: thread.comments.map((comment) => ({ ...comment, commentType: comment.isVoteUpdate ? "system" : "text", author: { id: comment.author, displayName: comment.author, imageUrl: comment.authorImageUrl } }))
   })) }), { status: 200 }));
   const writes: WriteGateway = {
-    postAnnouncement: vi.fn(), submitReview: vi.fn(), retryDecision: vi.fn(), setThreadStatus: vi.fn()
+    postAnnouncement: vi.fn(), finishReview: vi.fn(), submitReview: vi.fn(), retryDecision: vi.fn(), setThreadStatus: vi.fn()
   };
   const host = document.createElement("div");
   document.body.append(host);
@@ -620,7 +620,33 @@ describe("Sidebar discussions", () => {
     expect(root.querySelector<HTMLButtonElement>(".confirm-submit")!.disabled).toBe(false);
     click(root, ".confirm-submit");
     await vi.waitFor(() => expect(root.querySelector(".submit-dialog")).toBeNull());
+    expect(writes.submitReview).toHaveBeenCalledWith(analysis.context, expect.any(Array), "comment", true);
     expect(await queue.list()).toMatchObject([{ body: "Queued reply", delivery: "pending" }, { body: "Summary comment", delivery: "posted" }]);
+  });
+
+  it("retries only the announcement after a successful review with an announcement error", async () => {
+    const fixture = await mount();
+    const { root, queue, writes } = fixture;
+    mockSubmission(fixture);
+    const draft = await queue.add({ kind: "reply", threadId: 1, body: "Queued reply" });
+    const result = await new SubmissionCoordinator(fixture.api, fixture.store, queue, analysis.context).submit([draft.id], "comment");
+    result.receipt.announcementError = "Announcement failed";
+    vi.mocked(writes.submitReview).mockResolvedValue(result);
+    vi.mocked(writes.finishReview).mockResolvedValue(null);
+    await queue.replace([{ ...draft, delivery: "pending" }]);
+    await fixture.controller.load();
+    click(root, ".submit-review");
+    await vi.waitFor(() => expect(root.querySelector(".submit-dialog")).not.toBeNull());
+    click(root, ".confirm-submit");
+    await vi.waitFor(() => expect(root.querySelector(".retry-announcement")).not.toBeNull());
+    expect(root.textContent).toContain("Announcement failed");
+    click(root, ".retry-announcement");
+    await vi.waitFor(() => expect(root.querySelector(".retry-announcement")).toBeNull());
+    expect(writes.finishReview).toHaveBeenCalledExactlyOnceWith(analysis.context, {
+      kind: "submission", submissionId: result.receipt.id, commentCount: 1
+    });
+    expect(writes.submitReview).toHaveBeenCalledOnce();
+    expect(writes.retryDecision).not.toHaveBeenCalled();
   });
 
   it("does not re-enable confirmation or submit twice when preview inputs change during delivery", async () => {

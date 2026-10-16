@@ -94,7 +94,24 @@ export interface AnnouncementRecord {
   commentId?: number;
   postedAt?: string;
   body: string;
+  completions?: AnnouncementCompletion[];
 }
+
+export type ReviewVote = 10 | 5 | -5 | -10;
+
+export type ReviewCompletionTrigger =
+  | { kind: "vote" }
+  | { kind: "submission"; submissionId: string; commentCount: number };
+
+export type AnnouncementCompletion = {
+  id: string;
+  at: string;
+  status: "posting" | "posted" | "ambiguous" | "closed";
+  commentId?: number;
+} & (
+  | { kind: "vote"; vote: ReviewVote }
+  | { kind: "submission"; commentCount: number }
+);
 
 export type DraftKind = "general" | "inline" | "reply";
 
@@ -129,6 +146,7 @@ export interface SubmissionReceipt {
   failedDraftIds: string[];
   voteApplied: boolean;
   voteError?: string | undefined;
+  announcementError?: string | undefined;
 }
 
 export interface PullRequestThread {

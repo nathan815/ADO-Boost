@@ -5,7 +5,7 @@ import { DraftQueue } from "../core/drafts";
 import { parsePrRoute } from "../core/route";
 import { SubmissionCoordinator } from "../core/submission";
 import { SerialExecutor } from "../core/serial-executor";
-import type { PrRoute, PullRequestContext, ReviewDecision, SubmissionReceipt } from "../core/types";
+import type { PrRoute, PullRequestContext, ReviewCompletionTrigger, ReviewDecision, SubmissionReceipt } from "../core/types";
 import { resolveFeature } from "../features/registry";
 import { ChromeSettingsStorage, SettingsService } from "../features/settings-service";
 import { NativeCopilotClient } from "./native-copilot";
@@ -112,7 +112,10 @@ async function handleWrite(kind: string, payload: Record<string, unknown>, sende
     }
     if (kind === "announcement") {
       requireFeature(currentSettings, "startReviewing");
-      return new AnnouncementService(api, store).post(context);
+      return writes.run(announcementLock(context), () => new AnnouncementService(api, store).post(context));
+    }
+    if (kind === "finish-review") {
+      return finishAnnouncement(context, parseCompletionTrigger(payload.trigger));
     }
     if (kind === "submit") {
       requireFeature(currentSettings, "submitReview");
@@ -120,14 +123,18 @@ async function handleWrite(kind: string, payload: Record<string, unknown>, sende
       const decision = parseDecision(payload.decision);
       if (!draftIds) throw new Error("Invalid draft selection");
       const queue = new DraftQueue(store, context);
-      return writes.run(`draft:${queue.key()}`, () => new SubmissionCoordinator(api, store, queue, context, () => requireSubmitEnabled()).submit(draftIds, decision));
+      return writes.run(`draft:${queue.key()}`, () => new SubmissionCoordinator(api, store, queue, context, () => requireSubmitEnabled(), async (receipt) => {
+        if (payload.finishAnnouncement === true && resolveFeature(await settings.load(), "startReviewing").enabled) await finishAnnouncement(context, completionTrigger(receipt));
+      }).submit(draftIds, decision));
     }
     if (kind === "retry-decision") {
       requireFeature(currentSettings, "submitReview");
       const receipt = payload.receipt as SubmissionReceipt | undefined;
       if (!receipt?.id) throw new Error("Invalid submission receipt");
       const queue = new DraftQueue(store, context);
-      return writes.run(`draft:${queue.key()}`, () => new SubmissionCoordinator(api, store, queue, context, () => requireSubmitEnabled()).retryVote(receipt));
+      return writes.run(`draft:${queue.key()}`, () => new SubmissionCoordinator(api, store, queue, context, () => requireSubmitEnabled(), async (receipt) => {
+        if (resolveFeature(await settings.load(), "startReviewing").enabled) await finishAnnouncement(context, completionTrigger(receipt));
+      }).retryVote(receipt));
     }
     if (kind === "thread-status") {
       requireFeature(currentSettings, "threadNavigator");
@@ -143,6 +150,34 @@ async function handleWrite(kind: string, payload: Record<string, unknown>, sende
   async function requireSubmitEnabled(): Promise<void> {
     requireFeature(await settings.load(), "submitReview");
   }
+}
+
+function announcementLock(context: PullRequestContext): string {
+  return `announcement:${context.repositoryId}/${context.pullRequestId}/${context.reviewer.id}`;
+}
+
+async function finishAnnouncement(context: PullRequestContext, trigger: ReviewCompletionTrigger) {
+  return writes.run(announcementLock(context), async () => {
+    requireFeature(await settings.load(), "startReviewing");
+    const service = new AnnouncementService(api, store);
+    return service.finish(context, trigger);
+  });
+}
+
+function completionTrigger(receipt: SubmissionReceipt): ReviewCompletionTrigger {
+  return receipt.decision === "comment"
+    ? { kind: "submission", submissionId: receipt.id, commentCount: receipt.postedDraftIds.length }
+    : { kind: "vote" };
+}
+
+function parseCompletionTrigger(value: unknown): ReviewCompletionTrigger {
+  if (!value || typeof value !== "object") throw new Error("Missing review completion trigger");
+  const trigger = value as Record<string, unknown>;
+  if (trigger.kind === "vote") return { kind: "vote" };
+  if (trigger.kind === "submission" && typeof trigger.submissionId === "string" && trigger.submissionId.length > 0 && typeof trigger.commentCount === "number" && Number.isInteger(trigger.commentCount) && trigger.commentCount >= 0) {
+    return { kind: "submission", submissionId: trigger.submissionId, commentCount: trigger.commentCount };
+  }
+  throw new Error("Invalid review completion trigger");
 }
 
 function assertSender(route: PrRoute, sender: chrome.runtime.MessageSender): void {

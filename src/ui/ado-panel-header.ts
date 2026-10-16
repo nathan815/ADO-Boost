@@ -14,6 +14,7 @@ interface PanelHeaderOptions {
   overlay: boolean;
   announcementEnabled: boolean;
   announced: boolean;
+  finished?: boolean;
   subtitle: string;
   onSettings: () => void;
   onLayoutChange: (overlay: boolean) => void;
@@ -65,7 +66,7 @@ export class AdoPanelHeader {
       h("p", { className: "subtitle" }, options.subtitle),
       options.announcementEnabled ? h("div", { className: "review-start" },
         options.announced
-          ? h("p", { className: "review-start-status", role: "status", tabIndex: -1 }, "You've started reviewing")
+          ? h("p", { className: "review-start-status", role: "status", tabIndex: -1 }, options.finished ? "You've finished reviewing" : "You've started reviewing")
           : h(Button, { className: "announce-review", primary: true, text: "Announce Review Start" })
       ) : null
     ), this.container);

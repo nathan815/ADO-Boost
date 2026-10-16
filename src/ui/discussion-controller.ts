@@ -35,7 +35,8 @@ export class DiscussionController {
     private readonly writes: WriteGateway,
     private readonly getSettings: () => FeatureSettings,
     private readonly onChange: () => void,
-    private readonly toast: Pick<PanelToast, "show" | "dismiss">
+    private readonly toast: Pick<PanelToast, "show" | "dismiss">,
+    private readonly onReviewSubmitted: () => void = () => undefined
   ) {
     this.queue = new DraftQueue(store, analysis.context);
   }
@@ -91,6 +92,7 @@ export class DiscussionController {
     if (this.enabled("submitReview")) {
       root.querySelector(".submit-review")?.addEventListener("click", () => void this.showSubmitDialog(root));
       root.querySelector(".retry-vote")?.addEventListener("click", () => this.showRetryVoteDialog(root));
+      root.querySelector(".retry-announcement")?.addEventListener("click", () => void this.retryAnnouncement(root));
     }
     if (this.enabled("threadNavigator")) {
       root.querySelector(".retry-threads")?.addEventListener("click", () => void this.retryThreads());
@@ -208,6 +210,7 @@ export class DiscussionController {
   private receiptMarkup(receipt: SubmissionReceipt): string {
     if (receipt.failedDraftIds.length) return `<div class="delivery error">${receipt.postedDraftIds.length} posted; ${receipt.failedDraftIds.length} remain pending. Decision was not applied.</div>`;
     if (receipt.voteError) return `<div class="delivery">${receipt.postedDraftIds.length} feedback items posted. Decision not applied: ${escapeHtml(receipt.voteError)} <button class="secondary retry-vote" type="button">Retry decision only</button></div>`;
+    if (receipt.announcementError) return `<div class="delivery error">Review submitted, but the review-start announcement could not be completed: ${escapeHtml(receipt.announcementError)} <button class="secondary retry-announcement" type="button">Retry announcement only</button></div>`;
     if (receipt.completedAt) return `<div class="delivery">${receipt.postedDraftIds.length} feedback items posted${receipt.decision === "comment" ? "; vote unchanged" : "; decision applied"}.</div>`;
     return "";
   }
@@ -413,11 +416,12 @@ export class DiscussionController {
         const draft = await this.queue.add({ kind: "general", body: summary });
         ids.push(draft.id);
       }
-      const result = await this.writes.submitReview(this.analysis.context, ids, decision);
+      const result = await this.writes.submitReview(this.analysis.context, ids, decision, true);
       this.drafts = result.drafts;
       this.receipt = result.receipt;
       backdrop.remove();
       this.onChange();
+      this.onReviewSubmitted();
     } catch (error) {
       this.drafts = await this.queue.list();
       delete button.dataset.submitting;
@@ -436,6 +440,24 @@ export class DiscussionController {
       this.receipt = { ...this.receipt, voteError: error instanceof Error ? error.message : "Decision retry failed" };
     }
     this.onChange();
+    this.onReviewSubmitted();
+  }
+
+  private async retryAnnouncement(root: ShadowRoot): Promise<void> {
+    const button = root.querySelector<HTMLButtonElement>(".retry-announcement");
+    if (!this.receipt || !button || button.disabled) return;
+    button.disabled = true;
+    try {
+      await this.writes.finishReview(this.analysis.context, this.receipt.decision === "comment"
+        ? { kind: "submission", submissionId: this.receipt.id, commentCount: this.receipt.postedDraftIds.length }
+        : { kind: "vote" });
+      this.receipt = { ...this.receipt, announcementError: undefined };
+      await this.loadThreads();
+    } catch (error) {
+      this.receipt = { ...this.receipt, announcementError: error instanceof Error ? error.message : "Review announcement could not be completed" };
+    }
+    this.onChange();
+    this.onReviewSubmitted();
   }
 
   private showRetryVoteDialog(root: ShadowRoot): void {

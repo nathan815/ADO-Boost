@@ -224,7 +224,7 @@ describe("Native announcement dialog", () => {
       settingsService: new SettingsService(new MemorySettingsStorage()),
       settings,
       reviewKey: "review",
-      writes: { postAnnouncement: vi.fn(), submitReview: vi.fn(), retryDecision: vi.fn(), setThreadStatus: vi.fn() },
+      writes: { postAnnouncement: vi.fn(), finishReview: vi.fn().mockResolvedValue(null), submitReview: vi.fn(), retryDecision: vi.fn(), setThreadStatus: vi.fn() },
       copilot: { health: vi.fn(), semanticGroups: vi.fn(), chat: vi.fn() },
       openSettings: vi.fn()
     });
@@ -262,7 +262,7 @@ describe("Native announcement dialog", () => {
       settingsService: new SettingsService(new MemorySettingsStorage()),
       settings,
       reviewKey: "review",
-      writes: { postAnnouncement, submitReview: vi.fn(), retryDecision: vi.fn(), setThreadStatus: vi.fn() },
+      writes: { postAnnouncement, finishReview: vi.fn().mockResolvedValue(null), submitReview: vi.fn(), retryDecision: vi.fn(), setThreadStatus: vi.fn() },
       copilot: { health: vi.fn(), semanticGroups: vi.fn(), chat: vi.fn() },
       openSettings: vi.fn()
     });

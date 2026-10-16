@@ -21,7 +21,8 @@ export class SubmissionCoordinator {
     private readonly store: BrowserStore,
     private readonly queue: DraftQueue,
     private readonly context: PullRequestContext,
-    private readonly preflight: () => Promise<void> = async () => undefined
+    private readonly preflight: () => Promise<void> = async () => undefined,
+    private readonly finishAnnouncement: (receipt: SubmissionReceipt) => Promise<void> = async () => undefined
   ) {}
 
   async submit(draftIds: string[], decision: ReviewDecision, signal?: AbortSignal): Promise<SubmissionResult> {
@@ -105,6 +106,7 @@ export class SubmissionCoordinator {
         return { receipt, drafts: current };
       }
     }
+    await this.completeAnnouncement(receipt);
     receipt.completedAt = new Date().toISOString();
     await this.saveReceipt(receipt);
     return { receipt, drafts: current };
@@ -115,6 +117,7 @@ export class SubmissionCoordinator {
     if (receipt.failedDraftIds.length > 0 || receipt.decision === "comment") throw new Error("This receipt is not eligible for a decision-only retry");
     await this.api.setVote(this.context, DECISION_VOTES[receipt.decision], signal);
     const updated = { ...receipt, voteApplied: true, voteError: undefined, completedAt: new Date().toISOString() };
+    await this.completeAnnouncement(updated);
     await this.saveReceipt(updated);
     return updated;
   }
@@ -123,6 +126,15 @@ export class SubmissionCoordinator {
     const key = this.queue.key();
     const receipts = await this.store.getReceipts(key);
     await this.store.saveReceipts(key, [...receipts.filter((candidate) => candidate.id !== receipt.id), receipt]);
+  }
+
+  private async completeAnnouncement(receipt: SubmissionReceipt): Promise<void> {
+    try {
+      await this.finishAnnouncement(receipt);
+      receipt.announcementError = undefined;
+    } catch (error) {
+      receipt.announcementError = error instanceof Error ? error.message : "Review announcement could not be completed";
+    }
   }
 }
 
