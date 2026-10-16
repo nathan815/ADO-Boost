@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extension:
+    name: Extension
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Test extension reload helper
+        run: node --test .github/skills/chrome-extension-e2e/scripts/reload-extension.test.mjs
+
+      - name: Build
+        run: npm run build
+
+      - name: Read extension version
+        id: version
+        shell: bash
+        run: node -e "console.log('value=' + JSON.parse(require('fs').readFileSync('manifest.json', 'utf8')).version)" >> "$GITHUB_OUTPUT"
+
+      - name: Create Edge Store package
+        shell: bash
+        run: |
+          mkdir release
+          cd dist
+          zip -r "../release/ado-boost-${{ steps.version.outputs.value }}.zip" .
+
+      - name: Upload Edge Store package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ado-boost-${{ steps.version.outputs.value }}
+          path: release/ado-boost-${{ steps.version.outputs.value }}.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  companion:
+    name: Windows companion
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            companion/package-lock.json
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Install extension dependencies
+        run: npm ci
+
+      - name: Install companion dependencies
+        run: npm --prefix companion ci
+
+      - name: Type-check companion
+        run: npm --prefix companion run typecheck
+
+      - name: Test companion
+        run: npm --prefix companion test
+
+      - name: Build extension and companion
+        run: |
+          npm run build
+          npm run build:companion
