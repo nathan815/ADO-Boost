@@ -68,6 +68,29 @@ describe("AdoApi", () => {
     expect(result.reviewer).toEqual({ id: "me", displayName: "Provider Name" });
   });
 
+  it("loads the latest comparison for list-stat validation with one iterations request", async () => {
+    const http = new QueueHttp([
+      json({ value: [{ id: 4, sourceRefCommit: { commitId: "source-2" }, targetRefCommit: { commitId: "target" }, commonRefCommit: { commitId: "base-2" } }] })
+    ]);
+    const result = await new AdoApi(http).getLatestComparison({
+      origin: "https://dev.azure.com",
+      organization: "org",
+      project: "project",
+      repository: "repo name",
+      pullRequestId: 7
+    });
+    expect(result).toMatchObject({
+      repositoryId: "repo name",
+      iterationId: 4,
+      sourceCommit: "source-2",
+      targetCommit: "target",
+      mergeBaseCommit: "base-2"
+    });
+    expect(http.urls).toEqual([
+      "https://dev.azure.com/org/project/_apis/git/repositories/repo%20name/pullRequests/7/iterations?api-version=7.1"
+    ]);
+  });
+
   it("paginates iteration changes against the common commit", async () => {
     const http = new QueueHttp([
       json({ changeEntries: [{ changeTrackingId: 1, changeType: "edit", item: { path: "/a.ts", objectId: "1" } }], nextSkip: 1, nextTop: 2 }),

@@ -8,14 +8,17 @@ export interface PrRoute {
   pullRequestId: number;
 }
 
-export interface PullRequestContext extends PrRoute {
+export interface PullRequestComparison extends PrRoute {
   repositoryId: string;
-  title: string;
   sourceCommit: string;
   targetCommit: string;
   mergeBaseCommit: string;
   iterationId: number;
   identity: string;
+}
+
+export interface PullRequestContext extends PullRequestComparison {
+  title: string;
   reviewer: {
     id: string;
     displayName: string;

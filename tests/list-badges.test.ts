@@ -3,7 +3,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PullRequestListBadges } from "../src/content/list-badges";
-import type { PullRequestAnalyzer } from "../src/core/analyzer";
+import type { PullRequestListStat, PullRequestListStatService } from "../src/core/list-stats";
 import type { PrRoute, PullRequestAnalysis } from "../src/core/types";
 
 let badges: PullRequestListBadges | null = null;
@@ -37,11 +37,9 @@ describe("PullRequestListBadges", () => {
       y: 0,
       toJSON: () => ({})
     });
-    const analyzer = {
-      analyze: vi.fn((route: PrRoute) => Promise.resolve(analysisFor(route)))
-    } as unknown as PullRequestAnalyzer;
+    const stats = createStats((route) => Promise.resolve(analysisFor(route)));
 
-    badges = new PullRequestListBadges(analyzer);
+    badges = new PullRequestListBadges(stats.service);
     badges.start();
 
     await vi.waitFor(() => expect(document.querySelectorAll(".adopp-list-badge")).toHaveLength(2));
@@ -54,7 +52,8 @@ describe("PullRequestListBadges", () => {
     expect(secondBadge?.textContent).toBe("+202−2");
     expect(firstBadge?.querySelector(".adopp-list-badge-additions")?.textContent).toBe("+101");
     expect(firstBadge?.querySelector(".adopp-list-badge-deletions")?.textContent).toBe("−1");
-    expect(analyzer.analyze).toHaveBeenCalledTimes(2);
+    expect(document.getElementById("adopp-list-badge-styles")?.textContent).toContain("140ms ease-out");
+    expect(stats.resolve).toHaveBeenCalledTimes(2);
   });
 
   it("replaces stale stats when a virtualized row is recycled for another PR", async () => {
@@ -79,13 +78,11 @@ describe("PullRequestListBadges", () => {
     const firstAnalysis = new Promise<PullRequestAnalysis>((resolve) => {
       resolveFirst = resolve;
     });
-    const analyzer = {
-      analyze: vi.fn((route: PrRoute) => route.pullRequestId === 101
+    const stats = createStats((route) => route.pullRequestId === 101
         ? firstAnalysis
-        : Promise.resolve(analysisFor(route)))
-    } as unknown as PullRequestAnalyzer;
+        : Promise.resolve(analysisFor(route)));
 
-    badges = new PullRequestListBadges(analyzer);
+    badges = new PullRequestListBadges(stats.service);
     badges.start();
     const link = document.querySelector<HTMLAnchorElement>("a")!;
     await vi.waitFor(() => expect(link.querySelector(".adopp-list-badge")?.textContent).toBe("…"));
@@ -103,7 +100,7 @@ describe("PullRequestListBadges", () => {
     }));
     await Promise.resolve();
     expect(link.querySelector(".adopp-list-badge")?.textContent).toBe("+202−2");
-    expect(analyzer.analyze).toHaveBeenCalledTimes(2);
+    expect(stats.resolve).toHaveBeenCalledTimes(2);
   });
 
   it("reattaches cached stats after ADO replaces a virtualized title line", async () => {
@@ -124,11 +121,9 @@ describe("PullRequestListBadges", () => {
       y: 0,
       toJSON: () => ({})
     });
-    const analyzer = {
-      analyze: vi.fn((route: PrRoute) => Promise.resolve(analysisFor(route)))
-    } as unknown as PullRequestAnalyzer;
+    const stats = createStats((route) => Promise.resolve(analysisFor(route)));
 
-    badges = new PullRequestListBadges(analyzer);
+    badges = new PullRequestListBadges(stats.service);
     badges.start();
     const link = document.querySelector<HTMLAnchorElement>("a")!;
     await vi.waitFor(() => expect(link.querySelector(".adopp-list-badge")?.textContent).toBe("+101−1"));
@@ -139,7 +134,8 @@ describe("PullRequestListBadges", () => {
 
     await vi.waitFor(() => expect(link.querySelector(".adopp-list-badge")?.textContent).toBe("+101−1"));
     expect(link.querySelectorAll(".adopp-list-badge")).toHaveLength(1);
-    expect(analyzer.analyze).toHaveBeenCalledTimes(1);
+    expect(link.querySelector<HTMLElement>(".adopp-list-badge")?.title).toContain("cached");
+    expect(stats.resolve).toHaveBeenCalledTimes(1);
   });
 
   it("preloads stats for rows within one viewport below the visible area", async () => {
@@ -158,16 +154,51 @@ describe("PullRequestListBadges", () => {
       y: innerHeight + 100,
       toJSON: () => ({})
     });
-    const analyzer = {
-      analyze: vi.fn((route: PrRoute) => Promise.resolve(analysisFor(route)))
-    } as unknown as PullRequestAnalyzer;
+    const stats = createStats((route) => Promise.resolve(analysisFor(route)));
 
-    badges = new PullRequestListBadges(analyzer);
+    badges = new PullRequestListBadges(stats.service);
     badges.start();
 
     await vi.waitFor(() => expect(document.querySelector(".adopp-list-badge")?.textContent).toBe("+101−1"));
   });
 });
+
+function createStats(analyze: (route: PrRoute) => Promise<PullRequestAnalysis>): {
+  service: PullRequestListStatService;
+  resolve: ReturnType<typeof vi.fn>;
+} {
+  const cache = new Map<string, PullRequestListStat>();
+  const key = (route: PrRoute) => `${route.origin}/${route.organization}/${route.project}/${route.repository}/${route.pullRequestId}`;
+  const resolve = vi.fn(async (route: PrRoute) => {
+    const analysis = await analyze(route);
+    const file = analysis.files[0]!;
+    const stat: PullRequestListStat = {
+      version: 1,
+      additions: file.additions ?? 0,
+      deletions: file.deletions ?? 0,
+      exact: file.state === "exact",
+      fileCount: analysis.files.length,
+      iterationId: analysis.context.iterationId,
+      sourceCommit: analysis.context.sourceCommit,
+      targetCommit: analysis.context.targetCommit,
+      mergeBaseCommit: analysis.context.mergeBaseCommit,
+      calculatedAt: new Date().toISOString(),
+      validatedAt: new Date().toISOString()
+    };
+    cache.set(key(route), stat);
+    return { stat, freshness: "recalculated" as const };
+  });
+  return {
+    resolve,
+    service: {
+      prune: vi.fn().mockResolvedValue(undefined),
+      peek: (route: PrRoute) => cache.get(key(route)) ?? null,
+      getCached: async (route: PrRoute) => cache.get(key(route)) ?? null,
+      isFresh: () => true,
+      resolve
+    } as unknown as PullRequestListStatService
+  };
+}
 
 function createTitleLine(title: string): HTMLElement {
   const line = document.createElement("div");

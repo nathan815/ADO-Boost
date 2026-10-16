@@ -3,7 +3,7 @@ import type { BrowserStore } from "../adapters/browser";
 import { countChangedLines, unavailableStat } from "./diff";
 import { buildLocalGroups } from "./grouping";
 import { reconcileReviewRecords } from "./review-state";
-import type { ChangedFile, FileStat, PrRoute, PullRequestAnalysis } from "./types";
+import type { ChangedFile, FileStat, PrRoute, PullRequestAnalysis, PullRequestComparison, UnresolvedChange } from "./types";
 
 const FETCH_CONCURRENCY = 4;
 
@@ -34,24 +34,32 @@ export class PullRequestAnalyzer {
   async analyze(route: PrRoute, signal?: AbortSignal): Promise<PullRequestAnalysis> {
     const context = await this.api.getContext(route, signal);
     const [changeResult, threads] = await Promise.all([
-      this.api.getChangesWithDiagnostics(context, signal),
+      this.analyzeFiles(context, signal),
       this.api.getThreadOverview(context, signal)
     ]);
-    const { files: changes, unresolvedChanges } = changeResult;
-    const files = await mapConcurrent(changes, FETCH_CONCURRENCY, (change) => this.analyzeFile(context, change, signal));
     const reviewKey = this.reviewKey(context);
     const records = await this.store.getReviewRecords(reviewKey);
-    const { retained } = reconcileReviewRecords(changes, records);
-    if (unresolvedChanges.length === 0 && retained.length !== records.length) await this.store.saveReviewRecords(reviewKey, retained);
+    const { retained } = reconcileReviewRecords(changeResult.changes, records);
+    if (changeResult.unresolvedChanges.length === 0 && retained.length !== records.length) await this.store.saveReviewRecords(reviewKey, retained);
 
     return {
       context,
-      files,
-      unresolvedChanges,
-      groups: buildLocalGroups(files),
+      files: changeResult.files,
+      unresolvedChanges: changeResult.unresolvedChanges,
+      groups: buildLocalGroups(changeResult.files),
       threads,
       completedTrackingIds: new Set(retained.map((record) => record.trackingId))
     };
+  }
+
+  async analyzeFiles(context: PullRequestComparison, signal?: AbortSignal): Promise<{
+    changes: ChangedFile[];
+    files: FileStat[];
+    unresolvedChanges: UnresolvedChange[];
+  }> {
+    const { files: changes, unresolvedChanges } = await this.api.getChangesWithDiagnostics(context, signal);
+    const files = await mapConcurrent(changes, FETCH_CONCURRENCY, (change) => this.analyzeFile(context, change, signal));
+    return { changes, files, unresolvedChanges };
   }
 
   reviewKey(context: PullRequestAnalysis["context"]): string {
@@ -59,7 +67,7 @@ export class PullRequestAnalyzer {
   }
 
   private async analyzeFile(
-    context: PullRequestAnalysis["context"],
+    context: PullRequestComparison,
     change: ChangedFile,
     signal?: AbortSignal
   ): Promise<FileStat> {
@@ -86,7 +94,7 @@ export class PullRequestAnalyzer {
   }
 
   private async fetchFileContent(
-    context: PullRequestAnalysis["context"],
+    context: PullRequestComparison,
     path: string,
     commit: string,
     side: "base" | "source",

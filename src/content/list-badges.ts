@@ -1,9 +1,9 @@
-import type { PullRequestAnalyzer } from "../core/analyzer";
-import { totalStats } from "../core/diff";
+import type { PullRequestListStat, PullRequestListStatService } from "../core/list-stats";
 import { parsePrRoute } from "../core/route";
 import type { PrRoute } from "../core/types";
 
 const MAX_VISIBLE_ANALYSES = 4;
+const STYLE_ID = "adopp-list-badge-styles";
 
 interface QueuedAnalysis {
   link: HTMLAnchorElement;
@@ -19,16 +19,20 @@ interface MountedBadge {
 
 export class PullRequestListBadges {
   private readonly controller = new AbortController();
-  private readonly cache = new Map<string, string>();
+  private readonly resolved = new Set<string>();
   private running = 0;
   private scheduledScan = 0;
   private readonly queue: QueuedAnalysis[] = [];
   private readonly pending = new WeakMap<HTMLAnchorElement, string>();
   private readonly badges = new WeakMap<HTMLAnchorElement, MountedBadge>();
 
-  constructor(private readonly analyzer: PullRequestAnalyzer) {}
+  constructor(private readonly stats: PullRequestListStatService) {}
 
   start(): void {
+    ensureStyles();
+    void this.stats.prune().catch((error) => {
+      console.warn("ADO Boost could not prune cached PR list stats", error);
+    });
     this.scan();
     const observer = new MutationObserver(() => this.scheduleScan());
     observer.observe(document.body, { attributes: true, attributeFilter: ["href"], childList: true, subtree: true });
@@ -63,19 +67,18 @@ export class PullRequestListBadges {
       if (!route || route.pullRequestId === parsePrRoute(new URL(location.href))?.pullRequestId) continue;
       const key = routeKey(route);
       const mounted = this.badges.get(link);
-      if (mounted?.element.isConnected && mounted.key === key) continue;
-      if (mounted?.element.isConnected) mounted.element.remove();
-      const cached = this.cache.get(key);
+      if (mounted?.element.isConnected && mounted.key !== key) mounted.element.remove();
+      const cached = this.stats.peek(route);
       if (cached) {
-        this.attach(link, key, cached, "Cached immutable PR iteration result");
-        continue;
+        const fresh = this.stats.isFresh(cached);
+        this.attach(link, key, statText(cached), statTitle(cached, fresh ? "fresh" : "checking"));
+        if (fresh) {
+          this.resolved.add(key);
+          continue;
+        }
       }
+      if (this.resolved.has(key) || this.pending.get(link) === key) continue;
       const priority = viewportPriority(link);
-      if (this.pending.get(link) === key) {
-        const queued = this.queue.find((item) => item.link === link && item.key === key);
-        if (queued) queued.priority = priority;
-        continue;
-      }
       this.pending.set(link, key);
       this.queue.push({ link, route, key, priority });
     }
@@ -97,25 +100,30 @@ export class PullRequestListBadges {
 
   private async analyzeLink({ link, route, key }: QueuedAnalysis): Promise<void> {
     if (!linkMatchesKey(link, key)) return;
-    const cached = this.cache.get(key);
+    const cached = this.stats.peek(route) ?? await this.stats.getCached(route);
+    if (!linkMatchesKey(link, key)) return;
+    let badge: HTMLElement | null;
     if (cached) {
-      this.attach(link, key, cached, "Cached immutable PR iteration result");
-      return;
+      badge = this.attach(link, key, statText(cached), statTitle(cached, "checking"));
+    } else {
+      badge = this.attach(link, key, "…", "ADO Boost is calculating changed lines");
     }
-    const pending = this.attach(link, key, "…", "ADO Boost is calculating changed lines");
-    if (!pending) return;
+    if (!badge) return;
     try {
-      const analysis = await this.analyzer.analyze(route, this.controller.signal);
-      const totals = totalStats(analysis.files, analysis.unresolvedChanges?.length);
-      const text = `+${totals.additions} −${totals.deletions}${totals.exact ? "" : " ~"}`;
-      this.cache.set(key, text);
-      if (!this.ownsBadge(link, key, pending)) return;
-      setBadgeContent(pending, text);
-      pending.title = `${analysis.files.length} files · iteration ${analysis.context.iterationId} · merge-base comparison${totals.exact ? "" : " · partial"}`;
+      const resolution = await this.stats.resolve(route, cached, this.controller.signal);
+      this.resolved.add(key);
+      if (!this.ownsBadge(link, key, badge)) return;
+      setBadgeContent(badge, statText(resolution.stat, resolution.freshness === "unverified"));
+      badge.title = resolution.freshness === "unverified"
+        ? statTitle(resolution.stat, "unverified", resolution.error)
+        : statTitle(resolution.stat, resolution.freshness);
     } catch (error) {
-      if (!this.controller.signal.aborted && this.ownsBadge(link, key, pending)) {
-        setBadgeContent(pending, "stats unavailable");
-        pending.title = error instanceof Error ? error.message : "PR analysis failed";
+      this.resolved.add(key);
+      if (!this.controller.signal.aborted && this.ownsBadge(link, key, badge)) {
+        setBadgeContent(badge, cached ? statText(cached, true) : "stats unavailable");
+        badge.title = cached
+          ? statTitle(cached, "unverified", error instanceof Error ? error.message : "PR validation failed")
+          : error instanceof Error ? error.message : "PR analysis failed";
       }
     }
   }
@@ -143,7 +151,7 @@ export class PullRequestListBadges {
 }
 
 function routeKey(route: PrRoute): string {
-  return `${route.origin}/${route.project}/${route.repository}/${route.pullRequestId}`;
+  return `${route.origin}/${route.organization}/${route.project}/${route.repository}/${route.pullRequestId}`;
 }
 
 function linkMatchesKey(link: HTMLAnchorElement, key: string): boolean {
@@ -170,6 +178,37 @@ function setBadgeContent(badge: HTMLElement, text: string): void {
   deletions.style.color = "var(--status-error-foreground,#a4262c)";
   deletions.textContent = `−${match[2]}${match[3] ?? ""}`;
   badge.replaceChildren(additions, deletions);
+}
+
+function ensureStyles(): void {
+  if (document.getElementById(STYLE_ID)) return;
+  const style = document.createElement("style");
+  style.id = STYLE_ID;
+  style.textContent = `
+    @keyframes adopp-list-badge-fade-in { from { opacity: .25; } to { opacity: 1; } }
+    .adopp-list-badge-additions,.adopp-list-badge-deletions { animation: adopp-list-badge-fade-in 140ms ease-out both; }
+    @media (prefers-reduced-motion: reduce) {
+      .adopp-list-badge-additions,.adopp-list-badge-deletions { animation: none; }
+    }
+  `;
+  document.head.append(style);
+}
+
+function statText(stat: PullRequestListStat, uncertain = false): string {
+  return `+${stat.additions} −${stat.deletions}${stat.exact && !uncertain ? "" : " ~"}`;
+}
+
+function statTitle(
+  stat: PullRequestListStat,
+  state: "checking" | "fresh" | "validated" | "recalculated" | "unverified",
+  error?: string
+): string {
+  const base = `${stat.fileCount} files · iteration ${stat.iterationId} · merge-base comparison${stat.exact ? "" : " · partial"}`;
+  if (state === "checking") return `${base} · checking for updates`;
+  if (state === "fresh") return `${base} · cached`;
+  if (state === "validated") return `${base} · cache validated`;
+  if (state === "recalculated") return base;
+  return `${base} · cached result could not be validated${error ? `: ${error}` : ""}`;
 }
 
 function isNearViewport(element: HTMLElement): boolean {

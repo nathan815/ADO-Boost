@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AnnouncementCompletion, ChangeEntry, ChangedFile, PrRoute, PullRequestContext, PullRequestThread, ReviewDraft, ReviewVote, ThreadOverview, UnresolvedChange } from "../core/types";
+import type { AnnouncementCompletion, ChangeEntry, ChangedFile, PrRoute, PullRequestComparison, PullRequestContext, PullRequestThread, ReviewDraft, ReviewVote, ThreadOverview, UnresolvedChange } from "../core/types";
 import { legacyAnnouncementBody, readAnnouncementMetadata, readReviewCompletion, reviewCompletionBody } from "../core/announcement-content";
 import { createResponseValidation, type ResponseWarning } from "./response-validation";
 import { readChangeEntry } from "./change-response";
@@ -110,35 +110,48 @@ export class AdoApi {
   }
 
   async getContext(route: PrRoute, signal?: AbortSignal): Promise<PullRequestContext> {
-    const { pullRequestSchema, iterationSchema, connectionDataSchema } = this.schemas;
+    const { pullRequestSchema, connectionDataSchema } = this.schemas;
     const base = this.apiBase(route);
     const pr = await this.json(`${base}/git/repositories/${encodeURIComponent(route.repository)}/pullRequests/${route.pullRequestId}?api-version=7.1`, pullRequestSchema, signal);
+    const [comparison, reviewer] = await Promise.all([
+      this.getLatestComparisonForRepository(route, pr.repository.id, signal),
+      this.json(`${this.organizationApiBase(route)}/connectionData?connectOptions=1&lastChangeId=-1&lastChangeId64=-1`, connectionDataSchema, signal)
+    ]);
+    return {
+      ...comparison,
+      title: pr.title,
+      reviewer: reviewer.authenticatedUser
+    };
+  }
+
+  async getLatestComparison(route: PrRoute, signal?: AbortSignal): Promise<PullRequestComparison> {
+    return this.getLatestComparisonForRepository(route, route.repository, signal);
+  }
+
+  private async getLatestComparisonForRepository(route: PrRoute, repositoryId: string, signal?: AbortSignal): Promise<PullRequestComparison> {
+    const { iterationSchema } = this.schemas;
     const iterations = await this.json(
-      `${base}/git/repositories/${encodeURIComponent(pr.repository.id)}/pullRequests/${route.pullRequestId}/iterations?api-version=7.1`,
+      `${this.apiBase(route)}/git/repositories/${encodeURIComponent(repositoryId)}/pullRequests/${route.pullRequestId}/iterations?api-version=7.1`,
       z.object({ value: z.array(iterationSchema) }).passthrough(),
       signal
     );
-    const reviewer = await this.json(`${this.organizationApiBase(route)}/connectionData?connectOptions=1&lastChangeId=-1&lastChangeId64=-1`, connectionDataSchema, signal);
     const latest = iterations.value.at(-1);
     if (!latest) throw new Error("Azure DevOps returned no pull request iterations");
-
     const sourceCommit = latest.sourceRefCommit.commitId;
     const targetCommit = latest.targetRefCommit.commitId;
     const mergeBaseCommit = latest.commonRefCommit.commitId;
     return {
       ...route,
-      repositoryId: pr.repository.id,
-      title: pr.title,
+      repositoryId,
       sourceCommit,
       targetCommit,
       mergeBaseCommit,
       iterationId: latest.id,
-      identity: `${route.origin}/${route.project}/${pr.repository.id}/${route.pullRequestId}/${latest.id}/${sourceCommit}/${mergeBaseCommit}`,
-      reviewer: reviewer.authenticatedUser
+      identity: `${route.origin}/${route.project}/${repositoryId}/${route.pullRequestId}/${latest.id}/${sourceCommit}/${mergeBaseCommit}`
     };
   }
 
-  async getChanges(context: PullRequestContext, signal?: AbortSignal): Promise<ChangeEntry[]> {
+  async getChanges(context: PullRequestComparison, signal?: AbortSignal): Promise<ChangeEntry[]> {
     const all: ChangeEntry[] = [];
     let skip = 0;
     let top = 2000;
@@ -154,7 +167,7 @@ export class AdoApi {
     return all;
   }
 
-  async getChangesWithDiagnostics(context: PullRequestContext, signal?: AbortSignal): Promise<{ files: ChangedFile[]; unresolvedChanges: UnresolvedChange[] }> {
+  async getChangesWithDiagnostics(context: PullRequestComparison, signal?: AbortSignal): Promise<{ files: ChangedFile[]; unresolvedChanges: UnresolvedChange[] }> {
     const entries = await this.getChanges(context, signal);
     return {
       files: entries.filter((entry) => entry.unresolved !== true),
@@ -176,7 +189,7 @@ export class AdoApi {
     }));
   }
 
-  async getFileContent(context: PullRequestContext, path: string, commit: string, signal?: AbortSignal): Promise<{ text: string; size: number }> {
+  async getFileContent(context: PullRequestComparison, path: string, commit: string, signal?: AbortSignal): Promise<{ text: string; size: number }> {
     const query = new URLSearchParams({
       path,
       "versionDescriptor.version": commit,

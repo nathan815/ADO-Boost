@@ -1,6 +1,8 @@
 import { AdoApi, FetchHttpClient } from "../adapters/ado-api";
 import { ChromeBrowserStore } from "../adapters/browser";
+import { ChromePullRequestListStatStore } from "../adapters/list-stat-cache";
 import { PullRequestAnalyzer } from "../core/analyzer";
+import { PullRequestListStatService } from "../core/list-stats";
 import { parsePrRoute } from "../core/route";
 import { RuntimeWriteGateway } from "../core/write-gateway";
 import { RuntimeCopilotGateway } from "../core/copilot-gateway";
@@ -16,6 +18,7 @@ class ContentApp {
   private readonly api = new AdoApi(new FetchHttpClient());
   private readonly store = new ChromeBrowserStore();
   private readonly analyzer = new PullRequestAnalyzer(this.api, this.store);
+  private readonly listStats = new PullRequestListStatService(this.api, this.analyzer, new ChromePullRequestListStatStore());
   private readonly settingsService = new SettingsService(new ChromeSettingsStorage());
   private readonly writes = new RuntimeWriteGateway();
   private readonly copilot = new RuntimeCopilotGateway();
@@ -104,7 +107,7 @@ class ContentApp {
       }
     } else if (resolveFeature(this.settings, "prListBadges").enabled) {
       this.currentRouteKey = "";
-      this.badges = new PullRequestListBadges(this.analyzer);
+      this.badges = new PullRequestListBadges(this.listStats);
       this.badges.start();
     }
   }
