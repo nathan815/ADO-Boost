@@ -12,6 +12,7 @@ export type FeatureId =
   | "hideLockfiles"
   | "extensionDiffView"
   | "threadNavigator"
+  | "commentTimestamps"
   | "draftQueue"
   | "submitReview"
   | "feedbackExport"
@@ -39,6 +40,7 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
   { id: "hideLockfiles", group: "navigation", label: "Hide lockfiles by default", description: "Start with dependency lockfiles hidden in the navigator. Overall totals never change.", defaultEnabled: false, dependencies: ["fileFilters"] },
   { id: "extensionDiffView", group: "diffs", label: "Extension diff view", description: "Open a bounded, syntax-neutral unified diff with word-level emphasis and whitespace controls.", defaultEnabled: true, dependencies: ["prOverview"] },
   { id: "threadNavigator", group: "discussions", label: "Thread navigator", description: "Browse active and resolved discussions with native file links.", defaultEnabled: true, dependencies: ["prOverview"] },
+  { id: "commentTimestamps", group: "discussions", label: "Comment creation and edit times", description: "Show relative creation and content-edit times on posted PR comments, with exact dates on hover.", defaultEnabled: true, dependencies: ["prOverview"] },
   { id: "draftQueue", group: "discussions", label: "Private feedback drafts", description: "Save local general, inline, and reply drafts from native Azure DevOps comment composers and show them in context until submission.", defaultEnabled: true, dependencies: ["reviewProgress"] },
   { id: "submitReview", group: "discussions", label: "Submit Review", description: "Preview selected drafts, publish feedback, then apply an optional Azure DevOps review decision.", defaultEnabled: true, dependencies: ["draftQueue"] },
   { id: "feedbackExport", group: "discussions", label: "Feedback export", description: "Copy or download queued feedback and discussion references as Markdown.", defaultEnabled: true, dependencies: ["draftQueue"] },

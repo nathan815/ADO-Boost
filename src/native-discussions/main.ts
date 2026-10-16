@@ -1,5 +1,6 @@
 import { DISCUSSION_CHANNEL, discussionCommandSchema, type DiscussionConfiguration } from "./protocol";
 import { InlineDraftSurface } from "./inline";
+import { NativeCommentTimestamps } from "./timestamps";
 import { OverviewDraftSurface, discoverActivityList, type NativeItemProvider, type NativeList } from "./overview";
 
 let config: DiscussionConfiguration | null = null;
@@ -9,6 +10,7 @@ let renderedPage = "";
 const pendingComposers = new Map<string, HTMLTextAreaElement>();
 const nativeEditingDrafts = new Set<string>();
 const inlineDrafts = new InlineDraftSurface();
+const commentTimestamps = new NativeCommentTimestamps();
 const overviewDrafts = new OverviewDraftSurface();
 let nativeComposer: NativeComposerContract | null = null;
 let activeNativeEditor: ActiveNativeEditor | null = null;
@@ -51,6 +53,7 @@ function reconcile(): void {
   observer?.disconnect();
   renderedPage = location.href;
   try {
+    commentTimestamps.update(Boolean(config?.commentTimestamps && config.page === location.origin + location.pathname));
     if (!config || !config.enabled || config.page !== location.origin + location.pathname) {
       removeOwnedDrafts();
       removeComposerActions();
@@ -68,7 +71,7 @@ function reconcile(): void {
       ? "Native draft comments and Add to review actions are active."
       : "A native draft surface is unavailable. Drafts are preserved in the review sidebar.");
   } finally {
-    if (config) observer?.observe(document.body, { childList: true, subtree: true });
+    if (config) observer?.observe(document.body, { childList: true, characterData: true, subtree: true });
   }
 }
 
@@ -691,6 +694,7 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
     observer?.disconnect();
     observer = null;
     window.clearTimeout(scheduled);
+    commentTimestamps.stop();
     removeOwnedDrafts();
     removeComposerActions();
     cleanupNativeEditor();
@@ -701,12 +705,14 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
   observer ??= new MutationObserver((records) => {
     if (location.href !== renderedPage || records.some((record) => relevantMutation(record))) schedule();
   });
-  observer.observe(document.body, { childList: true, subtree: true });
+  observer.observe(document.body, { childList: true, characterData: true, subtree: true });
   reconcile();
 });
 
 function relevantMutation(record: MutationRecord): boolean {
-  if (record.target instanceof Element && record.target.closest("[data-adopp-native-draft],[data-adopp-add-review]")) return false;
+  const target = record.target instanceof Element ? record.target : record.target.parentElement;
+  if (target?.closest("[data-adopp-native-draft],[data-adopp-add-review],[data-adopp-comment-timestamps],[data-adopp-native-comment-timestamps]")) return false;
+  if (target?.closest(".repos-discussion-comment-header")) return true;
   if (record.target instanceof Element && record.target.closest(".activity-feed-list,.repos-discussion-thread,.repos-editor-discussion-host,.repos-comment-editor-fit,.repos-comment-editor-max-width")) return true;
   const nodes = [...record.addedNodes, ...record.removedNodes];
   return nodes.some((node) => node instanceof Element && (

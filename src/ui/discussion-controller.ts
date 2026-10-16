@@ -10,6 +10,7 @@ import { renderAdoComment } from "./comment-content";
 import { groupThreadComments, sortThreads, type DiscussionSort } from "./discussion-sort";
 import { InlineDraftComposer } from "./inline-draft-composer";
 import type { PanelToast } from "./panel-toast";
+import { commentTimestampMarkup, refreshCommentTimestamps } from "./comment-timestamps";
 
 type DraftInput = Pick<ReviewDraft, "kind" | "path" | "trackingId" | "line" | "side" | "threadId">;
 
@@ -29,6 +30,8 @@ export class DiscussionController {
   private actionError: string | null = null;
   private unsubscribeDrafts: (() => void) | null = null;
   private preserveTransientUi = false;
+  private timestampTimer: ReturnType<typeof setInterval> | null = null;
+  private timestampRoot: ShadowRoot | null = null;
 
   constructor(
     private readonly api: AdoApi,
@@ -55,6 +58,9 @@ export class DiscussionController {
   }
 
   destroy(): void {
+    if (this.timestampTimer !== null) clearInterval(this.timestampTimer);
+    this.timestampTimer = null;
+    this.timestampRoot = null;
     this.unsubscribeDrafts?.();
     this.unsubscribeDrafts = null;
   }
@@ -86,6 +92,15 @@ export class DiscussionController {
   }
 
   bind(root: ShadowRoot): void {
+    this.timestampRoot = root;
+    if (this.enabled("commentTimestamps")) {
+      this.timestampTimer ??= setInterval(() => {
+        if (this.timestampRoot) refreshCommentTimestamps(this.timestampRoot);
+      }, 30000);
+    } else if (this.timestampTimer !== null) {
+      clearInterval(this.timestampTimer);
+      this.timestampTimer = null;
+    }
     if (this.enabled("draftQueue")) {
       root.querySelector(".add-general")?.addEventListener("click", () => this.showGeneralDraft(root));
       for (const element of root.querySelectorAll<HTMLElement>("[data-draft-id]")) {
@@ -157,7 +172,7 @@ export class DiscussionController {
     this.openComposer(root, { kind: "general" }, body);
   }
 
-  private enabled(id: "draftQueue" | "threadNavigator" | "feedbackExport" | "submitReview"): boolean {
+  private enabled(id: "draftQueue" | "threadNavigator" | "feedbackExport" | "submitReview" | "commentTimestamps"): boolean {
     return resolveFeature(this.getSettings(), id).enabled;
   }
 
@@ -203,7 +218,10 @@ export class DiscussionController {
 
   private commentMarkup(comment: PullRequestThread["comments"][number]): string {
     const initials = comment.author.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
-    return `<div class="thread-comment" data-comment-id="${comment.id}"><header class="comment-header"><span class="comment-avatar" aria-hidden="true">${escapeHtml(initials)}${comment.authorImageUrl ? `<img src="${escapeHtml(comment.authorImageUrl)}" alt="" width="28" height="28" loading="lazy" referrerpolicy="no-referrer">` : ""}</span><div class="comment-author"><strong>${escapeHtml(comment.author)}</strong>${comment.publishedDate ? `<time datetime="${escapeHtml(comment.publishedDate)}">${escapeHtml(new Date(comment.publishedDate).toLocaleString())}</time>` : ""}</div><button class="icon jump-comment" type="button" aria-label="Jump to comment by ${escapeHtml(comment.author)}" title="${comment.publishedDate ? "Jump to comment in Azure DevOps" : "Comment location unavailable: no publication time"}" data-published-date="${escapeHtml(comment.publishedDate ?? "")}" ${comment.publishedDate ? "" : "disabled"}><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3H3v10h10v-3M8 2h6v6M14 2l-7 7" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/></svg></button></header><div class="thread-content">${renderAdoComment(comment.content)}</div></div>`;
+    const timestamp = this.enabled("commentTimestamps") && !comment.isSystem && !comment.isVoteUpdate
+      ? commentTimestampMarkup(comment)
+      : comment.publishedDate ? `<time datetime="${escapeHtml(comment.publishedDate)}">${escapeHtml(new Date(comment.publishedDate).toLocaleString())}</time>` : "";
+    return `<div class="thread-comment" data-comment-id="${comment.id}"><header class="comment-header"><span class="comment-avatar" aria-hidden="true">${escapeHtml(initials)}${comment.authorImageUrl ? `<img src="${escapeHtml(comment.authorImageUrl)}" alt="" width="28" height="28" loading="lazy" referrerpolicy="no-referrer">` : ""}</span><div class="comment-author"><strong>${escapeHtml(comment.author)}</strong>${timestamp}</div><button class="icon jump-comment" type="button" aria-label="Jump to comment by ${escapeHtml(comment.author)}" title="${comment.publishedDate ? "Jump to comment in Azure DevOps" : "Comment location unavailable: no publication time"}" data-published-date="${escapeHtml(comment.publishedDate ?? "")}" ${comment.publishedDate ? "" : "disabled"}><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3H3v10h10v-3M8 2h6v6M14 2l-7 7" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/></svg></button></header><div class="thread-content">${renderAdoComment(comment.content)}</div></div>`;
   }
 
   private async jumpToComment(button: HTMLButtonElement, threadId: number): Promise<void> {

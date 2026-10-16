@@ -15,6 +15,7 @@ export class NativeDiscussionClient {
   private readonly queue: DraftQueue;
   private active = false;
   private enabled = false;
+  private commentTimestamps = false;
   private unsubscribeDrafts: (() => void) | null = null;
   private drafts: ReviewDraft[] = [];
 
@@ -27,8 +28,9 @@ export class NativeDiscussionClient {
     this.queue = new DraftQueue(store, analysis.context);
   }
 
-  async start(enabled: boolean): Promise<void> {
+  async start(enabled: boolean, commentTimestamps = false): Promise<void> {
     this.enabled = enabled;
+    this.commentTimestamps = commentTimestamps;
     if (!this.active) {
       this.active = true;
       this.scope.addEventListener("message", this.onMessage);
@@ -41,8 +43,9 @@ export class NativeDiscussionClient {
     this.configure(enabled);
   }
 
-  update(enabled: boolean): void {
+  update(enabled: boolean, commentTimestamps = false): void {
     this.enabled = enabled;
+    this.commentTimestamps = commentTimestamps;
     if (this.active) this.configure(this.enabled);
   }
 
@@ -65,6 +68,7 @@ export class NativeDiscussionClient {
       page: this.scope.location.origin + this.scope.location.pathname,
       reviewer: context.reviewer,
       enabled,
+      commentTimestamps: this.commentTimestamps,
       drafts: this.drafts.filter((draft) => draft.delivery !== "posted").map((draft) => ({
         id: draft.id,
         kind: draft.kind,

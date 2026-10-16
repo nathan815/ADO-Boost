@@ -3,6 +3,12 @@ import { defaultSettings, FEATURE_REGISTRY, migrateSettings, resolveFeature } fr
 import { MemorySettingsStorage, SettingsService } from "../src/features/settings-service";
 
 describe("feature settings", () => {
+  it("defaults comment timestamps on independently of drafts and the thread navigator", () => {
+    const settings = migrateSettings({ features: { draftQueue: false, threadNavigator: false } });
+    expect(resolveFeature(settings, "commentTimestamps").enabled).toBe(true);
+    settings.features.commentTimestamps = false;
+    expect(resolveFeature(settings, "commentTimestamps").enabled).toBe(false);
+  });
   it.each([false, true])("retires the experimental native-tree preference set to %s without disabling enhancements", (nativeTreeIntegration) => {
     const settings = migrateSettings({ features: { nativeTreeIntegration, fileSearch: false, hideGenerated: true } });
     expect(settings.features.groupedNavigation).toBe(true);

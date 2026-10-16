@@ -40,6 +40,15 @@ describe("ADO file navigation", () => {
       expect(comment.hasAttribute("tabindex")).toBe(false);
     });
 
+    it("treats native and augmented timestamps in the same comment as one navigation target", async () => {
+      const comment = addComment();
+      const created = document.createElement("time");
+      created.dateTime = date;
+      comment.querySelector(".repos-discussion-comment-header")!.append(created);
+      await navigateToAdoComment(date);
+      expect(document.activeElement).toBe(comment);
+    });
+
     it("opens the native Overview tab and waits for its comment to render", async () => {
       document.body.innerHTML = '<a role="tab" href="?_a=overview">Overview</a>';
       let comment: HTMLElement | undefined;

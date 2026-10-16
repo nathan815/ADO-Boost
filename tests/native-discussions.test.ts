@@ -129,4 +129,14 @@ describe("native discussion client", () => {
       expect(latest.enabled).toBe(false);
     });
   });
+
+  it("keeps timestamp enablement independent of draft storage updates", async () => {
+    await client.start(false, true);
+    expect(discussionConfigurationSchema.parse(posted.at(-1))).toMatchObject({ enabled: false, commentTimestamps: true });
+    client.update(true, false);
+    await store.saveDrafts(`${analysis.context.origin}/${analysis.context.repositoryId}/${analysis.context.pullRequestId}/${analysis.context.reviewer.id}`, []);
+    await vi.waitFor(() => {
+      expect(discussionConfigurationSchema.parse(posted.at(-1))).toMatchObject({ enabled: true, commentTimestamps: false });
+    });
+  });
 });

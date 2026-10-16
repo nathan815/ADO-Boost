@@ -49,6 +49,7 @@ function createReadSchemas(warn: ResponseWarning) {
     comments: z.array(z.object({
       id: z.number().int().positive().nullish(),
       publishedDate: optional(z.iso.datetime({ offset: true }), "comment.publishedDate"),
+      lastContentUpdatedDate: optional(z.iso.datetime({ offset: true }), "comment.lastContentUpdatedDate"),
       content: optional(z.string(), "comment.content"),
       commentType: optional(z.union([z.string(), z.number().int()]), "comment.commentType"),
       author: optional(identitySchema, "comment.author"),
@@ -243,8 +244,10 @@ export class AdoApi {
         author: comment.author?.displayName ?? "Unknown reviewer",
         ...(comment.author?.imageUrl ? { authorImageUrl: comment.author.imageUrl } : {}),
         ...(isVoteComment(comment.commentType, comment.content ?? "", thread.properties) ? { isVoteUpdate: true } : {}),
+        ...(comment.commentType === "system" || comment.commentType === 3 ? { isSystem: true } : {}),
         isDeleted: comment.isDeleted ?? false,
-        ...(comment.publishedDate ? { publishedDate: comment.publishedDate } : {})
+        ...(comment.publishedDate ? { publishedDate: comment.publishedDate } : {}),
+        ...(comment.lastContentUpdatedDate ? { lastContentUpdatedDate: comment.lastContentUpdatedDate } : {})
       }))
     }));
   }

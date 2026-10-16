@@ -30,6 +30,7 @@ export const discussionConfigurationSchema = z.object({
     displayName: z.string().min(1).max(500)
   }).strict(),
   drafts: z.array(draftSchema).max(2000),
+  commentTimestamps: z.boolean().default(false),
   enabled: z.boolean()
 }).strict();
 
@@ -85,4 +86,3 @@ export const discussionStatusSchema = z.object({
 export type DiscussionConfiguration = z.infer<typeof discussionConfigurationSchema>;
 export type DiscussionAction = z.infer<typeof discussionActionSchema>;
 export type DiscussionStatus = z.infer<typeof discussionStatusSchema>;
-

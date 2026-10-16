@@ -172,8 +172,10 @@ export interface PullRequestThread {
     author: string;
     authorImageUrl?: string;
     isVoteUpdate?: boolean;
+    isSystem?: boolean;
     isDeleted: boolean;
     publishedDate?: string;
+    lastContentUpdatedDate?: string;
   }>;
 }
 

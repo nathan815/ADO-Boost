@@ -57,7 +57,8 @@ function findNativeComment(timestamp: number, scope: ParentNode, anchor?: AdoCom
   }
   const times = [...root.querySelectorAll<HTMLTimeElement>(".repos-discussion-comment-header time[datetime]")]
     .filter((time) => Date.parse(time.dateTime) === timestamp);
-  return times.length === 1 ? times[0]!.closest<HTMLElement>(".repos-discussion-comment") ?? undefined : undefined;
+  const comments = [...new Set(times.map((time) => time.closest<HTMLElement>(".repos-discussion-comment")).filter((comment) => comment !== null))];
+  return comments.length === 1 ? comments[0] : undefined;
 }
 
 function focusComment(comment: HTMLElement): void {

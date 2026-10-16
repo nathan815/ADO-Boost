@@ -307,6 +307,26 @@ describe("AdoApi", () => {
     }]);
   });
 
+  it("retains content edit dates separately from general update dates", async () => {
+    const publishedDate = "2026-10-16T12:00:00Z";
+    const lastContentUpdatedDate = "2026-10-16T12:18:00Z";
+    const api = new AdoApi(new QueueHttp([json({ value: [{
+      id: 10, comments: [{ id: 1, publishedDate, lastContentUpdatedDate, lastUpdatedDate: "2026-10-16T12:19:00Z" }]
+    }] })]));
+    const [thread] = await api.listThreads(context);
+    expect(thread!.comments[0]).toMatchObject({ publishedDate, lastContentUpdatedDate });
+    expect(thread!.comments[0]).not.toHaveProperty("lastUpdatedDate");
+  });
+
+  it("warns and omits malformed content edit dates while retaining comments", async () => {
+    const warn = vi.fn();
+    const api = new AdoApi(new QueueHttp([json({ value: [{
+      id: 10, comments: [{ id: 1, lastContentUpdatedDate: "invalid" }]
+    }] })]), warn);
+    expect((await api.listThreads(context))[0]!.comments).toHaveLength(1);
+    expect(warn).toHaveBeenCalledOnce();
+  });
+
   it.each([
     { leftFileStart: { line: 12, offset: 1 }, rightFileStart: null, expectedLine: 12 },
     { leftFileStart: null, rightFileStart: { line: 24, offset: 1 }, expectedLine: 24 },
@@ -340,6 +360,7 @@ describe("AdoApi", () => {
     }] })]));
     const [thread] = await api.listThreads(context);
     expect(thread!.comments[0]!.isVoteUpdate).toBe(true);
+    expect(thread!.comments[0]!.isSystem).toBe(true);
     expect(thread!.comments[1]).not.toHaveProperty("isVoteUpdate");
     expect(thread!.comments[2]).not.toHaveProperty("isVoteUpdate");
   });

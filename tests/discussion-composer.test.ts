@@ -92,7 +92,7 @@ describe("Sidebar discussions", () => {
     const header = comment.querySelector(".comment-header")!;
     expect(comment.firstElementChild).toBe(header);
     expect(header.querySelector("strong")!.textContent).toBe("Alice");
-    expect(header.querySelector("time")!.dateTime).toBe("2026-10-15T12:00:00Z");
+    expect(Date.parse(header.querySelector("time")!.dateTime)).toBe(Date.parse("2026-10-15T12:00:00Z"));
     const avatar = header.querySelector("img")!;
     expect(avatar.src).toBe(imageUrl);
     expect(avatar.alt).toBe("");

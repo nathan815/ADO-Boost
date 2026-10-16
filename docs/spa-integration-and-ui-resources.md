@@ -37,6 +37,14 @@ Model changes can replace the mounted Table. A bounded discovery interval reatta
 
 Counts are displayed only when native iteration, source commit, and base commit match the analyzed merge-base comparison. Native keyword and reviewed-state filters remain available for other comparisons; extension counts and extra predicates must not present stale comparison data. Installed-extension Chrome checks covered 12-file and 198-file PRs, offscreen-file filtering, native filter resets, comparison switching, keyboard-driven virtualized navigation and folder collapse/expansion, tab remounts, and master disable/re-enable. Sustained pointer scrolling, cross-page pagination, and broader host compatibility are not release-certified; a write-disabled harness alone is not a substitute for extension installation testing. Disabling navigation restores the native methods and count label; disabling extra filters clears the adapter's predicates while retaining React-rendered counts.
 
+## Posted comment timestamps
+
+The default-enabled **Comment creation and edit times** feature is independent of private drafts and the discussion panel. Both native comments and the panel use shared relative-time formatting, with exact local dates and timezones in hover and accessibility labels. Only `publishedDate` and a later `lastContentUpdatedDate` establish creation and content edits. General `lastUpdatedDate` changes, such as likes, do not imply an edit.
+
+`src/native-discussions/timestamps.ts` reads the native comment model's `originalComment` through a guarded, bounded React Fiber traversal in the MAIN world. The host currently supplies dates as `Date` instances; validated date strings are also supported. Only posted text comments are augmented. Missing or incompatible models retain their native display, while drafts, deleted comments, and system activity remain unchanged. The original timestamp node is hidden with an owned attribute, not replaced; comment viewer IDs and timestamp navigation remain intact.
+
+Reconciliation handles lazy headers, host rerenders, and content updates without duplicate additions. A 30-second timer keeps relative labels current. Feature disablement, PR transitions, and bridge disposal restore original timestamps and remove owned labels, styles, and timers. The discussion panel refreshes only timestamp text rather than rerendering composers or changing thread order.
+
 ## Native discussion drafts
 
 Private review drafts remain authoritative in extension storage and are isolated by pull request, reviewer, and comparison identity. The isolated content script sends a bounded, validated projection to a separate MAIN-world discussion bridge. The page bridge cannot access extension storage or the review write gateway; it can request only local add, update, and remove mutations, which the isolated client validates before using the background-coordinated draft queue.

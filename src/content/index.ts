@@ -96,7 +96,7 @@ class ContentApp {
       && routeKey && routeKey === this.currentRouteKey && this.panel && this.enhancer) {
       this.panel.updateSettings(this.settings);
       this.enhancer.updateSettings(this.settings);
-      this.nativeDiscussions?.update(resolveFeature(this.settings, "draftQueue").enabled);
+      this.nativeDiscussions?.update(resolveFeature(this.settings, "draftQueue").enabled, resolveFeature(this.settings, "commentTimestamps").enabled);
       this.enhancer.refresh();
       return;
     }
@@ -142,7 +142,7 @@ class ContentApp {
         this.counts.setAnalysis(analysis);
         void this.counts.update(this.diffPolicy);
         this.nativeDiscussions = new NativeDiscussionClient(analysis, this.store);
-        await this.nativeDiscussions.start(resolveFeature(this.settings, "draftQueue").enabled);
+        await this.nativeDiscussions.start(resolveFeature(this.settings, "draftQueue").enabled, resolveFeature(this.settings, "commentTimestamps").enabled);
         this.currentRouteKey = routeKey;
       } catch (error) {
         if (!controller.signal.aborted) console.error("ADO Boost failed to analyze this PR", error);
