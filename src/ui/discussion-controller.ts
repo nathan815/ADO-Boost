@@ -24,6 +24,7 @@ export class DiscussionController {
   private threadAuthor = "";
   private threadSort: DiscussionSort = "newest";
   private readonly expandedReplies = new Set<number>();
+  private readonly postingDraftIds = new Set<string>();
   private readonly composers = new Map<string, InlineDraftComposer>();
   private actionError: string | null = null;
 
@@ -65,10 +66,10 @@ export class DiscussionController {
       <div class="section-head"><div><h3>Review queue</h3><p class="muted">${draftsEnabled ? `${this.drafts.filter((draft) => draft.delivery !== "posted").length} private drafts` : "Private drafts disabled"}${threadsEnabled ? ` · ${this.threads.length} discussions` : ""}</p></div>${draftsEnabled ? `<button class="secondary add-general" type="button">Add general draft</button>` : ""}</div>
       ${this.actionError ? `<div class="delivery error">${escapeHtml(this.actionError)}</div>` : ""}
       ${draftsEnabled ? this.composers.get("general")?.markup() ?? "" : ""}
-      ${draftsEnabled ? `<details ${this.drafts.length ? "open" : ""}><summary>Private drafts</summary><div class="draft-list">${this.drafts.length ? this.drafts.map((draft) => this.draftMarkup(draft)).join("") : `<p class="muted">Drafts stay only in local browser storage until Submit Review is confirmed.</p>`}</div></details>` : ""}
+      ${draftsEnabled ? `<details ${this.drafts.length ? "open" : ""}><summary>Private drafts</summary><div class="draft-list">${this.drafts.length ? this.drafts.map((draft) => this.draftMarkup(draft)).join("") : `<p class="muted">Drafts stay private until you explicitly post them or confirm Submit Review.</p>`}</div></details>` : ""}
       ${threadsEnabled ? `<details open><summary>Discussion threads</summary>${this.threadControls()}<div class="thread-list">${this.threadError ? `<div class="delivery error">${escapeHtml(this.threadError)} <button class="secondary retry-threads" type="button">Retry</button></div>` : threads.length ? threads.map((thread) => this.threadMarkup(thread)).join("") : `<p class="muted">No discussions match these filters.</p>`}</div></details>` : ""}
       ${this.receipt ? this.receiptMarkup(this.receipt) : ""}
-      ${draftsEnabled && (this.enabled("feedbackExport") || this.enabled("submitReview")) ? `<div class="discussion-actions">${this.enabled("feedbackExport") ? `<button class="secondary export-feedback" type="button" ${this.drafts.length ? "" : "disabled"}>Copy Markdown</button>` : ""}${this.enabled("submitReview") ? `<button class="primary submit-review" type="button">Submit Review</button>` : ""}</div>` : ""}
+      ${draftsEnabled && (this.enabled("feedbackExport") || this.enabled("submitReview")) ? `<div class="discussion-actions">${this.enabled("feedbackExport") ? `<button class="secondary export-feedback" type="button" ${this.drafts.length ? "" : "disabled"}>Copy Markdown</button>` : ""}${this.enabled("submitReview") ? `<button class="primary submit-review" type="button" ${this.reviewDrafts().length ? "" : 'disabled title="Add a draft comment to your review first"'}>Submit Review</button>` : ""}</div>` : ""}
     </section>`;
   }
 
@@ -183,7 +184,7 @@ export class DiscussionController {
         ${replies.length ? `<details class="thread-replies" ${this.expandedReplies.has(thread.id) ? "open" : ""}><summary>${replies.length} ${replies.length === 1 ? "reply" : "replies"}</summary><div class="thread-reply-list">${replies.map((comment) => this.commentMarkup(comment)).join("")}</div></details>` : ""}
       </div>
       ${this.enabled("draftQueue") ? this.composers.get(`reply:${thread.id}`)?.markup() ?? "" : ""}
-      <footer class="thread-footer"><div class="thread-metadata">${locationMarkup}<div><small class="thread-id">Thread ${thread.id}</small><span class="status">${escapeHtml(thread.status)}</span></div></div><div class="thread-actions">${this.enabled("draftQueue") ? '<button class="icon reply-draft" type="button">Reply draft</button>' : ""}<button class="icon thread-status" type="button">${active ? "Resolve" : "Reopen"}</button></div></footer>
+      <footer class="thread-footer"><div class="thread-metadata">${locationMarkup}<div><small class="thread-id">Thread ${thread.id}</small><span class="status">${escapeHtml(thread.status)}</span></div></div><div class="thread-actions">${this.enabled("draftQueue") ? '<button class="icon reply-draft" type="button">Reply</button>' : ""}<button class="icon thread-status" type="button">${active ? "Resolve" : "Reopen"}</button></div></footer>
     </article>`;
   }
 
@@ -238,27 +239,31 @@ export class DiscussionController {
     if (!this.enabled("draftQueue")) return;
     const key = existingId ? `edit:${existingId}` : input.kind === "reply" ? `reply:${input.threadId}` : "general";
     if (!this.composers.has(key)) {
+      let draftId = existingId;
+      const save = async (value: string) => {
+        const draft = await this.saveComposerDraft(input, value, draftId);
+        draftId = draft.id;
+        return draft;
+      };
       this.composers.set(key, new InlineDraftComposer(
         key,
-        existingId ? "Edit private draft" : input.kind === "reply" ? `Reply to thread ${input.threadId}` : "General comment",
+        existingId ? "Edit private draft" : input.kind === "reply" ? "Reply" : "General comment",
         body,
-        async (value) => {
-          if (!this.enabled("draftQueue")) throw new Error("Private feedback drafts are disabled");
-          if (existingId) {
-            await this.queue.update(existingId, { body: value });
-            this.drafts = this.drafts.map((draft) => draft.id === existingId ? { ...draft, body: value, delivery: "pending", error: undefined } : draft);
-          } else {
-            const draft = await this.queue.add({ ...input, body: value });
-            this.drafts = [...this.drafts, draft];
-          }
-        },
+        async (value) => { await save(value); },
         () => {
           this.composers.delete(key);
           this.onChange();
           const opener = existingId ? `[data-draft-id="${existingId}"] .edit-draft` : input.kind === "reply" ? `[data-thread-id="${input.threadId}"] .reply-draft` : ".add-general";
           root.querySelector<HTMLElement>(opener)?.focus();
         },
-        this.onChange
+        this.onChange,
+        input.kind === "reply" ? {
+          enabled: () => this.enabled("submitReview"),
+          post: async (value) => {
+            if (!this.enabled("submitReview")) throw new Error("Posting replies is disabled in settings");
+            await this.postComposerDraft(await save(value));
+          }
+        } : undefined
       ));
     }
     this.onChange();
@@ -266,6 +271,50 @@ export class DiscussionController {
     const details = composer?.closest("details");
     if (details) details.open = true;
     composer?.querySelector<HTMLTextAreaElement>(".draft-body")?.focus();
+  }
+
+  private async saveComposerDraft(input: DraftInput, body: string, id?: string): Promise<ReviewDraft> {
+    if (!this.enabled("draftQueue")) throw new Error("Private feedback drafts are disabled");
+    if (id) {
+      const drafts = await this.queue.list();
+      const draft = drafts.find((candidate) => candidate.id === id);
+      if (!draft) throw new Error("This draft was removed. Cancel this editor and start a new comment.");
+      if (draft.delivery === "ambiguous") throw new Error("This comment may already have posted. Check Azure DevOps before creating another comment.");
+      if (draft.delivery === "posted" || draft.delivery === "sending") throw new Error("This comment is already posted or being submitted.");
+      await this.queue.update(id, { body });
+      const updated: ReviewDraft = { ...draft, body, delivery: "pending", error: undefined };
+      this.drafts = drafts.map((candidate) => candidate.id === id ? updated : candidate);
+      return updated;
+    }
+    const draft = await this.queue.add({ ...input, body });
+    this.drafts = [...this.drafts, draft];
+    return draft;
+  }
+
+  private async postComposerDraft(draft: ReviewDraft): Promise<void> {
+    if (!this.enabled("submitReview")) throw new Error("Posting replies is disabled in settings");
+    this.postingDraftIds.add(draft.id);
+    try {
+      const result = await this.writes.submitReview(this.analysis.context, [draft.id], "comment");
+      this.drafts = result.drafts;
+      const delivered = this.drafts.find((candidate) => candidate.id === draft.id);
+      if (delivered?.delivery !== "posted") {
+        throw new Error(delivered?.delivery === "ambiguous"
+          ? "This reply may already have posted. Check its Azure DevOps thread before creating another reply."
+          : delivered?.error ?? "Reply could not be posted. Your text is saved for retry.");
+      }
+      if (draft.threadId) this.expandedReplies.add(draft.threadId);
+      await this.loadThreads();
+    } catch (error) {
+      this.drafts = await this.queue.list();
+      throw error;
+    } finally {
+      this.postingDraftIds.delete(draft.id);
+    }
+  }
+
+  private reviewDrafts(): ReviewDraft[] {
+    return this.drafts.filter((draft) => (draft.delivery === "pending" || draft.delivery === "failed") && draft.body.trim() && !this.postingDraftIds.has(draft.id));
   }
 
   private showThreadStatusDialog(root: ShadowRoot, threadId: number, currentStatus: string): void {
@@ -322,6 +371,7 @@ export class DiscussionController {
   }
 
   private async showSubmitDialog(root: ShadowRoot): Promise<void> {
+    if (!this.enabled("submitReview") || !this.reviewDrafts().length) return;
     this.actionError = null;
     let currentVote: number;
     try {
@@ -331,28 +381,38 @@ export class DiscussionController {
       this.onChange();
       return;
     }
-    const selectable = this.drafts.filter((draft) => draft.delivery !== "posted");
+    const selectable = this.reviewDrafts();
+    if (!selectable.length) return;
     const backdrop = document.createElement("div");
     backdrop.className = "dialog-backdrop";
-    backdrop.innerHTML = `<section class="dialog submit-dialog" role="dialog" aria-modal="true"><h3>Submit Review</h3><p>Current Azure DevOps vote: <strong>${voteLabel(currentVote)}</strong>. Feedback is posted first. The selected decision is applied only if every selected item succeeds.</p><label>Optional overall summary<textarea class="submission-summary" rows="4" placeholder="Add a general summary to this submission"></textarea></label><div class="submit-items">${selectable.map((draft) => `<label><input type="checkbox" data-submit-id="${draft.id}" checked> ${escapeHtml(draft.path ?? (draft.kind === "reply" ? `Thread ${draft.threadId}` : "General comment"))}: ${escapeHtml(draft.body)}</label>`).join("") || `<p class="muted">No feedback drafts selected. A decision-only submission is allowed.</p>`}</div><label class="decision-label">Decision<select class="decision"><option value="comment">Comment only (leave vote unchanged)</option><option value="approve">Approve</option><option value="approve-suggestions">Approve with suggestions</option><option value="wait-author">Wait for author</option><option value="reject">Reject</option></select></label><div class="dialog-actions"><button class="secondary cancel" type="button">Cancel</button><button class="primary confirm-submit" type="button">Confirm submission</button></div></section>`;
+    backdrop.innerHTML = `<section class="dialog submit-dialog" role="dialog" aria-modal="true"><h3>Submit Review</h3><p>Current Azure DevOps vote: <strong>${voteLabel(currentVote)}</strong>. Feedback is posted first. The selected decision is applied only if every selected item succeeds.</p><label>Optional overall summary<textarea class="submission-summary" rows="4" placeholder="Add a general summary to this submission"></textarea></label><div class="submit-items">${selectable.map((draft) => `<label><input type="checkbox" data-submit-id="${draft.id}" checked> ${escapeHtml(draft.path ?? (draft.kind === "reply" ? `Thread ${draft.threadId}` : "General comment"))}: ${escapeHtml(draft.body)}</label>`).join("")}</div><label class="decision-label">Decision<select class="decision"><option value="comment">Comment only (leave vote unchanged)</option><option value="approve">Approve</option><option value="approve-suggestions">Approve with suggestions</option><option value="wait-author">Wait for author</option><option value="reject">Reject</option></select></label><div class="dialog-actions"><button class="secondary cancel" type="button">Cancel</button><button class="primary confirm-submit" type="button">Confirm submission</button></div></section>`;
     root.append(backdrop);
     backdrop.querySelector(".cancel")?.addEventListener("click", () => backdrop.remove());
     backdrop.querySelector(".confirm-submit")?.addEventListener("click", () => void this.submit(backdrop));
+    const updateSubmitState = () => {
+      const hasComment = !!backdrop.querySelector("[data-submit-id]:checked") || !!backdrop.querySelector<HTMLTextAreaElement>(".submission-summary")?.value.trim();
+      const button = backdrop.querySelector<HTMLButtonElement>(".confirm-submit")!;
+      button.disabled = button.dataset.submitting === "true" || !hasComment;
+    };
+    backdrop.querySelector(".submission-summary")?.addEventListener("input", updateSubmitState);
+    for (const checkbox of backdrop.querySelectorAll("[data-submit-id]")) checkbox.addEventListener("change", updateSubmitState);
   }
 
   private async submit(backdrop: HTMLElement): Promise<void> {
     const button = backdrop.querySelector<HTMLButtonElement>(".confirm-submit");
-    if (!button || !this.enabled("submitReview")) return;
-    button.disabled = true;
-    button.textContent = "Submitting…";
+    if (!button || button.disabled || button.dataset.submitting === "true" || !this.enabled("submitReview")) return;
     const ids = [...backdrop.querySelectorAll<HTMLInputElement>("[data-submit-id]:checked")].map((input) => input.dataset.submitId!);
     const summary = backdrop.querySelector<HTMLTextAreaElement>(".submission-summary")?.value.trim();
-    if (summary) {
-      const draft = await this.queue.add({ kind: "general", body: summary });
-      ids.push(draft.id);
-    }
+    if (!ids.length && !summary) return;
+    button.dataset.submitting = "true";
+    button.disabled = true;
+    button.textContent = "Submitting…";
     const decision = backdrop.querySelector<HTMLSelectElement>(".decision")?.value as ReviewDecision ?? "comment";
     try {
+      if (summary) {
+        const draft = await this.queue.add({ kind: "general", body: summary });
+        ids.push(draft.id);
+      }
       const result = await this.writes.submitReview(this.analysis.context, ids, decision);
       this.drafts = result.drafts;
       this.receipt = result.receipt;
@@ -360,7 +420,8 @@ export class DiscussionController {
       this.onChange();
     } catch (error) {
       this.drafts = await this.queue.list();
-      button.disabled = false;
+      delete button.dataset.submitting;
+      button.disabled = !backdrop.querySelector("[data-submit-id]:checked") && !backdrop.querySelector<HTMLTextAreaElement>(".submission-summary")?.value.trim();
       button.textContent = "Confirm submission";
       const paragraph = backdrop.querySelector("p");
       if (paragraph) paragraph.textContent = error instanceof Error ? error.message : "Submission failed";

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AdoApi } from "../src/adapters/ado-api";
 import { MemoryBrowserStore } from "../src/adapters/browser";
 import { DraftQueue } from "../src/core/drafts";
+import { SubmissionCoordinator } from "../src/core/submission";
 import type { PullRequestAnalysis, PullRequestThread } from "../src/core/types";
 import type { WriteGateway } from "../src/core/write-gateway";
 import { defaultSettings } from "../src/features/registry";
@@ -54,9 +55,21 @@ async function mount(store = new MemoryBrowserStore(), discussionThreads = threa
   const toast = new PanelToast(root);
   toasts.push(toast);
   const render = () => { root.innerHTML = controller.markup(); controller.bind(root); toast.mount(); };
-  const controller = new DiscussionController(new AdoApi({ fetch }), store, analysis, writes, () => settings, render, toast);
+  const api = new AdoApi({ fetch });
+  const controller = new DiscussionController(api, store, analysis, writes, () => settings, render, toast);
   await controller.load();
-  return { root, store, settings, writes, render, controller, queue: new DraftQueue(store, analysis.context) };
+  return { root, store, settings, writes, api, render, controller, queue: new DraftQueue(store, analysis.context) };
+}
+
+function mockSubmission({ api, store, queue, writes }: Awaited<ReturnType<typeof mount>>) {
+  vi.spyOn(api, "getChanges").mockResolvedValue([]);
+  vi.spyOn(api, "getCurrentVote").mockResolvedValue(10);
+  vi.spyOn(api, "findDraftDelivery").mockResolvedValue(null);
+  const post = vi.spyOn(api, "postDraft").mockResolvedValue({ threadId: 1, commentId: 4 });
+  const vote = vi.spyOn(api, "setVote").mockResolvedValue(undefined);
+  vi.mocked(writes.submitReview).mockImplementation((_context, ids, decision) =>
+    new SubmissionCoordinator(api, store, queue, analysis.context).submit(ids, decision));
+  return { post, vote };
 }
 
 function click(root: ShadowRoot, selector: string) {
@@ -400,5 +413,238 @@ describe("Sidebar discussions", () => {
     click(root, ".save-draft");
     await vi.waitFor(() => expect(root.querySelector(".inline-composer")).toBeNull());
     expect(await queue.list()).toHaveLength(0);
+  });
+
+  it("offers Reply, Add to review, and Post, and enables Submit Review only after queuing a draft", async () => {
+    const { root, queue, writes } = await mount();
+    expect(root.querySelector(".reply-draft")!.textContent).toBe("Reply");
+    expect(root.querySelector<HTMLButtonElement>(".submit-review")!.disabled).toBe(true);
+    click(root, '[data-thread-id="1"] .reply-draft');
+    expect(root.querySelector(".save-draft")!.textContent).toBe("Add to review");
+    expect(root.querySelector(".post-comment")!.textContent).toBe("Post");
+    type(root, "reply:1", "   ");
+    expect(root.querySelector<HTMLButtonElement>(".save-draft")!.disabled).toBe(true);
+    expect(root.querySelector<HTMLButtonElement>(".post-comment")!.disabled).toBe(true);
+    type(root, "reply:1", "Private reply");
+    expect(root.querySelector<HTMLButtonElement>(".post-comment")!.disabled).toBe(false);
+    expect(root.querySelector<HTMLButtonElement>(".submit-review")!.disabled).toBe(true);
+    click(root, ".save-draft");
+    await vi.waitFor(() => expect(root.querySelector(".inline-composer")).toBeNull());
+    expect(await queue.list()).toMatchObject([{ kind: "reply", threadId: 1, body: "Private reply", delivery: "pending" }]);
+    expect(writes.submitReview).not.toHaveBeenCalled();
+    expect(root.querySelector<HTMLButtonElement>(".submit-review")!.disabled).toBe(false);
+    click(root, ".delete-draft");
+    await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>(".submit-review")!.disabled).toBe(true));
+  });
+
+  it.each(["posted", "sending", "ambiguous"] as const)("disables Submit Review for a %s-only queue and guards its handler", async (delivery) => {
+    const store = new MemoryBrowserStore();
+    const queue = new DraftQueue(store, analysis.context);
+    const draft = await queue.add({ kind: "reply", threadId: 1, body: "Not ready to submit" });
+    await queue.replace([{ ...draft, delivery }]);
+    const { root, api, writes } = await mount(store);
+    const vote = vi.spyOn(api, "getCurrentVote");
+    const button = root.querySelector<HTMLButtonElement>(".submit-review")!;
+    expect(button.disabled).toBe(true);
+    button.dispatchEvent(new Event("click"));
+    expect(root.querySelector(".submit-dialog")).toBeNull();
+    expect(vote).not.toHaveBeenCalled();
+    expect(writes.submitReview).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("posts only this reply without voting or submitting other drafts (other draft: %s)", async (hasOtherDraft) => {
+    const discussionThreads = structuredClone(threads);
+    const fixture = await mount(new MemoryBrowserStore(), discussionThreads);
+    const { root, queue, writes, controller } = fixture;
+    const other = hasOtherDraft ? await queue.add({ kind: "general", body: "Keep queued" }) : undefined;
+    await controller.load();
+    const { post, vote } = mockSubmission(fixture);
+    post.mockImplementation(async (_context, draft) => {
+      discussionThreads[0]!.comments.push({ id: 4, content: draft.body, author: "Me", isDeleted: false });
+      return { threadId: 1, commentId: 4 };
+    });
+    click(root, '[data-thread-id="1"] .reply-draft');
+    type(root, "reply:1", "  Publish this reply  ");
+    click(root, ".post-comment");
+    await vi.waitFor(() => expect(root.querySelector(".inline-composer")).toBeNull());
+    const drafts = await queue.list();
+    const reply = drafts.find((draft) => draft.kind === "reply")!;
+    expect(reply).toMatchObject({ threadId: 1, body: "Publish this reply", delivery: "posted", serverCommentId: 4 });
+    expect(writes.submitReview).toHaveBeenCalledExactlyOnceWith(analysis.context, [reply.id], "comment");
+    expect(post).toHaveBeenCalledOnce();
+    expect(vote).not.toHaveBeenCalled();
+    expect(root.querySelector<HTMLDetailsElement>('[data-thread-id="1"] .thread-replies')!.open).toBe(true);
+    expect(root.querySelector('[data-thread-id="1"] [data-comment-id="4"]')!.textContent).toContain("Publish this reply");
+    expect(root.querySelector<HTMLButtonElement>(".submit-review")!.disabled).toBe(!hasOtherDraft);
+    if (other) expect(drafts.find((draft) => draft.id === other.id)).toMatchObject({ body: "Keep queued", delivery: "pending" });
+  });
+
+  it("posts an edited queued reply using the existing draft instead of creating a second draft", async () => {
+    const fixture = await mount();
+    const { root, queue, writes } = fixture;
+    mockSubmission(fixture);
+    const draft = await queue.add({ kind: "reply", threadId: 1, body: "Original" });
+    await fixture.controller.load();
+    click(root, ".edit-draft");
+    type(root, `edit:${draft.id}`, "Edited reply");
+    click(root, ".post-comment");
+    await vi.waitFor(() => expect(root.querySelector(".inline-composer")).toBeNull());
+    expect(await queue.list()).toMatchObject([{ id: draft.id, body: "Edited reply", threadId: 1, delivery: "posted" }]);
+    expect(await queue.list()).toHaveLength(1);
+    expect(writes.submitReview).toHaveBeenCalledExactlyOnceWith(analysis.context, [draft.id], "comment");
+  });
+
+  it("disables all composer actions during posting and prevents duplicate delivery", async () => {
+    const fixture = await mount();
+    const { root, queue, render } = fixture;
+    const { post } = mockSubmission(fixture);
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    post.mockImplementation(async () => { await pending; return { threadId: 1, commentId: 4 }; });
+    click(root, '[data-thread-id="1"] .reply-draft');
+    type(root, "reply:1", "Post once");
+    const originalButton = root.querySelector<HTMLButtonElement>(".post-comment")!;
+    originalButton.click();
+    originalButton.click();
+    await vi.waitFor(() => expect(post).toHaveBeenCalledOnce());
+    render();
+    for (const selector of [".save-draft", ".post-comment", ".cancel-draft", ".draft-body", ".submit-review"]) {
+      expect(root.querySelector<HTMLButtonElement>(selector)!.disabled).toBe(true);
+    }
+    release();
+    await vi.waitFor(() => expect(root.querySelector(".inline-composer")).toBeNull());
+    expect(await queue.list()).toHaveLength(1);
+    expect(post).toHaveBeenCalledOnce();
+  });
+
+  it("retains failed reply text and retries the same draft rather than duplicating it", async () => {
+    const fixture = await mount();
+    const { root, queue, writes } = fixture;
+    const { post } = mockSubmission(fixture);
+    post.mockRejectedValueOnce(new Error("Reply failed (403)"));
+    click(root, '[data-thread-id="1"] .reply-draft');
+    type(root, "reply:1", "Retain my reply");
+    click(root, ".post-comment");
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toContain("Reply failed (403)"));
+    expect(root.querySelector<HTMLTextAreaElement>(".draft-body")!.value).toBe("Retain my reply");
+    const [draft] = await queue.list();
+    expect(draft?.delivery).toBe("failed");
+    type(root, "reply:1", "Corrected reply");
+    click(root, ".post-comment");
+    await vi.waitFor(() => expect(root.querySelector(".inline-composer")).toBeNull());
+    expect(await queue.list()).toMatchObject([{ id: draft!.id, body: "Corrected reply", delivery: "posted" }]);
+    expect(await queue.list()).toHaveLength(1);
+    expect(vi.mocked(writes.submitReview).mock.calls.map((call) => call[1])).toEqual([[draft!.id], [draft!.id]]);
+  });
+
+  it("does not replay an uncertain reply or reset its delivery state through Add to review", async () => {
+    const fixture = await mount();
+    const { root, queue, writes } = fixture;
+    const { post } = mockSubmission(fixture);
+    post.mockRejectedValueOnce(new TypeError("Network lost"));
+    click(root, '[data-thread-id="1"] .reply-draft');
+    type(root, "reply:1", "Possibly delivered");
+    click(root, ".post-comment");
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toContain("may already have posted"));
+    click(root, ".post-comment");
+    await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>(".post-comment")!.disabled).toBe(false));
+    click(root, ".save-draft");
+    await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>(".save-draft")!.disabled).toBe(false));
+    expect(await queue.list()).toMatchObject([{ body: "Possibly delivered", delivery: "ambiguous" }]);
+    expect(writes.submitReview).toHaveBeenCalledOnce();
+    expect(post).toHaveBeenCalledOnce();
+    expect(root.querySelector<HTMLButtonElement>(".submit-review")!.disabled).toBe(true);
+  });
+
+  it("does not replay a known successful post if saving its receipt fails", async () => {
+    const fixture = await mount();
+    const { root, queue, store } = fixture;
+    const { post } = mockSubmission(fixture);
+    vi.spyOn(store, "saveReceipts").mockRejectedValueOnce(new Error("Receipt storage unavailable"));
+    click(root, '[data-thread-id="1"] .reply-draft');
+    type(root, "reply:1", "Already delivered");
+    click(root, ".post-comment");
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toContain("Receipt storage unavailable"));
+    click(root, ".post-comment");
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toContain("already posted"));
+    expect(post).toHaveBeenCalledOnce();
+    expect(await queue.list()).toMatchObject([{ delivery: "posted" }]);
+  });
+
+  it("closes a successful reply composer even when refreshing discussions fails", async () => {
+    const fixture = await mount();
+    const { root, api } = fixture;
+    const { post } = mockSubmission(fixture);
+    vi.spyOn(api, "listThreads").mockRejectedValueOnce(new Error("Discussion refresh failed"));
+    click(root, '[data-thread-id="1"] .reply-draft');
+    type(root, "reply:1", "Delivered");
+    click(root, ".post-comment");
+    await vi.waitFor(() => expect(root.querySelector(".inline-composer")).toBeNull());
+    expect(root.querySelector(".delivery.error")?.textContent).toContain("Discussion refresh failed");
+    expect(post).toHaveBeenCalledOnce();
+    expect(root.querySelector<HTMLButtonElement>(".submit-review")!.disabled).toBe(true);
+  });
+
+  it("blocks Post if submission is disabled after opening a reply, but still allows queuing", async () => {
+    const { root, settings, queue, writes } = await mount();
+    click(root, '[data-thread-id="1"] .reply-draft');
+    type(root, "reply:1", "Private only");
+    settings.features.submitReview = false;
+    click(root, ".post-comment");
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toContain("disabled"));
+    expect(root.querySelector(".post-comment")).toBeNull();
+    expect(await queue.list()).toHaveLength(0);
+    expect(writes.submitReview).not.toHaveBeenCalled();
+    click(root, ".save-draft");
+    await vi.waitFor(() => expect(root.querySelector(".inline-composer")).toBeNull());
+    expect(await queue.list()).toMatchObject([{ kind: "reply", body: "Private only", delivery: "pending" }]);
+  });
+
+  it("requires a selected draft or summary in the submission preview", async () => {
+    const fixture = await mount();
+    const { root, queue, writes } = fixture;
+    mockSubmission(fixture);
+    await queue.add({ kind: "reply", threadId: 1, body: "Queued reply" });
+    await fixture.controller.load();
+    click(root, ".submit-review");
+    await vi.waitFor(() => expect(root.querySelector(".submit-dialog")).not.toBeNull());
+    const checkbox = root.querySelector<HTMLInputElement>("[data-submit-id]")!;
+    checkbox.checked = false;
+    checkbox.dispatchEvent(new Event("change"));
+    expect(root.querySelector<HTMLButtonElement>(".confirm-submit")!.disabled).toBe(true);
+    click(root, ".confirm-submit");
+    expect(writes.submitReview).not.toHaveBeenCalled();
+    const summary = root.querySelector<HTMLTextAreaElement>(".submission-summary")!;
+    summary.value = "Summary comment";
+    summary.dispatchEvent(new Event("input"));
+    expect(root.querySelector<HTMLButtonElement>(".confirm-submit")!.disabled).toBe(false);
+    click(root, ".confirm-submit");
+    await vi.waitFor(() => expect(root.querySelector(".submit-dialog")).toBeNull());
+    expect(await queue.list()).toMatchObject([{ body: "Queued reply", delivery: "pending" }, { body: "Summary comment", delivery: "posted" }]);
+  });
+
+  it("does not re-enable confirmation or submit twice when preview inputs change during delivery", async () => {
+    const fixture = await mount();
+    const { root, queue, writes } = fixture;
+    const { post } = mockSubmission(fixture);
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    post.mockImplementation(async () => { await pending; return { threadId: 1, commentId: 4 }; });
+    await queue.add({ kind: "reply", threadId: 1, body: "Queued reply" });
+    await fixture.controller.load();
+    click(root, ".submit-review");
+    await vi.waitFor(() => expect(root.querySelector(".submit-dialog")).not.toBeNull());
+    click(root, ".confirm-submit");
+    await vi.waitFor(() => expect(post).toHaveBeenCalledOnce());
+    const summary = root.querySelector<HTMLTextAreaElement>(".submission-summary")!;
+    summary.value = "Changed during submission";
+    summary.dispatchEvent(new Event("input"));
+    const button = root.querySelector<HTMLButtonElement>(".confirm-submit")!;
+    expect(button.disabled).toBe(true);
+    button.dispatchEvent(new Event("click"));
+    expect(writes.submitReview).toHaveBeenCalledOnce();
+    release();
+    await vi.waitFor(() => expect(root.querySelector(".submit-dialog")).toBeNull());
+    expect(await queue.list()).toHaveLength(1);
   });
 });

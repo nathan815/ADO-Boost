@@ -61,9 +61,9 @@ Browser loading, native-host registration, and live Copilot inference require se
 ### Private review queue and Submit Review
 
 - General, inline, and reply drafts stored locally and isolated by origin, repository, PR, and reviewer.
-- General comments and replies compose directly inside the sidebar, with Markdown previews, inline save errors, and text retained across sidebar rerenders and filtering. Saving queues a private draft; it does not publish a comment. File-line drafts retain their anchored diff dialog.
+- General comments and replies compose directly inside the sidebar, with Markdown previews, inline errors, and text retained across sidebar rerenders and filtering. **Reply** opens a composer with **Add to review** to queue a private draft or **Post** to publish only that reply immediately without changing your vote or submitting other drafts. Failed posts retain the reply for retry; uncertain delivery is flagged and cannot be blindly reposted. File-line drafts retain their anchored diff dialog.
 - Editable line and side anchors, draft editing, Markdown preview, Markdown copy export, and visible save/export errors.
-- Previewed submission with optional overall summary and current vote display.
+- **Submit Review** stays disabled until at least one nonempty draft is ready to submit. Previewed submission includes an optional overall summary and current vote display, and requires at least one selected draft or a nonempty summary.
 - Decisions: Comment only, Approve, Approve with suggestions, Wait for author, and Reject.
 - Feedback is posted before a decision. A decision is applied only after every selected feedback item succeeds.
 - Partial-delivery receipts preserve failed drafts and successful server IDs. Vote-only retry never replays feedback and requires a second confirmation.

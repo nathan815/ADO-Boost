@@ -32,6 +32,8 @@ export class SubmissionCoordinator {
     const stale = selected.filter((draft) => this.queue.stale(draft));
     if (stale.length > 0) throw new Error(`${stale.length} selected draft${stale.length === 1 ? " is" : "s are"} tied to an older PR comparison`);
     if (selected.some((draft) => draft.delivery === "sending")) throw new Error("A selected draft is already being submitted");
+    if (selected.some((draft) => draft.delivery === "posted")) throw new Error("A selected comment has already been posted");
+    if (selected.some((draft) => draft.delivery === "ambiguous")) throw new Error("A selected comment may already have posted. Check its Azure DevOps thread before submitting it again.");
     const changes = await this.api.getChanges(this.context, signal);
     const changedByTrackingId = new Map(changes.filter((change) => change.unresolved !== true).map((change) => [change.trackingId, change]));
     for (const draft of selected) {

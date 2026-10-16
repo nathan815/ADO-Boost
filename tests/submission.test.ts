@@ -139,6 +139,18 @@ describe("SubmissionCoordinator", () => {
     await expect(new SubmissionCoordinator(api, store, queue, context).submit(["missing"], "approve")).rejects.toThrow("queue changed");
   });
 
+  it.each(["posted", "ambiguous"] as const)("refuses to replay a %s comment before any API calls", async (delivery) => {
+    const getChanges = vi.fn();
+    const api = { getChanges } as unknown as AdoApi;
+    const store = new MemoryBrowserStore();
+    const queue = new DraftQueue(store, context);
+    const draft = await queue.add({ kind: "reply", threadId: 1, body: "Do not duplicate" });
+    await queue.replace([{ ...draft, delivery }]);
+    await expect(new SubmissionCoordinator(api, store, queue, context).submit([draft.id], "comment")).rejects.toThrow("already");
+    expect(getChanges).not.toHaveBeenCalled();
+    expect((await queue.list())[0]?.delivery).toBe(delivery);
+  });
+
   it("stops before the next write when the feature is disabled during submission", async () => {
     let checks = 0;
     let posts = 0;
