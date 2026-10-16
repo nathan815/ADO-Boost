@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="public/icons/ado-boost.svg" alt="ADO Boost logo" width="144">
+</p>
+
 # ADO Boost
 
 ADO Boost is an Edge-first browser extension that makes Azure DevOps pull request reviews easier to navigate, discuss, and submit.

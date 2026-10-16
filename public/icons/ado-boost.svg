@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title description">
+  <title id="title">ADO Boost</title>
+  <desc id="description">The Azure DevOps ribbon with a cyan lightning bolt on a dark blue tile.</desc>
+  <defs>
+    <linearGradient id="tile" x1="10" y1="8" x2="118" y2="122" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#095A91"/>
+      <stop offset=".55" stop-color="#173A62"/>
+      <stop offset="1" stop-color="#10192C"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="27" fill="url(#tile)"/>
+  <g transform="translate(14 25) scale(3.72)">
+    <path d="M1 6.4 7.1 1v4.1l9.7-2.3L22 6.3v11.4l-5.2 3.5-9.7-2.3V23L1 17.6V6.4Zm6.1 1.2v8.8l8 1.9V5.7l-8 1.9Z" fill="#fff"/>
+  </g>
+  <path d="M92 10 73 49h17L77 82l34-45H93l16-27H92Z" fill="#45D6FF" stroke="#17324E" stroke-width="3.5" stroke-linejoin="round"/>
+</svg>
