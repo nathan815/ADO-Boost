@@ -1,0 +1,207 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build release
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            companion/package-lock.json
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Validate release version
+        id: version
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor HEAD origin/main
+          if ($LASTEXITCODE -ne 0) {
+            throw "Release tags must point to a commit on main."
+          }
+          if ("${{ github.ref_name }}" -notmatch '^v(?<version>(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$') {
+            throw "Release tags must use vMAJOR.MINOR.PATCH."
+          }
+          $version = $Matches.version
+          npm run release:version:check -- $version
+          "value=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Install extension dependencies
+        run: npm ci
+
+      - name: Install companion dependencies
+        run: npm --prefix companion ci
+
+      - name: Validate extension
+        run: |
+          npm run typecheck
+          npm test
+          node --test .github/skills/chrome-extension-e2e/scripts/reload-extension.test.mjs
+
+      - name: Validate companion
+        run: |
+          npm --prefix companion run typecheck
+          npm --prefix companion test
+
+      - name: Build extension and companion
+        run: |
+          npm run build
+          npm run build:companion
+
+      - name: Create release packages
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.value }}"
+          $releaseRoot = Join-Path $PWD "release"
+          $desktopRoot = Join-Path $releaseRoot "ado-boost-windows-$version"
+          $companionRoot = Join-Path $desktopRoot "companion"
+
+          New-Item -ItemType Directory -Force $releaseRoot, $desktopRoot, $companionRoot | Out-Null
+          Compress-Archive -Path .\dist\* -DestinationPath "$releaseRoot\ado-boost-extension-$version.zip" -Force
+
+          Copy-Item .\companion\dist $companionRoot -Recurse
+          Copy-Item .\companion\prebuilt-extension $companionRoot -Recurse
+          Copy-Item .\companion\package.json, .\companion\README.md, .\companion\LICENSE $companionRoot
+          Copy-Item .\companion\windows-package\* $desktopRoot
+
+          tar.exe -a -c -f "$releaseRoot\ado-boost-windows-$version.zip" -C $desktopRoot .
+
+      - name: Verify release packages
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.value }}"
+          $extensionFiles = tar.exe -tf ".\release\ado-boost-extension-$version.zip"
+          $desktopFiles = tar.exe -tf ".\release\ado-boost-windows-$version.zip"
+          if ($extensionFiles -notcontains "manifest.json") {
+            throw "Extension package must contain manifest.json at the archive root."
+          }
+          foreach ($required in @("./setup.cmd", "./ado-boost.cmd", "./companion/prebuilt-extension/manifest.json", "./companion/dist/ado-boost-native-host.exe", "./companion/dist/cli.js", "./companion/dist/host.js")) {
+            if ($desktopFiles -notcontains $required) {
+              throw "Windows package is missing $required."
+            }
+          }
+
+      - name: Generate release notes
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notesPath = ".\release\release-notes.md"
+          $generatedNotes = gh api `
+            --method POST `
+            "repos/${{ github.repository }}/releases/generate-notes" `
+            -f tag_name="${{ github.ref_name }}" `
+            --jq ".body"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not generate GitHub release notes."
+          }
+          Set-Content -Path $notesPath -Value $generatedNotes -Encoding utf8
+
+          $previousTag = git describe --tags --abbrev=0 HEAD^ 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            $range = "$previousTag..HEAD"
+          } else {
+            $range = "HEAD"
+          }
+
+          $categories = [ordered]@{
+            "Breaking Changes" = @()
+            "Features" = @()
+            "Fixes" = @()
+            "Performance" = @()
+            "Documentation" = @()
+            "Refactoring" = @()
+            "Tests" = @()
+            "Maintenance" = @()
+            "Reverts" = @()
+            "Other Changes" = @()
+          }
+          $commits = git log --first-parent --pretty=format:"%H`t%h`t%s" $range
+          foreach ($commit in $commits) {
+            $parts = $commit -split "`t", 3
+            $pullCount = gh api `
+              "repos/${{ github.repository }}/commits/$($parts[0])/pulls" `
+              --jq "map(select(.merged_at != null)) | length"
+            if ($LASTEXITCODE -ne 0) {
+              throw "Could not inspect pull requests for commit $($parts[1])."
+            }
+            if ([int]$pullCount -gt 0) {
+              continue
+            }
+
+            $category = "Other Changes"
+            $description = $parts[2]
+            if ($parts[2] -match '^(?<type>feat|fix|docs|perf|refactor|test|build|ci|style|chore|revert)(?:\((?<scope>[^)]+)\))?(?<breaking>!)?:\s+(?<description>.+)$') {
+              $description = $Matches.description
+              if ($Matches.scope) {
+                $description = "**$($Matches.scope):** $description"
+              }
+              if ($Matches.breaking) {
+                $category = "Breaking Changes"
+              } else {
+                $category = switch ($Matches.type) {
+                  "feat" { "Features" }
+                  "fix" { "Fixes" }
+                  "docs" { "Documentation" }
+                  "perf" { "Performance" }
+                  "refactor" { "Refactoring" }
+                  "test" { "Tests" }
+                  "revert" { "Reverts" }
+                  default { "Maintenance" }
+                }
+              }
+            }
+            $url = "${{ github.server_url }}/${{ github.repository }}/commit/$($parts[0])"
+            $categories[$category] += "- [$($parts[1])]($url) $description"
+          }
+
+          $directCommitCount = ($categories.Values | ForEach-Object { $_.Count } | Measure-Object -Sum).Sum
+          if ($directCommitCount -gt 0) {
+            Add-Content -Path $notesPath -Value "", "## Direct Commit Changes", "" -Encoding utf8
+            foreach ($category in $categories.Keys) {
+              if ($categories[$category].Count -eq 0) {
+                continue
+              }
+              Add-Content -Path $notesPath -Value "### $category", "" -Encoding utf8
+              Add-Content -Path $notesPath -Value $categories[$category] -Encoding utf8
+              Add-Content -Path $notesPath -Value "" -Encoding utf8
+            }
+          }
+
+      - name: Create draft GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = "${{ steps.version.outputs.value }}"
+          gh release create "${{ github.ref_name }}" `
+            ".\release\ado-boost-extension-$version.zip" `
+            ".\release\ado-boost-windows-$version.zip" `
+            --verify-tag `
+            --notes-file ".\release\release-notes.md" `
+            --draft `
+            --title "ADO Boost $version"

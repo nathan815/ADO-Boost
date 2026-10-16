@@ -13,6 +13,10 @@
     "build:companion": "npm --prefix companion run build",
     "pack:companion": "npm run build && npm run build:companion && npm --prefix companion run pack:local",
     "release:check": "node scripts/check-release.mjs",
+    "release:commit-tag": "node scripts/release-commit-tag.mjs",
+    "release:push": "node scripts/release-push.mjs",
+    "release:version:check": "node scripts/release-version.mjs check",
+    "release:version:set": "node scripts/release-version.mjs set",
     "typecheck": "tsc --noEmit",
     "test": "vitest run tests",
     "test:watch": "vitest"

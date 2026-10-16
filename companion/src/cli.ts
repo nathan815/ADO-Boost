@@ -69,8 +69,9 @@ async function setup(confirmed: boolean): Promise<void> {
     await cp(join(packageRoot, "prebuilt-extension"), stageExtension, { recursive: true });
     await mkdir(stageHost, { recursive: true });
     await cp(join(root, "ado-boost-native-host.exe"), join(stageHost, "ado-boost-native-host.exe"));
+    await cp(join(root, "host.js"), join(stageHost, "host.js"));
     const stageConfigPath = join(stageHost, "host-config.json");
-    await writeFile(join(stageHost, "launcher.json"), JSON.stringify({ nodePath, hostPath: join(root, "host.js"), configPath: join(hostDir, "host-config.json") }, null, 2));
+    await writeFile(join(stageHost, "launcher.json"), JSON.stringify({ nodePath, hostPath: join(hostDir, "host.js"), configPath: join(hostDir, "host-config.json") }, null, 2));
     await writeFile(stageConfigPath, JSON.stringify({ allowedOrigins: [`chrome-extension://${EXTENSION_ID}/`], cliPath: copilotPath }, null, 2));
     await writeFile(join(stageHost, `${HOST_NAME}.json`), JSON.stringify({
       name: HOST_NAME,
@@ -109,6 +110,7 @@ async function doctor(): Promise<void> {
     ["Copilot CLI", async () => exec(await findCopilot(), ["--version"])],
     ["Prebuilt extension", () => validateExtensionDirectory(join(packageRoot, "prebuilt-extension"))],
     ["Installed extension", () => validateExtensionDirectory(extensionDir)],
+    ["Native host runtime", () => access(join(hostDir, "host.js"), constants.R_OK)],
     ["Native host manifest", async () => JSON.parse(await readFile(manifestPath, "utf8"))],
     ["Edge registry", () => exec("reg.exe", ["query", registryKey, "/ve"])]
   ];

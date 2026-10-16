@@ -22,8 +22,9 @@ await build({
   platform: "node",
   format: "esm",
   target: "node20",
-  packages: "external",
-  banner: { js: "#!/usr/bin/env node" }
+  banner: {
+    js: "#!/usr/bin/env node\nimport { createRequire as createNodeRequire } from \"node:module\";\nconst require = createNodeRequire(import.meta.url);"
+  }
 });
 await exec("go", ["build", "-trimpath", "-ldflags=-s -w", "-o", fileURLToPath(new URL("ado-boost-native-host.exe", dist)), fileURLToPath(new URL("../launcher/main.go", import.meta.url))]);
 const { stdout: goRoot } = await exec("go", ["env", "GOROOT"]);

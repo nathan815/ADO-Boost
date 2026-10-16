@@ -1,0 +1,38 @@
+{
+  "skill_name": "create-release",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Cut the ADO Boost 0.2.0 release, push it, and make sure the artifacts are ready. Do not publish anything publicly before I review it.",
+      "expected_output": "Requires clean main, uses release:version:set, release:commit-tag, and release:push for 0.2.0, waits for the Release workflow, verifies both ZIP assets and the draft state, then returns the draft URL without publishing it.",
+      "files": [],
+      "expectations": [
+        "Uses the guarded npm release commands rather than manually editing, committing, tagging, or pushing.",
+        "Waits for and verifies the tag-triggered Release workflow.",
+        "Leaves the GitHub release as a draft and verifies both expected ZIP assets."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Release what is currently on main. I am not sure whether this should be 0.1.1 or 0.2.0.",
+      "expected_output": "Inspects changes since the latest tag, recommends patch or minor using SemVer, and asks one focused version question before making any release mutation.",
+      "files": [],
+      "expectations": [
+        "Does not choose a version silently.",
+        "Bases the recommendation on changes since the latest release tag.",
+        "Makes no commit, tag, or push before the version is confirmed."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Create the next release, but I have some unrelated edits in the worktree that I do not want included.",
+      "expected_output": "Stops after identifying the dirty worktree because release:commit-tag requires only version-file changes, and does not stash, discard, commit, tag, or push the unrelated edits.",
+      "files": [],
+      "expectations": [
+        "Preserves all unrelated worktree changes.",
+        "Does not use stash, reset, force, or no-verify.",
+        "Explains that the unrelated changes must be handled before creating the release."
+      ]
+    }
+  ]
+}

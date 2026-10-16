@@ -29,6 +29,8 @@ See Microsoft's [Edge extension publishing guide](https://learn.microsoft.com/en
 
 The optional companion is not included in the Edge Store package. Before distributing it, install the store build once and verify that its extension ID matches the deterministic ID derived from the `key` in `manifest.json`; the native-messaging host allowlist must use the installed store ID.
 
+Tagged project releases also publish a standalone extension ZIP and a self-contained Windows companion ZIP. See [Releasing ADO Boost](releasing.md) for versioning and release instructions.
+
 ## Automate updates
 
 The initial extension submission and listing metadata must be managed in Partner Center. After the extension exists, enable the Publish API in Partner Center and use the [Edge Add-ons Update REST API](https://learn.microsoft.com/en-us/microsoft-edge/extensions/update/api/using-addons-api) to upload, validate, and publish package updates from CI.
