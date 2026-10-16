@@ -1,208 +1,89 @@
 # ADO Boost
 
-ADO Boost is an Edge-first Manifest V3 extension that adds reliable pull request size statistics directly to the native Azure DevOps pull request UI, enhances the existing changed-file tree, keeps discussions available in a focused side panel, and provides richer diffs, private feedback drafts, and a previewed Submit Review workflow.
+ADO Boost is an Edge-first browser extension that makes Azure DevOps pull request reviews easier to navigate, discuss, and submit.
 
-The extension uses the signed-in Azure DevOps browser session. It does not require a PAT, extract credentials, send analytics, or store PR source content in browser sync storage.
+> ADO Boost is pre-release software. Build it from source and load it as an unpacked extension.
 
-## Current status
+## What it adds
 
-ADO Boost is a pre-release browser extension with automated tests and a synthetic offline fixture. The optional Windows native-messaging companion uses `@github/copilot-sdk` `0.2.2` and an installed GitHub Copilot CLI. Semantic grouping and bounded PR questions are disabled by default.
+- Overall PR and per-file added/removed line diff counts.
+- Enhanced file filtering - file types, change types, and options to hide generated files and lockfiles
+- A docked discussion panel with thread filters, replies, and links back to native comments.
+- Browser-local drafts for general comments, replies, and inline feedback.
+- A previewed **Submit Review** flow for publishing selected feedback and optionally applying a vote.
+- Announce you begin reviewing a PR with an auto-generated comment so author is aware (optional).
 
-Browser loading, native-host registration, and live Copilot inference require separate manual integration testing before a production release.
-
-## Features
-
-### Reliable review statistics
-
-- Overall and per-file added/removed line counts computed from the PR iteration source commit and common commit.
-- Overall totals appear beside the native PR actions, and per-file totals appear inline in the native Azure DevOps changed-file tree.
-- Explicit exact, partial, binary, unavailable, and error states. Missing data is never displayed as exact zero.
-- CRLF normalization and terminal-newline-only change handling documented and tested against a normalized Git oracle.
-- Bounded 2 MiB file analysis, bounded fetch concurrency, paginated change retrieval, and stale-result cancellation.
-- Nullable API fields are accepted, numeric-string change tracking IDs are normalized, and change-entry schema mismatches are advisory warnings, never a reason to discard a record. Deleted-file paths are recovered from `originalPath` when available. Entries still lacking information needed for a diff are retained with their original JSON, listed as unresolved in the review panel, and logged to the console; overall totals remain visibly partial, and saved review progress is preserved. Essential repository, identity, commit, pagination, and write-confirmation data still requires validation.
-- File-content fetch failures log console warnings with the file path, commit, base/source side, repository and PR IDs, and original error. Expected navigation cancellations do not produce warnings.
-- Compact PR-list badges for visible rows.
-
-### Native Azure DevOps review workspace
-
-- Click the PR ID in the header to copy its numeric value to the clipboard, with visible success or failure feedback.
-- Azure DevOps' **Filter** control handles search and reviewed-file filtering. ADO Boost's change-type, file-type, and **Options** buttons sit beside it and filter the native file model; additions and deletions are rendered in the tree by ADO's React instance.
-- Hiding noise never changes the reported overall totals.
-- All files returned by the paginated PR changes API are analyzed independently of scrolling or collapsed folders. The header shows the total PR file count without filters and matching/total counts with filters. Unresolved records and incomplete counts remain explicit.
-- Filters run before ADO constructs its tree and diff/navigation model, including offscreen files. Unmapped native entries are retained rather than guessed or silently hidden. Azure DevOps retains ownership of folders, reviewed checkboxes, selection, and virtualization.
-- Previous, next, next-unreviewed, and keyboard navigation reuse Azure DevOps' SPA file links without forcing a full page reload.
-- Azure DevOps' existing server-backed reviewed checkboxes remain authoritative. ADO Boost does not render or synchronize a second reviewed-state system.
-- The elevated `Assistant` button always opens the discussions and review-tools side panel, whether or not a review has started. When Approve and Complete are removed, it stays in the title's native action row beside the overflow menu, leaving the title's copy control untouched.
-- The discussion panel docks inline beside the native PR content by default, so it never covers the file tree or diff. Narrow windows stack it below the PR instead of shrinking the diff. Its header uses the official Azure DevOps UI button components, and the panel inherits the site's theme when **System** is selected. The layout icon uses the official Azure DevOps UI `MenuButton` and contextual menu, with **Docked beside page** and **Overlay** options and a checkmark on the current selection; closing the panel releases the space. Escape dismisses the layout menu first, or closes the panel when no review dialog is open.
-
-### Review coordination
-
-- Start Reviewing renders a formatted Markdown announcement with the authenticated reviewer's name, the starting iteration, and attribution linking to the [ADO Boost](https://github.com/nathan815/ADO-Boost) browser extension, with a matching preview before confirmation.
-- Native Approve and its vote-options dropdown stay untouched. Open `Assistant` to find a blue `Announce Review Start` button at the top of the sidebar. It opens the announcement preview before posting and becomes a quiet `You've started reviewing` status after success. The `Assistant` dropdown also offers a `Start Reviewing` shortcut, changing to a disabled `You've started reviewing` after success. Disabling review-start announcements hides both announcement entry points without hiding Assistant.
-- The review-start confirmation uses Azure DevOps' native Bolt dialog and button classes in the page DOM, inheriting the site's theme with keyboard focus containment, Escape dismissal, and focus restoration.
-- The announcement is a normal Azure DevOps comment and does not change your vote or guarantee notification delivery. After the current reviewer votes **Approve**, **Approve with suggestions**, **Wait for author**, or **Reject**, ADO Boost replies with `Finished reviewing with vote <decision> at <ISO 8601 UTC datetime>`. A successful comment-only **Submit Review** instead adds `Submitted X review comments at <ISO 8601 UTC datetime>`, counting only that submission's published comments. Both close the review-start thread. Opening a submission preview, cancelling, failed submissions, saving drafts, and posting a single reply do not finish the review.
-- A later vote always gets its own completion reply, including when the announcement thread is already closed or previously received a submission reply. Observed vote changes get new replies; repeated checks of the same vote do not. Each confirmed comment-only submission has its own deduplicated reply.
-- While a review-start announcement exists, ADO Boost checks the authenticated reviewer's server-side vote when the PR loads, when the tab regains focus or visibility, and after review submission. There is no periodic polling. Checks remain enabled after comment submission or thread closure, so later votes are still detected when you return to the tab. Votes made in another browser, a CLI, or another tool are detected too; if this browser was closed, the check runs the next time the PR is opened. A native Azure DevOps vote made while the tab stays focused is detected on the next focus/visibility check or page load. Vote replies use the original publication timestamp of the reviewer's latest matching Azure DevOps vote event, not the detection time. If that event or its timestamp is unavailable, completion reports an error instead of inventing a time; a later focus/visibility check or page load can retry. Comment-only submission replies still use the submission completion time. No vote is inferred from button clicks or other reviewers' decisions. Disabling review-start announcements stops automatic completion.
-- Background-serialized writes prevent duplicate multi-tab announcements and submissions.
-- Announcements include versioned JSON in a hidden HTML comment recording the reviewer ID, repository/PR IDs, start timestamp, and original iteration/source/target/merge-base commits. ADO Boost restores review-start status from the authenticated reviewer's matching PR comment when local state is missing, including in another browser. Older plain-text announcements are still recognized.
-- Hidden metadata is not private or encrypted: anyone with PR access can read the comment source. Private drafts, settings, and submission receipts remain browser-local. Completion replies are reconciled from the server before retrying, including when local state is missing. A successful completion reply is not posted again if closing the thread fails; announcement-only retries never replay feedback or votes.
-- Ambiguous network outcomes remain ambiguous unless exact operation evidence is found.
-
-### Diffs and discussions
-
-- Extension-owned unified and side-by-side diff layouts.
-- Basic syntax highlighting, paired word emphasis, whitespace visualization, line numbers, inline-draft anchors, unchanged-context collapsing, and explicit large-diff preview limits.
-- Merge-base and previous-iteration comparisons where a previous iteration exists.
-- Active and resolved thread navigation with status and author filters, native file links, reply drafts, and explicitly confirmed resolve/reopen actions.
-- Sidebar threads default to **Newest first**, with an **Oldest first** sort option. Publication timestamps determine thread order when available; older responses without timestamps use IDs. Each thread keeps its original comment first, with replies nested beneath it in conversation order. Replies are collapsed by default behind a reply-count toggle; expanded threads stay expanded when sorting, filtering, or editing a private draft.
-- The sidebar hides system comments from `Microsoft.VisualStudio.Services.TFS`, vote-change notifications, and threads with no remaining visible comments. Normal reviewer comments about voting remain visible. Native Azure DevOps discussions are unchanged.
-- Each sidebar comment starts with its author's photo, name, and publication time. Thread IDs appear in a smaller footer. **Jump to comment** opens line-anchored discussions at their native file and thread location in **Files**, including comments on deleted lines; general comments scroll into view in **Overview**. Navigation uses ADO's native links without reloading the page or clearing private drafts, and preserves ADO's collapsed/expanded comment presentation. Comment lookup uses ADO's original publication-based viewer IDs so edited timestamps and lazy-loaded bodies do not prevent navigation. Failed jumps show a dismissible toast instead of a persistent sidebar error, without assuming the comment is hidden or deleted.
-- Wide comment tables and code blocks scroll within their own content area instead of widening the sidebar or pushing its actions offscreen.
-- Thread loading failures show an error and retry action instead of an empty-success state.
-
-### Private review queue and Submit Review
-
-- General, inline, and reply drafts stored locally and isolated by origin, repository, PR, and reviewer.
-- General comments and replies compose directly inside the sidebar, with Markdown previews, inline errors, and text retained across sidebar rerenders and filtering. **Reply** opens a composer with **Add to review** to queue a private draft or **Post** to publish only that reply immediately without changing your vote or submitting other drafts. Failed posts retain the reply for retry; uncertain delivery is flagged and cannot be blindly reposted. File-line drafts retain their anchored diff dialog.
-- Editable line and side anchors, draft editing, Markdown preview, Markdown copy export, and visible save/export errors.
-- **Submit Review** stays disabled until at least one nonempty draft is ready to submit. Previewed submission includes an optional overall summary and current vote display, and requires at least one selected draft or a nonempty summary.
-- Decisions: Comment only, Approve, Approve with suggestions, Wait for author, and Reject.
-- Feedback is posted before a decision. A decision is applied only after every selected feedback item succeeds.
-- Partial-delivery receipts preserve failed drafts and successful server IDs. Vote-only retry never replays feedback and requires a second confirmation.
-- Fresh PR context, iteration identity, current file locations, feature settings, and draft presence are checked before writes.
-
-## Build and test
+## Install from source
 
 Requirements:
 
 - Node.js 20.19 or newer, or Node.js 22.12 or newer.
 - npm.
+- Microsoft Edge or Chrome
 
-Commands:
+Build the extension:
 
 ```powershell
-npm ci --registry=https://registry.npmjs.org
+npm ci
+npm run build
+```
+
+Load it in Edge:
+
+1. Open `edge://extensions`.
+2. Enable **Developer mode**.
+3. Select **Load unpacked**.
+4. Select the repository's `dist` folder.
+5. Open an Azure DevOps pull request.
+
+Run `npm run build` again after changing the source, then reload the extension from `edge://extensions`.
+
+## Use ADO Boost
+
+- Open an Azure DevOps pull request under `https://dev.azure.com/` or `https://<org>.visualstudio.com/`.
+- Use the controls beside Azure DevOps' native **Filter** control to filter by change type, file type, or optional noise rules.
+- Select **Assistant** to open discussions, draft feedback, announce the start of a review, or submit a review.
+- Open settings from the browser toolbar action, the discussion panel's gear button, or the ADO Boost action menu beside the native review actions.
+
+Core review features are enabled by default. Generated-file hiding, lockfile hiding, review-start announcements, and Copilot features can be configured in settings.
+
+ADO Boost previews user-visible writes before posting them. It does not automatically comment, vote, resolve threads, merge pull requests, or run pull request code.
+
+## Privacy and limits
+
+- ADO Boost uses the signed-in Azure DevOps browser session and same-origin Azure DevOps APIs. It does not require or collect a personal access token.
+- Settings, review progress, private drafts, and submission receipts are stored in extension-local browser storage. ADO Boost does not send analytics or store pull request content in browser sync storage.
+- Optional Copilot features send only the pull request context shown in their preview through GitHub Copilot. Use them only when allowed by your organization's policies.
+- Files larger than 2 MiB, binary files, unavailable versions, and fetch failures are shown as incomplete rather than exact.
+- Azure DevOps review submission is not atomic. Comments may appear before the final vote, and ADO Boost preserves failed or uncertain drafts for review instead of blindly reposting them.
+
+## Optional Copilot companion
+
+The Windows-only companion enables the default-off Copilot features through an installed GitHub Copilot CLI. Core extension features work without it.
+
+See [ADO Boost companion](companion/README.md) for requirements, setup, diagnostics, login, and removal commands.
+
+## Contributing
+
+Install dependencies, then run the project checks:
+
+```powershell
+npm ci
 npm run typecheck
 npm test
 npm run build
 ```
 
-The unpacked extension is written to `.\dist`.
-
-## Load the unpacked extension in Edge
-
-Building the project does not install the extension.
-
-1. Open `edge://extensions`.
-2. Enable Developer mode.
-3. Choose **Load unpacked**.
-4. Select `.\dist`.
-5. Open an Azure DevOps pull request under `https://dev.azure.com/` or a legacy `https://<org>.visualstudio.com/` URL.
-
-The project has not automatically loaded or installed the extension in any browser.
-
-## Offline fixture
-
-Run:
+To run the synthetic offline fixture:
 
 ```powershell
 npm run dev -- --host 127.0.0.1
 ```
 
-Open `http://127.0.0.1:5173/demo.html`. The page is visibly labeled **Synthetic offline fixture** and does not perform Azure DevOps writes.
+Open `http://127.0.0.1:5173/demo.html`. The fixture is clearly labeled and does not perform Azure DevOps writes.
 
-## Isolated Chrome extension testing
-
-Use the [Chrome extension E2E skill](.github/skills/chrome-extension-e2e/SKILL.md) to test the actual unpacked extension in a persistent, dedicated Chrome profile without touching your regular browser. It includes launch and CDP load/reload helpers plus the native-tree acceptance checklist, so routine updates do not require manually reloading the extension through `chrome://extensions`.
-
-## Settings and feature flags
-
-Open the extension's options page from the browser toolbar action, the gear button in the discussion rail, or the ADO Boost action menu beside Approve. Settings are centralized in a typed registry with stable IDs, dependency explanations, a master disable switch, searchable groups, and theme selection.
-
-Core review features are enabled by default. Generated-file hiding, lockfile hiding, and all future AI capabilities are opt-in. Disabling a feature removes its controls and blocks its write entry points without deleting saved progress or drafts.
-
-### Native tree integration
-
-Native model filtering and React-rendered per-file counts are the only file-tree integration, enabled by default through **Native file-tree enhancements**. Use Azure DevOps' existing **Filter** control for keyword and reviewed/unreviewed filtering. ADO Boost's change-kind, extension, and noise filters sit beside that control, compose with native filters before tree construction, and affect the diff/navigation view too. The header shows `12 changed files` without filters and matching/total counts such as `5/12 changed files` when a filter is active, without a separate status summary above the tree. The old experimental toggle and extension-owned search/reviewed controls have been removed; saved experimental preferences no longer select a different implementation.
-
-This integration uses guarded private Azure DevOps runtime interfaces, not supported extension APIs. Counts and extra filters require the analyzed latest-iteration merge-base comparison; another native comparison leaves native filters available and reports the limitation. Incompatible runtime interfaces show an explicit unavailable state and restore native behavior. There is no DOM badge or row-hiding implementation or fallback. Count-rendering failures can disable counts independently of working model filters. Disabling **Native file-tree enhancements** restores the original native behavior without affecting the PR summary; disabling **Native file filters** clears only ADO Boost's extra predicates.
-
-Installed-extension Chrome checks exercised 12-file and 198-file native models, offscreen-file filtering, native/custom filter composition, comparison switching, keyboard navigation, tab remounting, and disable/re-enable. Broader host compatibility, sustained pointer scrolling, and cross-page pagination still need additional release coverage.
-
-## Permissions and privacy
-
-- `storage`: stores settings, content-aware review progress, private drafts, announcement receipts, and submission receipts in extension-local storage.
-- Azure DevOps host access: reads PR metadata, iterations, changes, file content, threads, identity, and current vote through documented same-origin Azure DevOps REST APIs using the existing browser session.
-- `nativeMessaging`: connects to the optional Windows companion when a Copilot feature is explicitly used.
-- No extension telemetry, analytics, remote feature flags, PAT collection, or browser sync storage for PR content.
-- Optional Copilot features send the explicitly previewed PR context through GitHub Copilot. They are not offline inference. Use them only when your organization's policies allow sending that content to Copilot.
-- Real writes always require an explicit user action and preview. ADO Boost never automatically comments, votes, resolves threads, merges, or runs PR code.
-
-## Comparison semantics and limits
-
-Overall statistics compare the latest PR iteration against its common commit using Azure DevOps iteration changes with `$compareTo=0`. Text is normalized from CRLF or CR to LF, and a terminal-newline-only difference is ignored. This is intentionally a normalized text review count rather than a byte-exact raw Git `numstat`.
-
-Files over 2 MiB, binaries, missing versions, and fetch failures are reported as incomplete states. The extension diff preview renders at most 5,000 rows and initially previews the first 500 rows for large files. Use Azure DevOps' native file view for content beyond those limits.
-
-Azure DevOps review submission is not atomic. Comments may become visible individually before the final vote request. ADO Boost stops after the first failed feedback write, never blindly replays an ambiguous batch, and offers a decision-only retry only after all selected feedback is known to have posted.
-
-## Optional Copilot companion
-
-The Windows companion uses Edge native messaging, a real executable launcher, bounded length-prefixed JSON over stdio, an exact extension-origin allowlist, request IDs, cancellation, multiple-tab isolation, and owned child-process cleanup. It does not use a localhost listener, CORS, pairing tokens, an embedded daemon download, arbitrary shell commands, unrestricted agent tools, or automatic PR code execution.
-
-Building the companion additionally requires Go. The npm package is Windows-only.
-
-Build and package the companion with:
-
-```powershell
-npm --prefix companion ci --registry=https://registry.npmjs.org
-npm --prefix companion run typecheck
-npm --prefix companion test
-npm run build
-npm --prefix companion run build
-npm --prefix companion run pack:local
-```
-
-After installing the resulting npm package, these commands are available:
-
-```powershell
-ado-boost doctor
-ado-boost setup
-ado-boost login
-ado-boost uninstall-host
-```
-
-`setup` validates the deterministic extension ID, previews the stable extension folder, host folder, Copilot CLI path, and Edge registry key, then requires confirmation before copying files or changing the per-user registry. It refuses unowned installation folders or a native-host registry name that points to another manifest. Updates are staged and validated before the current owned folders move, and folder rollback occurs if replacement or registration fails. The user manually loads the stable unpacked extension folder in Edge. Edge starts the native host only when a default-off Copilot feature is explicitly used.
-
-The host uses the SDK's documented `cliPath` integration with the installed Copilot CLI, the logged-in user authentication state, an isolated empty working directory, no custom or built-in tools, a deny-all permission handler, no configuration discovery, and a replacement system instruction that treats all PR content as untrusted data. Environment tokens, npm authentication, and proxy variables are stripped before the SDK-owned CLI child starts. Core extension features remain fully functional when the host is absent, not registered, unauthenticated, blocked by policy, or incompatible.
-
-Before semantic grouping or chat, ADO Boost previews exactly which files will contribute bounded changed-line excerpts. The reviewer explicitly selects files. The payload includes all changed-file paths and counts plus at most 20 selected excerpts, 200 changed lines and 32 KB per file, and 128 KB total. Each changed line carries a `path`, line number, and left/original or right/new side; unavailable and truncated content is marked omitted. The host cannot read arbitrary repository files.
-
-Semantic-group responses reject unknown and duplicate paths, keep omitted files visible in an **Unassigned changes** group, and cache only by the immutable PR comparison identity. Explicit regeneration bypasses that cache. Chat answers are displayed as suggestions and can only be copied into the private feedback queue; they never post automatically. Disabling the master switch or both Copilot capabilities disconnects the native port, rejects pending requests, closes browser stdio, and triggers owned SDK child cleanup in the native host.
-
-## Public release preparation
-
-```powershell
-npm run typecheck
-npm test
-npm --prefix companion run typecheck
-npm --prefix companion test
-npm run pack:companion
-npm run release:check
-```
-
-`release:check` scans source, all reachable Git history, and built extension and companion files for known internal references and credential patterns. It also checks package contents. It is a release guard, not a guarantee that arbitrary confidential information can be recognized automatically. Manually review changes before publishing.
-
-Build outputs, archives, source maps, local configuration, and development metadata are excluded from source control. Release builds omit source maps and include license notices. Share the source repository or the generated `companion\ado-boost-companion-0.1.0.tgz`, not a ZIP of the entire working folder containing `.git` or `node_modules`.
-
-The public history retains the development commit sequence with internal identities, session metadata, private package-feed references, developer-specific fixture data, and old generated archives removed. Historical commit IDs therefore differ from the original private repository.
-
-Build and packaging commands do not install the extension, change the registry, post to a PR, or publish anything. Companion `setup`, `login`, and `uninstall-host` are explicit user-invoked installation and authentication commands.
+For content-script lifecycle guidance and Azure DevOps UI integration details, see [SPA integration and Azure DevOps UI resources](docs/spa-integration-and-ui-resources.md).
 
 ## License
 
-MIT; see [LICENSE](LICENSE). Bundled third-party notices are included in the built extension's `licenses` folder and companion package.
-
-## Integration guidance and UI resources
-
-See [SPA integration and Azure DevOps UI resources](docs/spa-integration-and-ui-resources.md) for content-script lifecycle guidance, native UI ownership boundaries, and public Bolt UI resources.
+ADO Boost is licensed under the [MIT License](LICENSE).
