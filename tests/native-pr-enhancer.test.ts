@@ -335,6 +335,7 @@ describe("NativePrEnhancer", () => {
     expect(document.querySelector("[data-adopp-total-diff-popover]")).toBeNull();
     expect(actions.textContent).not.toContain("ADO Boost");
     expect(actions.textContent).toContain("Assistant");
+    expect(getComputedStyle(document.querySelector("[data-adopp-action-group]")!).marginRight).toBe("0px");
     expect(document.querySelector(".adopp-start-split")?.getAttribute("data-review-started")).toBe("false");
     expect(document.querySelectorAll(".adopp-start-review-icon path")).toHaveLength(2);
     expect(document.querySelectorAll(".adopp-start-review-icon circle")).toHaveLength(0);
