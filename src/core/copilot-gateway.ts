@@ -1,4 +1,5 @@
 import type { FileStat, PullRequestContext, SemanticGroupProposal } from "./types";
+import { z } from "zod";
 
 export interface CopilotHealth {
   connected: boolean;
@@ -7,6 +8,21 @@ export interface CopilotHealth {
   detail?: string;
 }
 
+export function parseCopilotHealth(value: unknown): CopilotHealth {
+  const data = z.object({
+    auth: z.object({
+      isAuthenticated: z.boolean(),
+      login: z.string().optional(),
+      statusMessage: z.string().optional()
+    })
+  }).parse(value);
+  return {
+    connected: true,
+    authenticated: data.auth.isAuthenticated,
+    ...(data.auth.login ? { login: data.auth.login } : {}),
+    ...(data.auth.statusMessage ? { detail: data.auth.statusMessage } : {})
+  };
+}
 export interface CopilotGateway {
   health(context: PullRequestContext): Promise<CopilotHealth>;
   semanticGroups(context: PullRequestContext, files: FileStat[], excerpts: CopilotExcerpt[], regenerate?: boolean): Promise<SemanticGroupProposal[]>;

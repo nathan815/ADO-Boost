@@ -17,6 +17,7 @@ ADO Boost is an Edge-first browser extension that makes Azure DevOps pull reques
 - Browser-local drafts for general comments, replies, and inline feedback.
 - A previewed **Submit Review** flow for publishing selected feedback and optionally applying a vote.
 - Announce you begin reviewing a PR with an auto-generated comment so author is aware (optional).
+- A toolbar popup with local Copilot companion status and your 100 most recently viewed PRs across organizations and repositories.
 
 ## Install from source
 
@@ -48,7 +49,8 @@ Run `npm run build` again after changing the source, then reload the extension f
 - Open an Azure DevOps pull request under `https://dev.azure.com/` or `https://<org>.visualstudio.com/`.
 - Use the controls beside Azure DevOps' native **Filter** control to filter by change type, file type, or optional noise rules.
 - Select **Assistant** to open discussions, draft feedback, announce the start of a review, or submit a review.
-- Open settings from the browser toolbar action, the discussion panel's gear button, or the ADO Boost action menu beside the native review actions.
+- Open the browser toolbar popup to see recent pull requests and a compact companion status indicator in the header. Select the indicator to open a popover beneath it with connection/sign-in details and the **Refresh** action. Click outside it or press Escape to dismiss it. Use **Clear history** to remove recent PRs after confirmation, or **Settings** to configure the extension.
+- Open settings directly from the discussion panel's gear button or the ADO Boost action menu beside the native review actions.
 
 Core review features are enabled by default. Generated-file hiding, lockfile hiding, review-start announcements, and Copilot features can be configured in settings.
 
@@ -58,6 +60,7 @@ ADO Boost previews user-visible writes before posting them. It does not automati
 
 - ADO Boost uses the signed-in Azure DevOps browser session and same-origin Azure DevOps APIs. It does not require or collect a personal access token.
 - Settings, review progress, private drafts, and submission receipts are stored in extension-local browser storage. ADO Boost does not send analytics or store pull request content in browser sync storage.
+- While ADO Boost is enabled, opening a PR records its title, author's display name, organization/project/repository, identity, URL, and visit time locally. The popup shows the author beneath each PR title; previously recorded entries gain author information when revisited. The latest 100 unique PRs are shared across ADO accounts in this browser profile, not synced across devices. Revisits move a PR to the top; file and tab changes within a PR do not. Clearing history leaves drafts and review progress untouched. Older browser history is not imported.
 - Optional Copilot features send only the pull request context shown in their preview through GitHub Copilot. Use them only when allowed by your organization's policies.
 - Files larger than 2 MiB, binary files, unavailable versions, and fetch failures are shown as incomplete rather than exact.
 - Azure DevOps review submission is not atomic. Comments may appear before the final vote, and ADO Boost preserves failed or uncertain drafts for review instead of blindly reposting them.
@@ -65,6 +68,8 @@ ADO Boost previews user-visible writes before posting them. It does not automati
 ## Optional Copilot companion
 
 The Windows-only companion enables the default-off Copilot features through an installed GitHub Copilot CLI. Core extension features work without it.
+
+The toolbar popup checks the companion automatically, even when optional Copilot features are disabled or no PR is open. This may start the native host and Copilot CLI on demand; it checks connectivity and sign-in without sending PR content or running an AI request. The host disconnects after it becomes idle; the popup is not a persistent process monitor. A connected host can still require `ado-boost login`. If unavailable, run `ado-boost doctor` and refresh the connection check.
 
 See [ADO Boost companion](companion/README.md) for requirements, setup, diagnostics, login, and removal commands.
 

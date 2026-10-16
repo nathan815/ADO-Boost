@@ -36,6 +36,34 @@ function json(value: unknown): Response {
 }
 
 describe("AdoApi", () => {
+  it("loads a lightweight PR summary without iterations, files, or reviewer identity", async () => {
+    const http = new QueueHttp([json({ pullRequestId: 7, title: "PR", repository: { id: "repo-id" }, createdBy: { id: "author-id", displayName: "PR Author" } })]);
+    const result = await new AdoApi(http).getPrSummary(context);
+    expect(result).toMatchObject({ pullRequestId: 7, repositoryId: "repo-id", title: "PR", author: "PR Author" });
+    expect(http.urls).toEqual(["https://dev.azure.com/org/project/_apis/git/repositories/repo/pullRequests/7?api-version=7.1"]);
+  });
+
+  it.each([undefined, null, { id: "author-id" }, { id: "author-id", displayName: null }])("omits unavailable author names without confusing them with reviewers (%j)", async (createdBy) => {
+    const http = new QueueHttp([json({ pullRequestId: 7, title: "PR", repository: { id: "repo-id" }, createdBy })]);
+    const result = await new AdoApi(http).getPrSummary(context);
+    expect(result.author).toBeUndefined();
+    expect(result.title).toBe("PR");
+  });
+
+  it("warns about a malformed author name while preserving the PR summary", async () => {
+    const http = new QueueHttp([json({ pullRequestId: 7, title: "PR", repository: { id: "repo-id" }, createdBy: { id: "author-id", displayName: 123 } })]);
+    const warn = vi.fn();
+    const result = await new AdoApi(http, warn).getPrSummary(context);
+    expect(result.author).toBeUndefined();
+    expect(result.title).toBe("PR");
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it("rejects metadata for a different PR", async () => {
+    const http = new QueueHttp([json({ pullRequestId: 99, title: "PR", repository: { id: "repo-id" } })]);
+    await expect(new AdoApi(http).getPrSummary(context)).rejects.toThrow("different pull request");
+  });
+
   it("scopes connection data to the dev.azure.com organization", async () => {
     const http = new QueueHttp([
       json({ pullRequestId: 7, title: "PR", repository: { id: "repo-id" } }),

@@ -6,24 +6,41 @@ import { parsePrRoute } from "../core/route";
 import { SubmissionCoordinator } from "../core/submission";
 import { SerialExecutor } from "../core/serial-executor";
 import type { PrRoute, PullRequestContext, ReviewCompletionTrigger, ReviewDecision, SubmissionReceipt } from "../core/types";
-import { resolveFeature } from "../features/registry";
-import { ChromeSettingsStorage, SettingsService } from "../features/settings-service";
+import { migrateSettings, resolveFeature } from "../features/registry";
+import { ChromeSettingsStorage, SETTINGS_KEY, SettingsService } from "../features/settings-service";
 import { NativeCopilotClient } from "./native-copilot";
-
-chrome.action.onClicked.addListener(() => {
-  void openExtensionOptions();
-});
+import { ChromeRecentPrStorage } from "../adapters/recent-pr-storage";
+import { RecentPrService } from "../core/recent-prs";
+import { parseCopilotHealth } from "../core/copilot-gateway";
+import { isPopupMessage, PopupService } from "./popup-service";
 
 const api = new AdoApi(new FetchHttpClient());
 const store = new ChromeBrowserStore(false);
-const settings = new SettingsService(new ChromeSettingsStorage());
+const settingsStorage = new ChromeSettingsStorage();
+const settings = new SettingsService(settingsStorage);
 const writes = new SerialExecutor();
 const copilot = new NativeCopilotClient();
+const popup = new PopupService({
+  extensionId: chrome.runtime.id,
+  popupUrl: chrome.runtime.getURL("popup.html"),
+  history: new RecentPrService(new ChromeRecentPrStorage()),
+  enabled: async () => migrateSettings(await settingsStorage.get(SETTINGS_KEY)).masterEnabled,
+  summary: (route) => api.getPrSummary(route, AbortSignal.timeout(10_000)),
+  health: async () => parseCopilotHealth(await copilot.request("health"))
+});
 settings.subscribe((current) => {
-  if (!current.masterEnabled || (!resolveFeature(current, "copilotSemanticGroups").enabled && !resolveFeature(current, "copilotChat").enabled)) copilot.disconnect();
+  const enabled = resolveFeature(current, "copilotSemanticGroups").enabled || resolveFeature(current, "copilotChat").enabled;
+  // Popup diagnostics remain available when inference features are disabled.
+  if (!enabled && copilot.hasActiveInference) copilot.disconnect();
 });
 
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+  if (isPopupMessage(message)) {
+    void popup.handle(message, sender)
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Popup request failed" }));
+    return true;
+  }
   if (isUiMessage(message)) {
     if (sender.id !== chrome.runtime.id) {
       sendResponse({ ok: false, error: "UI requests are accepted only from this extension" });
@@ -73,8 +90,7 @@ async function handleCopilot(kind: string, payload: Record<string, unknown>, sen
   const currentSettings = await settings.load();
   if (kind === "health") {
     requireFeature(currentSettings, "copilotSemanticGroups");
-    const data = await copilot.request("health") as { auth?: { isAuthenticated?: boolean; login?: string; statusMessage?: string } };
-    return { connected: true, authenticated: data.auth?.isAuthenticated === true, ...(data.auth?.login ? { login: data.auth.login } : {}), ...(data.auth?.statusMessage ? { detail: data.auth.statusMessage } : {}) };
+    return parseCopilotHealth(await copilot.request("health"));
   }
   const files = Array.isArray(payload.files) ? payload.files : null;
   const excerpts = Array.isArray(payload.excerpts) ? payload.excerpts : null;

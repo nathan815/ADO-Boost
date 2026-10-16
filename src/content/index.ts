@@ -13,6 +13,7 @@ import { ReviewPanel } from "../ui/review-panel";
 import { PullRequestListBadges } from "./list-badges";
 import { NativePrEnhancer } from "./native-pr-enhancer";
 import { NativeTreeClient } from "../native-tree/client";
+import { PrVisitTracker } from "./pr-visit-tracker";
 
 class ContentApp {
   private readonly api = new AdoApi(new FetchHttpClient());
@@ -29,6 +30,10 @@ class ContentApp {
   private routeController: AbortController | null = null;
   private currentUrl = "";
   private currentRouteKey = "";
+  private readonly visits = new PrVisitTracker(async (route) => {
+    const response = await chrome.runtime.sendMessage({ channel: "adopp-popup", kind: "record-visit", route }) as { ok: boolean; error?: string } | undefined;
+    if (!response?.ok) throw new Error(response?.error ?? "No response from extension service worker");
+  });
   private unsubscribe: (() => void) | null = null;
   private readonly openSettings = (): void => {
     void requestOpenOptions();
@@ -57,6 +62,7 @@ class ContentApp {
   private async mount(settingsOnly = false): Promise<void> {
     if (!this.settings) return;
     const url = location.href;
+    void this.visits.update(new URL(url), this.settings.masterEnabled).catch((error) => console.error("ADO Boost could not record the PR visit", error));
     if (!settingsOnly && url === this.currentUrl) return;
     this.currentUrl = url;
     const route = parsePrRoute(new URL(url));

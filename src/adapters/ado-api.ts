@@ -3,6 +3,7 @@ import type { AnnouncementCompletion, ChangeEntry, ChangedFile, PrRoute, PullReq
 import { legacyAnnouncementBody, readAnnouncementMetadata, readReviewCompletion, reviewCompletionBody } from "../core/announcement-content";
 import { createResponseValidation, type ResponseWarning } from "./response-validation";
 import { readChangeEntry } from "./change-response";
+import type { PrSummary } from "../core/recent-prs";
 
 function createReadSchemas(warn: ResponseWarning) {
   const { optional } = createResponseValidation(warn);
@@ -16,7 +17,9 @@ function createReadSchemas(warn: ResponseWarning) {
     pullRequestId: z.number().int().positive(),
     title: optional(z.string(), "title").transform((title) => title ?? "Untitled pull request"),
     repository: z.object({ id: z.string().min(1) }).passthrough(),
-    createdBy: optional(identitySchema, "createdBy")
+    createdBy: optional(identitySchema.extend({
+      displayName: optional(z.string().min(1), "createdBy.displayName")
+    }), "createdBy")
   }).passthrough();
 
   const iterationSchema = z.object({
@@ -110,11 +113,10 @@ export class AdoApi {
   }
 
   async getContext(route: PrRoute, signal?: AbortSignal): Promise<PullRequestContext> {
-    const { pullRequestSchema, connectionDataSchema } = this.schemas;
-    const base = this.apiBase(route);
-    const pr = await this.json(`${base}/git/repositories/${encodeURIComponent(route.repository)}/pullRequests/${route.pullRequestId}?api-version=7.1`, pullRequestSchema, signal);
+    const { connectionDataSchema } = this.schemas;
+    const pr = await this.getPrSummary(route, signal);
     const [comparison, reviewer] = await Promise.all([
-      this.getLatestComparisonForRepository(route, pr.repository.id, signal),
+      this.getLatestComparisonForRepository(route, pr.repositoryId, signal),
       this.json(`${this.organizationApiBase(route)}/connectionData?connectOptions=1&lastChangeId=-1&lastChangeId64=-1`, connectionDataSchema, signal)
     ]);
     return {
@@ -122,6 +124,16 @@ export class AdoApi {
       title: pr.title,
       reviewer: reviewer.authenticatedUser
     };
+  }
+
+  async getPrSummary(route: PrRoute, signal?: AbortSignal): Promise<PrSummary> {
+    const pr = await this.json(
+      `${this.apiBase(route)}/git/repositories/${encodeURIComponent(route.repository)}/pullRequests/${route.pullRequestId}?api-version=7.1`,
+      this.schemas.pullRequestSchema,
+      signal
+    );
+    if (pr.pullRequestId !== route.pullRequestId) throw new Error("Azure DevOps returned a different pull request");
+    return { ...route, repositoryId: pr.repository.id, title: pr.title, author: pr.createdBy?.displayName ?? undefined };
   }
 
   async getLatestComparison(route: PrRoute, signal?: AbortSignal): Promise<PullRequestComparison> {

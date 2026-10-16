@@ -1,0 +1,222 @@
+// @vitest-environment jsdom
+
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ExtensionPopup, type PopupDependencies } from "../src/popup/popup";
+import { defaultSettings } from "../src/features/registry";
+import { recentPrUrl, type RecentPr } from "../src/core/recent-prs";
+import popupHtml from "../public/popup.html?raw";
+
+const pr: RecentPr = {
+  organization: "org", project: "Project", repository: "Repo", repositoryId: "repo-id",
+  pullRequestId: 42, title: "Fix a bug", author: "PR Author", viewedAt: 1_700_000_000_000,
+  url: recentPrUrl({ organization: "org", project: "Project", repository: "Repo", pullRequestId: 42 })
+};
+let popup: ExtensionPopup | undefined;
+
+function setup(overrides: Partial<PopupDependencies> = {}) {
+  const root = document.createElement("div");
+  document.body.append(root);
+  const unsubscribe = vi.fn();
+  let onChange!: (area: "history" | "settings") => void;
+  const deps = {
+    health: vi.fn(async () => ({ connected: true, authenticated: true, login: "reviewer" })),
+    list: vi.fn(async () => [pr]),
+    clear: vi.fn(async () => undefined),
+    openSettings: vi.fn(async () => undefined),
+    settings: vi.fn(async () => defaultSettings()),
+    subscribe: (listener: typeof onChange) => { onChange = listener; return unsubscribe; },
+    ...overrides
+  };
+  popup = new ExtensionPopup(root, deps);
+  popup.start();
+  return { root: document.body, container: root, deps, unsubscribe, changed: (area: "history" | "settings") => onChange(area) };
+}
+
+function button(root: HTMLElement, text: string): HTMLButtonElement {
+  const element = [...root.querySelectorAll<HTMLButtonElement>("button")].find((candidate) => candidate.textContent === text);
+  if (!element) throw new Error(`Missing button ${text}`);
+  return element;
+}
+
+afterEach(() => {
+  popup?.destroy();
+  popup = undefined;
+  document.body.innerHTML = "";
+  delete document.documentElement.dataset.theme;
+});
+
+describe("extension popup", () => {
+  it("sets a stable document width before popup JavaScript loads", () => {
+    const html = new DOMParser().parseFromString(popupHtml, "text/html");
+    const style = document.createElement("style");
+    style.textContent = html.querySelector("head style")!.textContent;
+    document.head.append(style);
+    try {
+      expect(getComputedStyle(document.documentElement).width).toBe("420px");
+      expect(getComputedStyle(document.documentElement).minWidth).toBe("420px");
+      expect(getComputedStyle(document.body).width).toBe("420px");
+      expect(getComputedStyle(document.documentElement).overflow).toBe("hidden");
+    } finally {
+      style.remove();
+    }
+  });
+
+  it("uses ADO components and loads history without waiting for companion health", async () => {
+    const { root } = setup({ health: () => new Promise(() => undefined) });
+    await vi.waitFor(() => expect(root.querySelector(".pr-title")?.textContent).toBe("Fix a bug"));
+    expect(root.textContent).toContain("Checking");
+    expect(root.querySelector(".bolt-spinner")).not.toBeNull();
+    expect(button(root, "Checking").classList.contains("bolt-button")).toBe(true);
+    expect(root.querySelector(".popup-header .companion-toggle")).not.toBeNull();
+    expect(root.querySelector(".connection")).toBeNull();
+    expect(root.querySelector("footer")).toBeNull();
+    expect(root.textContent).not.toContain("Latest 100 PRs. Stored only in this browser.");
+    const link = root.querySelector<HTMLAnchorElement>(".bolt-link.pr-link")!;
+    expect(link.href).toBe(pr.url);
+    expect(link.target).toBe("_blank");
+    expect(link.rel).toBe("noopener noreferrer");
+    expect(root.textContent).toContain("org / Project / Repo");
+    expect(root.textContent).toContain("#42");
+    expect(root.querySelector(".pr-author")?.textContent).toBe("By PR Author");
+    expect(root.querySelector("time")?.dateTime).toBe(new Date(pr.viewedAt).toISOString());
+  });
+
+  it("checks automatically and supports refreshing signed-in status", async () => {
+    const health = vi.fn<PopupDependencies["health"]>().mockResolvedValueOnce({ connected: true, authenticated: false }).mockResolvedValue({ connected: true, authenticated: true, login: "reviewer" });
+    const { root } = setup({ health });
+    await vi.waitFor(() => expect(root.textContent).toContain("Needs login"));
+    expect(root.textContent).not.toContain("ado-boost login");
+    button(root, "Needs login").click();
+    expect(root.textContent).toContain("ado-boost login");
+    expect(root.querySelector(".bolt-status")).not.toBeNull();
+    button(root, "Refresh").click();
+    await vi.waitFor(() => expect(root.textContent).toContain("reviewer"));
+    expect(health).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows companion errors without hiding history and exposes retry", async () => {
+    const health = vi.fn<PopupDependencies["health"]>().mockRejectedValueOnce(new Error("Native host not found")).mockResolvedValue({ connected: true, authenticated: true });
+    const { root } = setup({ health });
+    await vi.waitFor(() => expect(root.textContent).toContain("Unavailable"));
+    expect(root.textContent).not.toContain("Native host not found");
+    expect(root.querySelector(".connection")).toBeNull();
+    button(root, "Unavailable").click();
+    expect(root.textContent).toContain("Native host not found");
+    expect(root.textContent).toContain("ado-boost doctor");
+    expect(root.textContent).toContain("Fix a bug");
+    button(root, "Refresh").click();
+    await vi.waitFor(() => expect(root.textContent).not.toContain("Native host not found"));
+  });
+
+  it("opens a portaled ADO popover from the compact header and restores focus on Escape", async () => {
+    const { root, container, deps } = setup();
+    await vi.waitFor(() => expect(root.textContent).toContain("Connected"));
+    const toggle = button(root, "Connected");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.getAttribute("aria-label")).toBe("Copilot companion: Connected");
+    expect(root.textContent).not.toContain("reviewer");
+    toggle.click();
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(root.querySelector(`#${toggle.getAttribute("aria-controls")}`)).not.toBeNull();
+    expect(root.querySelector(".connection")?.closest(".bolt-portal")).not.toBeNull();
+    expect(root.querySelector(".connection")?.closest(".bolt-portal-host.scroll-hidden")).not.toBeNull();
+    expect(container.contains(root.querySelector(".connection"))).toBe(false);
+    expect(root.querySelector(".popup .connection")).toBeNull();
+    expect(root.querySelector('[role="dialog"]')?.getAttribute("aria-labelledby")).toBe(root.querySelector(".connection h2")?.id);
+    expect(root.textContent).toContain("Signed in as reviewer");
+    expect(deps.health).toHaveBeenCalledOnce();
+    button(root, "Refresh").focus();
+    document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(root.querySelector(".connection")).toBeNull();
+    expect(document.activeElement).toBe(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    toggle.click();
+    expect(root.querySelector(".connection")).not.toBeNull();
+    toggle.click();
+    expect(root.querySelector(".connection")).toBeNull();
+  });
+
+  it("dismisses the companion popover on an outside click", async () => {
+    const { root } = setup();
+    await vi.waitFor(() => expect(root.textContent).toContain("Connected"));
+    const toggle = button(root, "Connected");
+    toggle.click();
+    root.querySelector<HTMLElement>(".bolt-light-dismiss")!.click();
+    expect(root.querySelector(".connection")).toBeNull();
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(toggle);
+  });
+
+  it("renders untrusted PR metadata as text, not HTML", async () => {
+    const { root } = setup({ list: async () => [{ ...pr, title: '<img src=x onerror="alert(1)">', author: "<script>author</script>", repository: "<script>bad</script>" }] });
+    await vi.waitFor(() => expect(root.querySelector(".pr-title")?.textContent).toContain("<img"));
+    expect(root.querySelector(".recent-list img")).toBeNull();
+    expect(root.querySelector(".recent-list script")).toBeNull();
+    expect(root.querySelector(".pr-author")?.textContent).toBe("By <script>author</script>");
+  });
+
+  it("keeps legacy entries without authors usable", async () => {
+    const legacy = { ...pr };
+    delete legacy.author;
+    const { root } = setup({ list: async () => [legacy] });
+    await vi.waitFor(() => expect(root.querySelector(".pr-title")?.textContent).toBe("Fix a bug"));
+    expect(root.querySelector(".pr-author")).toBeNull();
+    expect(root.querySelector<HTMLAnchorElement>(".pr-link")?.href).toBe(pr.url);
+    expect(root.textContent).not.toContain("undefined");
+  });
+
+  it("requires confirmation to clear history and leaves cancellation untouched", async () => {
+    const list = vi.fn<PopupDependencies["list"]>().mockResolvedValue([pr]);
+    const clear = vi.fn(async () => { list.mockResolvedValue([]); });
+    const { root } = setup({ list, clear });
+    await vi.waitFor(() => expect(root.querySelector(".pr-title")).not.toBeNull());
+    button(root, "Clear history").click();
+    expect(root.querySelector('[aria-label="Confirm clearing history"]')).not.toBeNull();
+    expect(clear).not.toHaveBeenCalled();
+    button(root, "Cancel").click();
+    expect(clear).not.toHaveBeenCalled();
+    button(root, "Clear history").click();
+    button(root, "Confirm clear").click();
+    await vi.waitFor(() => expect(root.textContent).toContain("No recent pull requests yet"));
+    expect(clear).toHaveBeenCalledOnce();
+  });
+
+  it("allows clearing corrupt history, surfaces clear failures, and retries loading", async () => {
+    const list = vi.fn<PopupDependencies["list"]>().mockRejectedValueOnce(new Error("Invalid recent PR URL")).mockResolvedValue([]);
+    const { root } = setup({ list, clear: async () => { throw new Error("Storage unavailable"); } });
+    await vi.waitFor(() => expect(root.textContent).toContain("Invalid recent PR URL"));
+    expect(button(root, "Clear history").disabled).toBe(false);
+    button(root, "Clear history").click();
+    button(root, "Confirm clear").click();
+    await vi.waitFor(() => expect(root.textContent).toContain("Storage unavailable"));
+    button(root, "Cancel").click();
+    button(root, "Retry history").click();
+    await vi.waitFor(() => expect(root.textContent).toContain("No recent pull requests yet"));
+  });
+
+  it("updates theme, disabled state, and history from storage notifications", async () => {
+    const settings = defaultSettings();
+    settings.presentation.theme = "dark";
+    settings.masterEnabled = false;
+    const list = vi.fn<PopupDependencies["list"]>().mockResolvedValueOnce([pr]).mockResolvedValue([]);
+    const { root, changed, unsubscribe } = setup({ settings: async () => settings, list });
+    await vi.waitFor(() => expect(document.documentElement.dataset.theme).toBe("dark"));
+    expect(root.textContent).toContain("New visits are not being recorded");
+    changed("history");
+    await vi.waitFor(() => expect(root.textContent).toContain("No recent pull requests yet"));
+    settings.presentation.theme = "light";
+    changed("settings");
+    await vi.waitFor(() => expect(document.documentElement.dataset.theme).toBe("light"));
+    popup?.destroy();
+    expect(unsubscribe).toHaveBeenCalledOnce();
+    popup = undefined;
+  });
+
+  it("opens settings and shows errors instead of silently failing", async () => {
+    const openSettings = vi.fn().mockRejectedValue(new Error("Cannot open settings"));
+    const { root } = setup({ openSettings });
+    button(root, "Settings").click();
+    await vi.waitFor(() => expect(root.textContent).toContain("Cannot open settings"));
+    expect(openSettings).toHaveBeenCalledOnce();
+  });
+});
