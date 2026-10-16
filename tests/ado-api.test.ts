@@ -243,6 +243,81 @@ describe("AdoApi", () => {
     await expect(api.listThreads(context)).resolves.toEqual([{ id: 10, status: "active", comments: [{ id: 2, content: "", author: "Unknown reviewer", isDeleted: false }] }]);
   });
 
+  it("retains thread and comment publication dates for chronological sorting", async () => {
+    const publishedDate = "2026-10-15T18:30:00Z";
+    const replyDate = "2026-10-15T18:45:00Z";
+    const api = new AdoApi(new QueueHttp([json({ value: [{
+      id: 10, publishedDate,
+      comments: [{ id: 2, content: "Reply", publishedDate: replyDate }]
+    }] })]));
+    await expect(api.listThreads(context)).resolves.toEqual([{
+      id: 10, status: "active", publishedDate,
+      comments: [{ id: 2, content: "Reply", author: "Unknown reviewer", isDeleted: false, publishedDate: replyDate }]
+    }]);
+  });
+
+  it("retains comment author photos", async () => {
+    const imageUrl = "https://dev.azure.com/org/_apis/GraphProfile/MemberAvatars/reviewer";
+    const api = new AdoApi(new QueueHttp([json({ value: [{
+      id: 10, comments: [{ id: 2, author: { id: "me", displayName: "Me", imageUrl } }]
+    }] })]));
+    await expect(api.listThreads(context)).resolves.toMatchObject([{
+      comments: [{ author: "Me", authorImageUrl: imageUrl }]
+    }]);
+  });
+
+  it.each(["system", 3])("identifies voted system comments of type %s without hiding normal voting discussions", async (commentType) => {
+    const api = new AdoApi(new QueueHttp([json({ value: [{
+      id: 10, comments: [
+        { id: 1, content: "Alice voted 10", commentType },
+        { id: 2, content: "I voted after reviewing this.", commentType: "text" },
+        { id: 3, content: "Other system message", commentType }
+      ]
+    }] })]));
+    const [thread] = await api.listThreads(context);
+    expect(thread!.comments[0]!.isVoteUpdate).toBe(true);
+    expect(thread!.comments[1]).not.toHaveProperty("isVoteUpdate");
+    expect(thread!.comments[2]).not.toHaveProperty("isVoteUpdate");
+  });
+
+  it("identifies localized vote events by metadata and preserves reviewer replies in the same thread", async () => {
+    const api = new AdoApi(new QueueHttp([json({ value: [{
+      id: 10,
+      properties: { CodeReviewThreadType: { $type: "System.String", $value: "VoteUpdate" } },
+      comments: [
+        { id: 1, content: "Localized vote notification", commentType: "system" },
+        { id: 2, content: "Reviewer reply", commentType: "text" }
+      ]
+    }] })]));
+    const [thread] = await api.listThreads(context);
+    expect(thread!.comments[0]!.isVoteUpdate).toBe(true);
+    expect(thread!.comments[1]).not.toHaveProperty("isVoteUpdate");
+  });
+
+  it.each(["javascript:alert(1)", "data:image/svg+xml,photo", "invalid", 123])("warns and omits invalid avatar URLs: %s", async (imageUrl) => {
+    const warn = vi.fn();
+    const api = new AdoApi(new QueueHttp([json({ value: [{
+      id: 10, comments: [{ id: 2, author: { id: "me", displayName: "Me", imageUrl } }]
+    }] })]), warn);
+    const result = await api.listThreads(context);
+    expect(result[0]!.comments[0]).toMatchObject({ author: "Me" });
+    expect(result[0]!.comments[0]).not.toHaveProperty("authorImageUrl");
+    expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it("warns and omits malformed publication dates without dropping discussions", async () => {
+    const warn = vi.fn();
+    const api = new AdoApi(new QueueHttp([json({ value: [{
+      id: 10, publishedDate: "bad date",
+      comments: [{ id: 2, content: "Feedback", publishedDate: 123 }]
+    }] })]), warn);
+    await expect(api.listThreads(context)).resolves.toEqual([{
+      id: 10, status: "active",
+      comments: [{ id: 2, content: "Feedback", author: "Unknown reviewer", isDeleted: false }]
+    }]);
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
   it("treats a not-listed reviewer as no existing vote", async () => {
     const http = new QueueHttp([new Response("not found", { status: 404 })]);
     await expect(new AdoApi(http).getCurrentVote(context)).resolves.toBe(0);

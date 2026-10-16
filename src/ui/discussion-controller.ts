@@ -5,8 +5,10 @@ import type { WriteGateway } from "../core/write-gateway";
 import type { PullRequestAnalysis, PullRequestThread, ReviewDecision, ReviewDraft, SubmissionReceipt } from "../core/types";
 import type { FeatureSettings } from "../features/registry";
 import { resolveFeature } from "../features/registry";
-import { adoFileUrl, navigateToAdoFile } from "./ado-navigation";
+import { adoFileUrl, navigateToAdoComment, navigateToAdoFile } from "./ado-navigation";
 import { renderAdoComment } from "./comment-content";
+import { sortDiscussions, sortThreads, type DiscussionSort } from "./discussion-sort";
+import { InlineDraftComposer } from "./inline-draft-composer";
 
 type DraftInput = Pick<ReviewDraft, "kind" | "path" | "trackingId" | "line" | "side" | "threadId">;
 
@@ -19,6 +21,8 @@ export class DiscussionController {
   private threadError: string | null = null;
   private threadStatus = "all";
   private threadAuthor = "";
+  private threadSort: DiscussionSort = "newest";
+  private readonly composers = new Map<string, InlineDraftComposer>();
   private actionError: string | null = null;
 
   constructor(
@@ -57,6 +61,7 @@ export class DiscussionController {
     return `<section class="discussion">
       <div class="section-head"><div><h3>Review queue</h3><p class="muted">${draftsEnabled ? `${this.drafts.filter((draft) => draft.delivery !== "posted").length} private drafts` : "Private drafts disabled"}${threadsEnabled ? ` · ${this.threads.length} discussions` : ""}</p></div>${draftsEnabled ? `<button class="secondary add-general" type="button">Add general draft</button>` : ""}</div>
       ${this.actionError ? `<div class="delivery error">${escapeHtml(this.actionError)}</div>` : ""}
+      ${draftsEnabled ? this.composers.get("general")?.markup() ?? "" : ""}
       ${draftsEnabled ? `<details ${this.drafts.length ? "open" : ""}><summary>Private drafts</summary><div class="draft-list">${this.drafts.length ? this.drafts.map((draft) => this.draftMarkup(draft)).join("") : `<p class="muted">Drafts stay only in local browser storage until Submit Review is confirmed.</p>`}</div></details>` : ""}
       ${threadsEnabled ? `<details open><summary>Discussion threads</summary>${this.threadControls()}<div class="thread-list">${this.threadError ? `<div class="delivery error">${escapeHtml(this.threadError)} <button class="secondary retry-threads" type="button">Retry</button></div>` : threads.length ? threads.map((thread) => this.threadMarkup(thread)).join("") : `<p class="muted">No discussions match these filters.</p>`}</div></details>` : ""}
       ${this.receipt ? this.receiptMarkup(this.receipt) : ""}
@@ -66,11 +71,14 @@ export class DiscussionController {
 
   bind(root: ShadowRoot): void {
     if (this.enabled("draftQueue")) {
-      root.querySelector(".add-general")?.addEventListener("click", () => this.showDraftDialog(root, { kind: "general" }));
+      root.querySelector(".add-general")?.addEventListener("click", () => this.showGeneralDraft(root));
       for (const element of root.querySelectorAll<HTMLElement>("[data-draft-id]")) {
         const id = element.dataset.draftId!;
         element.querySelector(".edit-draft")?.addEventListener("click", () => this.editDraft(root, id));
         element.querySelector(".delete-draft")?.addEventListener("click", () => void this.removeDraft(id));
+      }
+      for (const element of root.querySelectorAll<HTMLElement>("[data-composer-key]")) {
+        this.composers.get(element.dataset.composerKey!)?.bind(element);
       }
     }
     if (this.enabled("feedbackExport")) {
@@ -83,16 +91,35 @@ export class DiscussionController {
     if (this.enabled("threadNavigator")) {
       root.querySelector(".retry-threads")?.addEventListener("click", () => void this.retryThreads());
       root.querySelector<HTMLSelectElement>(".thread-status-filter")?.addEventListener("change", (event) => { this.threadStatus = (event.target as HTMLSelectElement).value; this.onChange(); });
-      root.querySelector<HTMLInputElement>(".thread-author-filter")?.addEventListener("input", (event) => { this.threadAuthor = (event.target as HTMLInputElement).value; this.onChange(); });
+      root.querySelector<HTMLInputElement>(".thread-author-filter")?.addEventListener("input", (event) => {
+        const input = event.target as HTMLInputElement;
+        const selection = input.selectionStart;
+        this.threadAuthor = input.value;
+        this.onChange();
+        const replacement = root.querySelector<HTMLInputElement>(".thread-author-filter");
+        replacement?.focus();
+        replacement?.setSelectionRange(selection, selection);
+      });
+      root.querySelector<HTMLSelectElement>(".thread-sort")?.addEventListener("change", (event) => {
+        this.threadSort = (event.target as HTMLSelectElement).value === "oldest" ? "oldest" : "newest";
+        this.onChange();
+        root.querySelector<HTMLElement>(".thread-sort")?.focus();
+      });
       for (const element of root.querySelectorAll<HTMLElement>("[data-thread-id]")) {
         const threadId = Number(element.dataset.threadId);
         const status = element.dataset.threadStatus ?? "active";
+        for (const image of element.querySelectorAll<HTMLImageElement>(".comment-avatar img")) {
+          image.addEventListener("error", () => image.remove(), { once: true });
+        }
+        for (const button of element.querySelectorAll<HTMLButtonElement>(".jump-comment")) {
+          button.addEventListener("click", () => void this.jumpToComment(button));
+        }
         element.querySelector<HTMLAnchorElement>(".thread-file-link")?.addEventListener("click", (event) => {
           event.preventDefault();
           const path = (event.currentTarget as HTMLAnchorElement).dataset.path;
           if (path) navigateToAdoFile(path);
         });
-        element.querySelector(".reply-draft")?.addEventListener("click", () => this.showReplyDialog(root, threadId));
+        element.querySelector(".reply-draft")?.addEventListener("click", () => this.openComposer(root, { kind: "reply", threadId }));
         element.querySelector(".thread-status")?.addEventListener("click", () => this.showThreadStatusDialog(root, threadId, status));
       }
     }
@@ -105,7 +132,7 @@ export class DiscussionController {
 
   showGeneralDraft(root: ShadowRoot, body = ""): void {
     if (!this.enabled("draftQueue")) return;
-    this.showDraftDialog(root, { kind: "general" }, body ? { kind: "general", body } as ReviewDraft : undefined);
+    this.openComposer(root, { kind: "general" }, body);
   }
 
   private enabled(id: "draftQueue" | "threadNavigator" | "feedbackExport" | "submitReview"): boolean {
@@ -113,33 +140,61 @@ export class DiscussionController {
   }
 
   private filteredThreads(): PullRequestThread[] {
-    return this.threads.filter((thread) => {
+    return sortThreads(this.threads.map((thread) => ({
+      ...thread,
+      comments: thread.comments.filter((comment) => !comment.isDeleted && !comment.isVoteUpdate && comment.author !== "Microsoft.VisualStudio.Services.TFS")
+    })).filter((thread) => {
+      if (!thread.comments.length) return false;
       const active = thread.status.toLowerCase() === "active";
       if (this.threadStatus === "active" && !active) return false;
       if (this.threadStatus === "resolved" && active) return false;
       if (this.threadAuthor && !thread.comments.some((comment) => comment.author.toLowerCase().includes(this.threadAuthor.toLowerCase()))) return false;
       return true;
-    });
+    }), this.threadSort);
   }
 
   private threadControls(): string {
-    return `<div class="thread-controls"><select class="select thread-status-filter" aria-label="Filter discussions by status"><option value="all">All statuses</option><option value="active" ${this.threadStatus === "active" ? "selected" : ""}>Active</option><option value="resolved" ${this.threadStatus === "resolved" ? "selected" : ""}>Resolved</option></select><input class="search thread-author-filter" value="${escapeHtml(this.threadAuthor)}" placeholder="Filter author" aria-label="Filter discussions by author"></div>`;
+    return `<div class="thread-controls"><select class="select thread-status-filter" aria-label="Filter discussions by status"><option value="all">All statuses</option><option value="active" ${this.threadStatus === "active" ? "selected" : ""}>Active</option><option value="resolved" ${this.threadStatus === "resolved" ? "selected" : ""}>Resolved</option></select><input class="search thread-author-filter" value="${escapeHtml(this.threadAuthor)}" placeholder="Filter author" aria-label="Filter discussions by author"><label class="thread-sort-label">Sort comments<select class="select thread-sort" aria-label="Sort comments"><option value="newest" ${this.threadSort === "newest" ? "selected" : ""}>Newest first</option><option value="oldest" ${this.threadSort === "oldest" ? "selected" : ""}>Oldest first</option></select></label></div>`;
   }
 
   private draftMarkup(draft: ReviewDraft): string {
     const location = draft.path ? `${draft.path}${draft.line ? `:${draft.line} ${draft.side ?? "right"}` : ""}` : draft.kind === "reply" ? `Thread ${draft.threadId}` : "General comment";
     const stale = this.queue.stale(draft);
-    return `<article class="draft-item" data-draft-id="${draft.id}"><div><strong>${escapeHtml(location)}</strong><span class="status">${stale ? "stale" : draft.delivery}</span><p>${escapeHtml(draft.body)}</p>${draft.error ? `<small class="error">${escapeHtml(draft.error)}</small>` : ""}</div><div><button class="icon edit-draft" type="button">Edit</button><button class="icon delete-draft" type="button" aria-label="Delete draft">✕</button></div></article>`;
+    return `<article class="draft-item" data-draft-id="${draft.id}"><div><strong>${escapeHtml(location)}</strong><span class="status">${stale ? "stale" : draft.delivery}</span><p>${escapeHtml(draft.body)}</p>${draft.error ? `<small class="error">${escapeHtml(draft.error)}</small>` : ""}</div>${this.composers.get(`edit:${draft.id}`)?.markup() ?? ""}<div><button class="icon edit-draft" type="button">Edit</button><button class="icon delete-draft" type="button" aria-label="Delete draft">✕</button></div></article>`;
   }
 
   private threadMarkup(thread: PullRequestThread): string {
-    const first = thread.comments.find((comment) => !comment.isDeleted);
+    const comments = sortDiscussions(thread.comments, this.threadSort);
     const active = thread.status.toLowerCase() === "active";
-    const location = thread.path ? `${thread.path}${thread.line ? `:${thread.line}` : ""}` : `Thread ${thread.id}`;
+    const location = thread.path ? `${thread.path}${thread.line ? `:${thread.line}` : ""}` : "";
     const locationMarkup = thread.path
       ? `<a class="file-link thread-file-link" data-path="${escapeHtml(thread.path)}" href="${escapeHtml(adoFileUrl(thread.path))}"><strong>${escapeHtml(location)}</strong></a>`
-      : `<strong>${escapeHtml(location)}</strong>`;
-    return `<article class="thread-item" data-thread-id="${thread.id}" data-thread-status="${escapeHtml(thread.status)}"><div>${locationMarkup}<span class="status">${escapeHtml(thread.status)}</span><div class="thread-content">${renderAdoComment(first?.content ?? "No visible comment")}</div><small>${escapeHtml(first?.author ?? "")}</small></div><div>${this.enabled("draftQueue") ? `<button class="icon reply-draft" type="button">Reply draft</button>` : ""}<button class="icon thread-status" type="button">${active ? "Resolve" : "Reopen"}</button></div></article>`;
+      : "";
+    return `<article class="thread-item" data-thread-id="${thread.id}" data-thread-status="${escapeHtml(thread.status)}">
+      <div>${comments.map((comment) => this.commentMarkup(comment)).join("")}</div>
+      ${this.enabled("draftQueue") ? this.composers.get(`reply:${thread.id}`)?.markup() ?? "" : ""}
+      <footer class="thread-footer"><div class="thread-metadata">${locationMarkup}<div><small class="thread-id">Thread ${thread.id}</small><span class="status">${escapeHtml(thread.status)}</span></div></div><div class="thread-actions">${this.enabled("draftQueue") ? '<button class="icon reply-draft" type="button">Reply draft</button>' : ""}<button class="icon thread-status" type="button">${active ? "Resolve" : "Reopen"}</button></div></footer>
+    </article>`;
+  }
+
+  private commentMarkup(comment: PullRequestThread["comments"][number]): string {
+    const initials = comment.author.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+    return `<div class="thread-comment" data-comment-id="${comment.id}"><header class="comment-header"><span class="comment-avatar" aria-hidden="true">${escapeHtml(initials)}${comment.authorImageUrl ? `<img src="${escapeHtml(comment.authorImageUrl)}" alt="" width="28" height="28" loading="lazy" referrerpolicy="no-referrer">` : ""}</span><div class="comment-author"><strong>${escapeHtml(comment.author)}</strong>${comment.publishedDate ? `<time datetime="${escapeHtml(comment.publishedDate)}">${escapeHtml(new Date(comment.publishedDate).toLocaleString())}</time>` : ""}</div><button class="icon jump-comment" type="button" aria-label="Jump to comment by ${escapeHtml(comment.author)}" title="${comment.publishedDate ? "Jump to comment in Azure DevOps" : "Comment location unavailable: no publication time"}" data-published-date="${escapeHtml(comment.publishedDate ?? "")}" ${comment.publishedDate ? "" : "disabled"}><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3H3v10h10v-3M8 2h6v6M14 2l-7 7" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/></svg></button></header><div class="thread-content">${renderAdoComment(comment.content)}</div></div>`;
+  }
+
+  private async jumpToComment(button: HTMLButtonElement): Promise<void> {
+    button.disabled = true;
+    const hadError = this.actionError !== null;
+    this.actionError = null;
+    try {
+      await navigateToAdoComment(button.dataset.publishedDate ?? "");
+      if (hadError) this.onChange();
+    } catch (error) {
+      this.actionError = error instanceof Error ? error.message : "Could not locate this comment in Azure DevOps.";
+      this.onChange();
+    } finally {
+      button.disabled = false;
+    }
   }
 
   private receiptMarkup(receipt: SubmissionReceipt): string {
@@ -168,11 +223,42 @@ export class DiscussionController {
   private editDraft(root: ShadowRoot, id: string): void {
     const draft = this.drafts.find((candidate) => candidate.id === id);
     if (!draft || draft.delivery === "posted") return;
-    this.showDraftDialog(root, draft, draft);
+    if (draft.kind === "inline") this.showDraftDialog(root, draft, draft);
+    else this.openComposer(root, draft, draft.body, draft.id);
   }
 
-  private showReplyDialog(root: ShadowRoot, threadId: number): void {
-    this.showDraftDialog(root, { kind: "reply", threadId });
+  private openComposer(root: ShadowRoot, input: DraftInput, body = "", existingId?: string): void {
+    if (!this.enabled("draftQueue")) return;
+    const key = existingId ? `edit:${existingId}` : input.kind === "reply" ? `reply:${input.threadId}` : "general";
+    if (!this.composers.has(key)) {
+      this.composers.set(key, new InlineDraftComposer(
+        key,
+        existingId ? "Edit private draft" : input.kind === "reply" ? `Reply to thread ${input.threadId}` : "General comment",
+        body,
+        async (value) => {
+          if (!this.enabled("draftQueue")) throw new Error("Private feedback drafts are disabled");
+          if (existingId) {
+            await this.queue.update(existingId, { body: value });
+            this.drafts = this.drafts.map((draft) => draft.id === existingId ? { ...draft, body: value, delivery: "pending", error: undefined } : draft);
+          } else {
+            const draft = await this.queue.add({ ...input, body: value });
+            this.drafts = [...this.drafts, draft];
+          }
+        },
+        () => {
+          this.composers.delete(key);
+          this.onChange();
+          const opener = existingId ? `[data-draft-id="${existingId}"] .edit-draft` : input.kind === "reply" ? `[data-thread-id="${input.threadId}"] .reply-draft` : ".add-general";
+          root.querySelector<HTMLElement>(opener)?.focus();
+        },
+        this.onChange
+      ));
+    }
+    this.onChange();
+    const composer = root.querySelector<HTMLElement>(`[data-composer-key="${key}"]`);
+    const details = composer?.closest("details");
+    if (details) details.open = true;
+    composer?.querySelector<HTMLTextAreaElement>(".draft-body")?.focus();
   }
 
   private showThreadStatusDialog(root: ShadowRoot, threadId: number, currentStatus: string): void {
@@ -223,6 +309,7 @@ export class DiscussionController {
     const draft = this.drafts.find((candidate) => candidate.id === id);
     if (draft?.delivery === "posted") return;
     await this.queue.remove(id);
+    this.composers.delete(`edit:${id}`);
     this.drafts = await this.queue.list();
     this.onChange();
   }

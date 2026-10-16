@@ -8,6 +8,7 @@ function createReadSchemas(warn: ResponseWarning) {
   const { optional } = createResponseValidation(warn);
   const identitySchema = z.object({
     id: z.string().min(1),
+    imageUrl: optional(z.url({ protocol: /^https?$/ }), "identity.imageUrl"),
     displayName: optional(z.string().min(1), "identity.displayName").transform((name) => name ?? "Unknown reviewer")
   }).passthrough();
 
@@ -33,6 +34,7 @@ function createReadSchemas(warn: ResponseWarning) {
 
   const threadSchema = z.object({
     id: z.number().int().positive().nullish(),
+    publishedDate: optional(z.iso.datetime({ offset: true }), "thread.publishedDate"),
     status: optional(z.string(), "thread.status"),
     isDeleted: z.boolean().nullish(),
     threadContext: z.object({
@@ -43,7 +45,9 @@ function createReadSchemas(warn: ResponseWarning) {
     properties: optional(z.record(z.string(), z.unknown()), "thread.properties"),
     comments: z.array(z.object({
       id: z.number().int().positive().nullish(),
+      publishedDate: optional(z.iso.datetime({ offset: true }), "comment.publishedDate"),
       content: optional(z.string(), "comment.content"),
+      commentType: optional(z.union([z.string(), z.number().int()]), "comment.commentType"),
       author: optional(identitySchema, "comment.author"),
       isDeleted: z.boolean().nullish()
     }).passthrough()).nullish()
@@ -62,6 +66,13 @@ function createReadSchemas(warn: ResponseWarning) {
   }).passthrough();
 
   return { pullRequestSchema, iterationSchema, changesPageSchema, threadSchema, connectionDataSchema };
+}
+
+function isVoteComment(type: string | number | null | undefined, content: string, properties: Record<string, unknown> | null | undefined): boolean {
+  if (type !== "system" && type !== 3) return false;
+  const threadType = properties?.CodeReviewThreadType;
+  const voteThread = typeof threadType === "object" && threadType !== null && "$value" in threadType && threadType.$value === "VoteUpdate";
+  return voteThread || /\bvoted\b/i.test(content);
 }
 
 const createdThreadSchema = z.object({
@@ -188,13 +199,17 @@ export class AdoApi {
     return threads.filter((thread) => thread.id).map((thread) => ({
       id: thread.id!,
       status: thread.status ?? "active",
+      ...(thread.publishedDate ? { publishedDate: thread.publishedDate } : {}),
       ...(thread.threadContext?.filePath ? { path: thread.threadContext.filePath } : {}),
       ...(thread.threadContext?.rightFileStart?.line ? { line: thread.threadContext.rightFileStart.line } : {}),
       comments: (thread.comments ?? []).filter((comment) => comment.id).map((comment) => ({
         id: comment.id!,
         content: comment.content ?? "",
         author: comment.author?.displayName ?? "Unknown reviewer",
-        isDeleted: comment.isDeleted ?? false
+        ...(comment.author?.imageUrl ? { authorImageUrl: comment.author.imageUrl } : {}),
+        ...(isVoteComment(comment.commentType, comment.content ?? "", thread.properties) ? { isVoteUpdate: true } : {}),
+        isDeleted: comment.isDeleted ?? false,
+        ...(comment.publishedDate ? { publishedDate: comment.publishedDate } : {})
       }))
     }));
   }

@@ -33,7 +33,7 @@ Browser loading, native-host registration, and live Copilot inference require se
 - Previous, next, next-unreviewed, and keyboard navigation reuse Azure DevOps' SPA file links without forcing a full page reload.
 - Azure DevOps' existing server-backed reviewed checkboxes remain authoritative. ADO Boost does not render or synchronize a second reviewed-state system.
 - The elevated `Assistant` button always opens the discussions and review-tools side panel, whether or not a review has started. When Approve and Complete are removed, it stays in the title's native action row beside the overflow menu, leaving the title's copy control untouched.
-- The discussion panel docks inline beside the native PR content by default, so it never covers the file tree or diff. Narrow windows stack it below the PR instead of shrinking the diff. Its header uses the official Azure DevOps UI button components, and the panel inherits the site's theme when **System** is selected. Use the layout button in the header to switch temporarily to an overlay or dock it again; closing the panel releases the space. Escape closes the panel when no review dialog is open.
+- The discussion panel docks inline beside the native PR content by default, so it never covers the file tree or diff. Narrow windows stack it below the PR instead of shrinking the diff. Its header uses the official Azure DevOps UI button components, and the panel inherits the site's theme when **System** is selected. The layout icon opens an ADO-styled menu with **Docked beside page** and **Overlay** options and a checkmark on the current selection; closing the panel releases the space. Escape dismisses the layout menu first, or closes the panel when no review dialog is open.
 
 ### Review coordination
 
@@ -52,11 +52,16 @@ Browser loading, native-host registration, and live Copilot inference require se
 - Basic syntax highlighting, paired word emphasis, whitespace visualization, line numbers, inline-draft anchors, unchanged-context collapsing, and explicit large-diff preview limits.
 - Merge-base and previous-iteration comparisons where a previous iteration exists.
 - Active and resolved thread navigation with status and author filters, native file links, reply drafts, and explicitly confirmed resolve/reopen actions.
+- Sidebar discussions and their replies default to **Newest first**, with an **Oldest first** sort option. Publication timestamps determine the order when available; older responses without timestamps use IDs.
+- The sidebar hides system comments from `Microsoft.VisualStudio.Services.TFS`, vote-change notifications, and threads with no remaining visible comments. Normal reviewer comments about voting remain visible. Native Azure DevOps discussions are unchanged.
+- Each sidebar comment starts with its author's photo, name, and publication time. Thread IDs appear in a smaller footer. **Jump to comment** scrolls to and focuses the native ADO comment, opening the PR's Overview tab when needed without reloading the page or clearing private drafts. If native filters hide the comment, the sidebar explains how to reveal it.
+- Wide comment tables and code blocks scroll within their own content area instead of widening the sidebar or pushing its actions offscreen.
 - Thread loading failures show an error and retry action instead of an empty-success state.
 
 ### Private review queue and Submit Review
 
 - General, inline, and reply drafts stored locally and isolated by origin, repository, PR, and reviewer.
+- General comments and replies compose directly inside the sidebar, with Markdown previews, inline save errors, and text retained across sidebar rerenders and filtering. Saving queues a private draft; it does not publish a comment. File-line drafts retain their anchored diff dialog.
 - Editable line and side anchors, draft editing, Markdown preview, Markdown copy export, and visible save/export errors.
 - Previewed submission with optional overall summary and current vote display.
 - Decisions: Comment only, Approve, Approve with suggestions, Wait for author, and Reject.

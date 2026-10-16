@@ -134,13 +134,17 @@ export interface SubmissionReceipt {
 export interface PullRequestThread {
   id: number;
   status: string;
+  publishedDate?: string;
   path?: string;
   line?: number;
   comments: Array<{
     id: number;
     content: string;
     author: string;
+    authorImageUrl?: string;
+    isVoteUpdate?: boolean;
     isDeleted: boolean;
+    publishedDate?: string;
   }>;
 }
 

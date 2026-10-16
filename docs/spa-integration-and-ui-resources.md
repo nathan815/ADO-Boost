@@ -49,6 +49,8 @@ The header renders published `azure-devops-ui` Button components with matching b
 
 The shared Vite configuration suppresses the library's bare CSS side-effect imports in every build, while preserving explicit `?inline` imports for the shadow root. Allowing the component library to inject global CSS overrides the host's own Bolt controls, including split-button arrow widths. Component styles must never be appended to the page head.
 
+The shadow root stops bubbling `keydown`, `keypress`, and `keyup` events before they reach ADO's document-level shortcut handlers. Otherwise shadow-DOM event retargeting makes an editor look like an ordinary div to ADO, and letters such as `e` trigger page navigation. This boundary does not prevent default input, clipboard, or focus behavior. ADO Boost's own capture-phase shortcuts use the composed event path to recognize input, select, textarea, and contenteditable targets.
+
 Prefer native app navigation controls when selecting files or moving through a review. `history.pushState` plus a synthetic `popstate` event is not a universal router API: applications may depend on their own routing state, event handling, or navigation mechanisms. Neither DOM hooks nor discovered internal functions should be described as supported browser-extension APIs.
 
 ## Public Bolt UI and Azure DevOps resources

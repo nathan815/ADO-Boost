@@ -51,20 +51,44 @@ describe("ReviewPanel native shell", () => {
     const { host, root, openSettings } = mountPanel();
     panel!.openDiscussions();
     expect(host.dataset.layout).toBe("inline");
-    expect(root.querySelectorAll(".header .bolt-button")).toHaveLength(3);
+    expect(root.querySelectorAll(".header-actions > .bolt-button,.panel-layout-toggle")).toHaveLength(3);
+    expect(root.querySelector(".subtitle")!.textContent).toBe("Iteration 3");
     root.querySelector<HTMLButtonElement>(".settings")!.click();
     expect(openSettings).toHaveBeenCalledOnce();
     root.querySelector<HTMLButtonElement>(".panel-layout-toggle")!.click();
+    expect(root.querySelector<HTMLElement>(".panel-layout-menu")!.hidden).toBe(false);
+    expect(host.dataset.layout).toBe("inline");
+    expect(root.querySelector('[data-overlay="false"]')!.getAttribute("aria-checked")).toBe("true");
+    root.querySelector<HTMLButtonElement>('[data-overlay="true"]')!.click();
     expect(host.dataset.layout).toBe("overlay");
     expect(document.querySelector("[data-adopp-panel-main]")).toBeNull();
     expect(root.activeElement?.classList.contains("panel-layout-toggle")).toBe(true);
     root.querySelector<HTMLButtonElement>(".panel-layout-toggle")!.click();
+    root.querySelector<HTMLButtonElement>('[data-overlay="false"]')!.click();
     expect(host.dataset.layout).toBe("inline");
     root.querySelector<HTMLButtonElement>(".close")!.click();
     expect(host.dataset.open).toBe("false");
     expect(document.querySelector("[data-adopp-panel-main]")).toBeNull();
     expect(document.activeElement?.classList.contains("adopp-start-button")).toBe(true);
     expect(root.querySelector(".rail")!.hasAttribute("inert")).toBe(true);
+  });
+
+  it("supports layout menu keyboard navigation and dismisses it without closing the panel", () => {
+    const { host, root } = mountPanel();
+    panel!.openDiscussions();
+    const trigger = root.querySelector<HTMLButtonElement>(".panel-layout-toggle")!;
+    trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, composed: true }));
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(root.activeElement).toBe(root.querySelector('[data-overlay="false"]'));
+    root.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, composed: true }));
+    expect(root.activeElement).toBe(root.querySelector('[data-overlay="true"]'));
+    root.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true }));
+    expect(host.dataset.open).toBe("true");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(root.activeElement).toBe(trigger);
+    trigger.click();
+    document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("closes with Escape but does not toggle while typing across the shadow boundary", () => {
@@ -85,6 +109,55 @@ describe("ReviewPanel native shell", () => {
     await Promise.resolve();
     expect(document.querySelector("[data-adopp-review-panel]")).toBeNull();
     expect(document.querySelector("[data-adopp-panel-main]")).toBeNull();
+  });
+
+  it.each(["keydown", "keypress", "keyup"])("contains %s inside the sidebar without suppressing editor events or default behavior", (type) => {
+    const { root } = mountPanel();
+    panel!.openDiscussions();
+    const textarea = document.createElement("textarea");
+    root.append(textarea);
+    const editor = vi.fn();
+    const adoShortcut = vi.fn();
+    textarea.addEventListener(type, editor);
+    document.addEventListener(type, adoShortcut);
+    try {
+      const event = new KeyboardEvent(type, { key: "e", bubbles: true, composed: true, cancelable: true });
+      textarea.dispatchEvent(event);
+      expect(editor).toHaveBeenCalledOnce();
+      expect(adoShortcut).not.toHaveBeenCalled();
+      expect(event.defaultPrevented).toBe(false);
+      document.body.dispatchEvent(new KeyboardEvent(type, { key: "e", bubbles: true }));
+      expect(adoShortcut).toHaveBeenCalledOnce();
+    } finally {
+      document.removeEventListener(type, adoShortcut);
+    }
+  });
+
+  it("preserves default keyboard editing commands and local button behavior", () => {
+    const { root, openSettings } = mountPanel();
+    panel!.openDiscussions();
+    const input = document.createElement("textarea");
+    root.append(input);
+    for (const options of [{ key: "a", ctrlKey: true }, { key: "Enter" }, { key: "Tab" }, { key: "ArrowLeft" }]) {
+      const event = new KeyboardEvent("keydown", { ...options, bubbles: true, composed: true, cancelable: true });
+      input.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    root.querySelector<HTMLButtonElement>(".settings")!.click();
+    expect(openSettings).toHaveBeenCalledOnce();
+  });
+
+  it("removes the keyboard boundary when destroyed", () => {
+    const { root } = mountPanel();
+    const button = document.createElement("button");
+    root.append(button);
+    const keyboard = vi.fn();
+    root.host.addEventListener("keydown", keyboard);
+    button.dispatchEvent(new KeyboardEvent("keydown", { key: "e", bubbles: true, composed: true }));
+    expect(keyboard).not.toHaveBeenCalled();
+    panel!.destroy();
+    button.dispatchEvent(new KeyboardEvent("keydown", { key: "e", bubbles: true, composed: true }));
+    expect(keyboard).toHaveBeenCalledOnce();
   });
 });
 

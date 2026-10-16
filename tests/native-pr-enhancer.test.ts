@@ -950,6 +950,26 @@ describe("NativePrEnhancer", () => {
     expect(navigated).toHaveBeenCalledOnce();
   });
 
+  it("ignores the next-file shortcut inside shadow editors but keeps it working on the page", () => {
+    const navigated = vi.fn();
+    document.querySelector<HTMLElement>('[data-row="new"] [role="row"]')?.addEventListener("click", navigated);
+    enhancer = createEnhancer();
+    enhancer.start();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = host.attachShadow({ mode: "open" });
+    root.innerHTML = '<textarea></textarea><input><select></select><div contenteditable="true"><span></span></div>';
+    for (const editor of root.querySelectorAll("textarea,input,select,span")) {
+      const event = new KeyboardEvent("keydown", { key: "n", bubbles: true, composed: true, cancelable: true });
+      editor.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(navigated).not.toHaveBeenCalled();
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true }));
+    expect(navigated).toHaveBeenCalledOnce();
+    host.remove();
+  });
+
   it("places next unreviewed beside the view mode control when no file is selected", () => {
     document.querySelector(".native-difference-navigation")?.remove();
     enhancer = createEnhancer();

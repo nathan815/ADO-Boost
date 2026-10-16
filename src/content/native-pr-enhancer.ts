@@ -3,6 +3,7 @@ import { totalStats } from "../core/diff";
 import type { FeatureSettings } from "../features/registry";
 import { resolveFeature } from "../features/registry";
 import { navigateToAdoFile } from "../ui/ado-navigation";
+import { isTypingEvent } from "../ui/keyboard";
 import type { NativeTreePort } from "../native-tree/client";
 
 interface NativePrEnhancerActions {
@@ -569,7 +570,7 @@ export class NativePrEnhancer {
       closeActionMenu();
       return;
     }
-    if (!resolveFeature(this.settings, "keyboardShortcuts").enabled || isTyping(event.target)) return;
+    if (!resolveFeature(this.settings, "keyboardShortcuts").enabled || isTypingEvent(event)) return;
     const key = event.key.toLowerCase();
     if (key !== "n") return;
     event.preventDefault();
@@ -1012,10 +1013,6 @@ function extensionOf(path: string): string {
 
 function normalize(value: string | null): string {
   return value?.replace(/\s+/g, " ").trim().toLowerCase() ?? "";
-}
-
-function isTyping(target: EventTarget | null): boolean {
-  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
 }
 
 function escapeHtml(value: string): string {

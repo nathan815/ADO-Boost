@@ -16,6 +16,7 @@ import { panelStyles } from "./styles";
 import { AnnouncementDialog } from "./announcement-dialog";
 import { AdoPanelHeader, adoComponentStyles } from "./ado-panel-header";
 import { ReviewPanelLayout } from "./review-panel-layout";
+import { isTypingEvent } from "./keyboard";
 
 interface ReviewPanelDependencies {
   analysis: PullRequestAnalysis;
@@ -59,6 +60,7 @@ export class ReviewPanel {
     this.host.dataset.theme = dependencies.settings.presentation.theme;
     this.host.dataset.adoppReviewPanel = "true";
     this.layout = new ReviewPanelLayout(this.host);
+    for (const type of ["keydown", "keypress", "keyup"]) this.root.addEventListener(type, this.onPanelKeyboardEvent);
     document.addEventListener("keydown", this.onKeyDown, true);
     if (resolveFeature(this.settings, "startReviewing").enabled) {
       void this.announcement.status(dependencies.analysis.context).then((record) => {
@@ -95,6 +97,7 @@ export class ReviewPanel {
     this.announcementDialog?.close();
     this.header?.destroy();
     document.removeEventListener("keydown", this.onKeyDown, true);
+    for (const type of ["keydown", "keypress", "keyup"]) this.root.removeEventListener(type, this.onPanelKeyboardEvent);
     this.layout.destroy();
   }
 
@@ -115,6 +118,7 @@ export class ReviewPanel {
   private render(): void {
     if (this.destroyed) return;
     const analysis = this.dependencies.analysis;
+    const scrollTop = this.root.querySelector(".workspace")?.scrollTop ?? 0;
     this.header?.destroy();
     this.layout.update(this.open, this.overlay ? "overlay" : "inline");
     this.root.innerHTML = `
@@ -139,13 +143,15 @@ export class ReviewPanel {
       overlay: this.overlay,
       announcementEnabled: resolveFeature(this.settings, "startReviewing").enabled,
       announced: this.announcementPosted,
-      subtitle: `${this.dependencies.synthetic ? "Synthetic offline fixture · " : ""}Iteration ${analysis.context.iterationId} · ${this.overlay ? "Overlay" : "Docked beside page"}`,
+      subtitle: `${this.dependencies.synthetic ? "Synthetic offline fixture · " : ""}Iteration ${analysis.context.iterationId}`,
       onSettings: this.dependencies.openSettings,
-      onToggleLayout: () => { this.overlay = !this.overlay; this.render(); this.root.querySelector<HTMLElement>(".panel-layout-toggle")?.focus(); },
+      onLayoutChange: (overlay) => { this.overlay = overlay; this.render(); this.root.querySelector<HTMLElement>(".panel-layout-toggle")?.focus(); },
       onClose: () => this.closePanel(),
       onAnnounce: () => this.startReviewing()
     });
     this.bind();
+    const workspace = this.root.querySelector(".workspace");
+    if (workspace) workspace.scrollTop = scrollTop;
   }
 
   private closePanel(): void {
@@ -266,14 +272,24 @@ export class ReviewPanel {
     this.announcementDialog.open();
   }
 
+  private readonly onPanelKeyboardEvent = (event: Event): void => {
+    // ADO sees the shadow host instead of the editor and treats typed letters as page shortcuts.
+    event.stopPropagation();
+  };
+
   private readonly onKeyDown = (event: KeyboardEvent): void => {
+    if (event.key === "Escape" && this.header?.closeLayoutMenu()) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     if (event.key === "Escape" && this.open && !document.querySelector("[data-adopp-announcement-dialog]") && !this.root.querySelector(".dialog-backdrop")) {
       event.preventDefault();
       event.stopPropagation();
       this.closePanel();
       return;
     }
-    if (!resolveFeature(this.settings, "keyboardShortcuts").enabled || isTyping(event.composedPath()[0] ?? event.target)) return;
+    if (!resolveFeature(this.settings, "keyboardShortcuts").enabled || isTypingEvent(event)) return;
     if (event.shiftKey && event.key.toLowerCase() === "r") {
       event.preventDefault();
       if (this.open) this.closePanel();
@@ -281,10 +297,6 @@ export class ReviewPanel {
       return;
     }
   };
-}
-
-function isTyping(target: EventTarget | null): boolean {
-  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target instanceof HTMLElement && target.isContentEditable;
 }
 
 function escapeHtml(value: string): string {
