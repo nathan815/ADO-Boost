@@ -1,4 +1,4 @@
-import { createElement as h } from "react";
+import { createElement as h, type KeyboardEvent } from "react";
 import { render, unmountComponentAtNode } from "react-dom";
 import { Button } from "azure-devops-ui/Button";
 import { Callout } from "azure-devops-ui/Callout";
@@ -11,10 +11,19 @@ import { Location } from "azure-devops-ui/Utilities/Position";
 import type { CopilotHealth } from "../core/copilot-gateway";
 import type { RecentPr } from "../core/recent-prs";
 import type { FeatureSettings } from "../features/registry";
+import { reviewStatusFor, reviewStatusLabels, type ReviewActivity } from "../core/review-activity";
+
+export const POPUP_TAB_KEY = "popup-tab:v1";
+export const popupTabs = ["recent", "reviewing", "reviewed"] as const;
+export type PopupTab = typeof popupTabs[number];
+const tabLabels: Record<PopupTab, string> = { recent: "Recently Viewed", reviewing: "Reviewing", reviewed: "Reviewed" };
 
 export interface PopupDependencies {
   health(): Promise<CopilotHealth>;
   list(): Promise<RecentPr[]>;
+  reviews(): Promise<ReviewActivity[]>;
+  loadTab(): Promise<PopupTab>;
+  saveTab(tab: PopupTab): Promise<void>;
   clear(): Promise<void>;
   openSettings(): Promise<void>;
   settings(): Promise<FeatureSettings>;
@@ -30,6 +39,10 @@ export class ExtensionPopup {
   private healthError = "";
   private connectionExpanded = false;
   private entries: RecentPr[] = [];
+  private reviews: ReviewActivity[] = [];
+  private selectedTab: PopupTab = "recent";
+  private tabChanged = false;
+  private tabWrites: Promise<void> = Promise.resolve();
   private loading = true;
   private historyError = "";
   private actionError = "";
@@ -49,6 +62,7 @@ export class ExtensionPopup {
     void this.loadHistory();
     void this.refreshHealth();
     void this.loadSettings();
+    void this.loadTab();
   }
 
   destroy(): void {
@@ -72,16 +86,63 @@ export class ExtensionPopup {
   private async loadHistory(): Promise<void> {
     const generation = ++this.historyGeneration;
     try {
-      const entries = await this.dependencies.list();
+      const [entries, reviews] = await Promise.all([this.dependencies.list(), this.dependencies.reviews()]);
       if (!this.active || generation !== this.historyGeneration) return;
       this.entries = entries;
+      this.reviews = reviews;
       this.historyError = "";
     } catch (error) {
       if (!this.active || generation !== this.historyGeneration) return;
       this.historyError = errorMessage(error, "Unable to load recent PRs");
     }
+
     this.loading = false;
     this.render();
+  }
+
+  private async loadTab(): Promise<void> {
+    try {
+      const tab = await this.dependencies.loadTab();
+      if (!this.active || this.tabChanged) return;
+      this.selectedTab = tab;
+    } catch (error) {
+      this.actionError = errorMessage(error, "Unable to load the selected tab");
+    }
+    this.render();
+  }
+
+  private selectTab(tab: PopupTab): void {
+    this.tabChanged = true;
+    this.selectedTab = tab;
+    this.confirmingClear = false;
+    this.tabWrites = this.tabWrites.then(async () => {
+      try {
+        await this.dependencies.saveTab(tab);
+      } catch (error) {
+        this.actionError = errorMessage(error, "Unable to save the selected tab");
+        this.render();
+      }
+    });
+    this.render();
+  }
+
+  private renderTabs() {
+    return h("div", { className: "popup-tabs", role: "tablist", "aria-label": "Pull requests" },
+      popupTabs.map((tab, index) => h("button", {
+        key: tab, id: `tab-${tab}`, role: "tab", type: "button",
+        "aria-selected": tab === this.selectedTab, "aria-controls": "pr-tabpanel",
+        tabIndex: tab === this.selectedTab ? 0 : -1,
+        onClick: () => this.selectTab(tab),
+        onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => {
+          const next = event.key === "ArrowRight" ? (index + 1) % popupTabs.length
+            : event.key === "ArrowLeft" ? (index + popupTabs.length - 1) % popupTabs.length
+            : event.key === "Home" ? 0 : event.key === "End" ? popupTabs.length - 1 : null;
+          if (next === null) return;
+          event.preventDefault();
+          this.selectTab(popupTabs[next]!);
+          this.root.querySelector<HTMLButtonElement>(`#tab-${popupTabs[next]}`)?.focus();
+        }
+      }, tabLabels[tab])));
   }
 
   private async refreshHealth(): Promise<void> {
@@ -132,6 +193,7 @@ export class ExtensionPopup {
     const status = this.checking ? "Checking"
       : this.healthError || !this.health?.connected ? "Unavailable"
       : this.health.authenticated ? "Connected" : "Needs login";
+    const entries = this.selectedTab === "recent" ? this.entries : this.reviews.filter((pr) => pr.reviewStatus === this.selectedTab);
     render(h("div", {
       className: "popup",
       // ADO buttons consume Escape during bubbling.
@@ -158,10 +220,11 @@ export class ExtensionPopup {
           h("span", { role: "status", "aria-live": "polite" }, status)),
           h(Button, { text: "Settings", subtle: true, onClick: () => void this.openSettings() }))),
       this.connectionExpanded ? this.renderConnectionDetails(status) : null,
-      h("section", { className: "recent", "aria-labelledby": "recent-heading" },
+      this.renderTabs(),
+      h("section", { className: "recent", id: "pr-tabpanel", role: "tabpanel", "aria-labelledby": `tab-${this.selectedTab}` },
         h("div", { className: "section-heading recent-heading" },
-          h("h2", { id: "recent-heading" }, "Recent pull requests"),
-          this.entries.length || this.historyError ? h(Button, {
+          h("h2", { id: "recent-heading" }, this.selectedTab === "recent" ? "Recent pull requests" : tabLabels[this.selectedTab]),
+          this.selectedTab === "recent" && (this.entries.length || this.historyError) ? h(Button, {
             text: "Clear history", subtle: true, disabled: this.loading || this.clearing,
             onClick: () => { this.confirmingClear = true; this.render(); }
           }) : null),
@@ -175,8 +238,13 @@ export class ExtensionPopup {
           : this.historyError ? h("div", { className: "empty" },
             h("p", { className: "error", role: "alert" }, this.historyError),
             h(Button, { text: "Retry history", onClick: () => void this.loadHistory() }))
-          : this.entries.length ? h("ol", { className: "recent-list" }, this.entries.map((pr) => this.renderPr(pr)))
-            : this.renderEmptyHistory()),
+          : entries.length ? h("ol", { className: "recent-list" }, entries.map((pr) => this.renderPr(pr)))
+            : this.selectedTab === "recent" ? this.renderEmptyHistory()
+              : h("div", { className: "history-empty" },
+                h("h3", null, this.selectedTab === "reviewing" ? "No pull requests being reviewed" : "No reviewed pull requests yet"),
+                h("p", { className: "muted" }, this.selectedTab === "reviewing"
+                  ? "Use Start Reviewing on an Azure DevOps pull request to track it here."
+                  : "Pull requests appear here when your announced review is complete."))),
       this.actionError ? h("p", { className: "action-error error", role: "alert" }, this.actionError) : null
     ), this.root);
   }
@@ -242,9 +310,11 @@ export class ExtensionPopup {
   }
 
   private renderPr(pr: RecentPr) {
-    return h("li", { key: pr.url },
+    const reviewStatus = reviewStatusFor(pr, this.reviews);
+    return h("li", { key: pr.url, className: reviewStatus ? `pr-${reviewStatus}` : undefined },
       h(Link, { href: pr.url, target: "_blank", rel: "noopener noreferrer", className: "pr-link", removeUnderline: true },
         h("span", { className: "pr-title" }, pr.title || "Untitled pull request"),
+        reviewStatus ? h("span", { className: `pr-review-status status-${reviewStatus}` }, reviewStatusLabels[reviewStatus]) : null,
         pr.author ? h("span", { className: "pr-author muted" }, `By ${pr.author}`) : null,
         h("span", { className: "pr-location muted" }, `${pr.organization} / ${pr.project} / ${pr.repository}`),
         h("span", { className: "pr-details muted" },

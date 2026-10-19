@@ -11,6 +11,8 @@ import { resolveFeature } from "../features/registry";
 import { ChromeSettingsStorage, SettingsService } from "../features/settings-service";
 import { ReviewPanel } from "../ui/review-panel";
 import { PullRequestListBadges } from "./list-badges";
+import { PullRequestListReviewStatus } from "./list-review-status";
+import { ChromeReviewActivityStorage } from "../adapters/review-activity-storage";
 import { NativePrEnhancer } from "./native-pr-enhancer";
 import { NativeTreeClient } from "../native-tree/client";
 import { NativeDiscussionClient } from "../native-discussions/client";
@@ -35,6 +37,7 @@ class ContentApp {
   private panel: ReviewPanel | null = null;
   private enhancer: NativePrEnhancer | null = null;
   private badges: PullRequestListBadges | null = null;
+  private listReviewStatus: PullRequestListReviewStatus | null = null;
   private nativeDiscussions: NativeDiscussionClient | null = null;
   private routeController: AbortController | null = null;
   private currentUrl = "";
@@ -112,8 +115,14 @@ class ContentApp {
     this.nativeDiscussions = null;
     this.badges?.stop();
     this.badges = null;
+    this.listReviewStatus?.stop();
+    this.listReviewStatus = null;
 
     if (!this.settings.masterEnabled) return;
+    if (!route) {
+      this.listReviewStatus = new PullRequestListReviewStatus(new ChromeReviewActivityStorage());
+      this.listReviewStatus.start();
+    }
     if (route && resolveFeature(this.settings, "prOverview").enabled) {
       try {
         const policy = this.diffPolicy;

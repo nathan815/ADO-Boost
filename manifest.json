@@ -32,7 +32,7 @@
   ],
   "options_page": "options.html",
   "action": {
-    "default_title": "ADO Boost: companion status and recent pull requests",
+    "default_title": "ADO Boost: pull requests and companion status",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",

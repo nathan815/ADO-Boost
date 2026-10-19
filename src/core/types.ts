@@ -1,3 +1,5 @@
+import type { RecentPr } from "./recent-prs";
+
 export type CountState = "exact" | "partial" | "binary" | "unavailable" | "error";
 
 export interface PrRoute {
@@ -98,6 +100,7 @@ export interface ReviewRecord {
 
 export interface AnnouncementRecord {
   key: string;
+  pullRequest?: RecentPr;
   status: "posting" | "posted" | "ambiguous";
   threadId?: number;
   commentId?: number;

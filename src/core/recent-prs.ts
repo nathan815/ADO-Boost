@@ -4,7 +4,7 @@ import type { PrRoute } from "./types";
 export const RECENT_PRS_KEY = "recent-prs:v1";
 export const RECENT_PRS_LIMIT = 100;
 
-const recentPrSchema = z.object({
+export const recentPrSchema = z.object({
   organization: z.string().min(1).max(256),
   project: z.string().min(1).max(256),
   repository: z.string().min(1).max(256),

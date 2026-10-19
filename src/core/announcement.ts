@@ -2,6 +2,7 @@ import type { AdoApi } from "../adapters/ado-api";
 import type { BrowserStore } from "../adapters/browser";
 import type { AnnouncementCompletion, AnnouncementRecord, PullRequestContext, ReviewCompletionTrigger, ReviewVote } from "./types";
 import { announcementBody } from "./announcement-content";
+import { recentPrUrl, type RecentPr } from "./recent-prs";
 
 export class AnnouncementService {
   constructor(
@@ -21,11 +22,17 @@ export class AnnouncementService {
   async status(context: PullRequestContext, signal?: AbortSignal): Promise<AnnouncementRecord | null> {
     const key = this.key(context);
     const local = await this.store.getAnnouncement(key);
-    if (local?.status === "posted") return local;
+    if (local?.status === "posted") {
+      if (local.pullRequest) return local;
+      const updated = { ...local, pullRequest: this.pullRequest(context, local.postedAt) };
+      await this.store.saveAnnouncement(updated);
+      return updated;
+    }
     const existing = await this.api.findAnnouncement(context, local?.body ?? this.body(context), signal);
     if (existing) {
       const reconciled: AnnouncementRecord = {
         key,
+        pullRequest: this.pullRequest(context, existing.postedAt ?? local?.postedAt),
         body: existing.body ?? local?.body ?? this.body(context),
         status: "posted",
         threadId: existing.threadId,
@@ -47,7 +54,7 @@ export class AnnouncementService {
 
     const startedAt = new Date().toISOString();
     const body = announcementBody(context, startedAt);
-    const inFlight: AnnouncementRecord = { key, status: "posting", body };
+    const inFlight: AnnouncementRecord = { key, status: "posting", body, pullRequest: this.pullRequest(context, startedAt) };
     await this.store.saveAnnouncement(inFlight);
     try {
       const created = await this.api.postAnnouncement(context, body, signal);
@@ -121,5 +128,13 @@ export class AnnouncementService {
     const updated = { ...record, completions: [...(record.completions ?? []).filter((candidate) => candidate.id !== completion.id), completion] };
     await this.store.saveAnnouncement(updated);
     return updated;
+  }
+
+  private pullRequest(context: PullRequestContext, at?: string): RecentPr {
+    return {
+      organization: context.organization, project: context.project, repository: context.repository,
+      repositoryId: context.repositoryId, pullRequestId: context.pullRequestId, title: context.title,
+      url: recentPrUrl(context), viewedAt: at && Number.isFinite(Date.parse(at)) ? Date.parse(at) : this.now().getTime()
+    };
   }
 }

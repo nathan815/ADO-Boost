@@ -18,7 +18,7 @@ ADO Boost is an Edge-first browser extension that makes Azure DevOps pull reques
 - Browser-local drafts for general comments, replies, and inline feedback, rendered in the matching native Azure DevOps discussion surface with a clear draft marker.
 - A previewed **Submit Review** flow for publishing selected feedback and optionally applying a vote.
 - Announce you begin reviewing a PR with an auto-generated comment so author is aware (optional).
-- A toolbar popup with local Copilot companion status and your 100 most recently viewed PRs across organizations and repositories.
+- A toolbar popup with local Copilot companion status and **Recently Viewed**, **Reviewing**, and **Reviewed** tabs. It remembers the last selected tab and highlights your review status in the popup and native PR lists.
 
 ## Install from source
 
@@ -50,7 +50,7 @@ Run `npm run build` again after changing the source, then reload the extension f
 - Open an Azure DevOps pull request under `https://dev.azure.com/` or `https://<org>.visualstudio.com/`.
 - Use the controls beside Azure DevOps' native **Filter** control to filter by change type, file type, or optional noise rules.
 - Use **Post** in a native Azure DevOps comment composer to publish immediately, or **Add to review** to keep the comment private for review submission. Select **Assistant** to manage discussions, drafts, review announcements, and submission.
-- Open the browser toolbar popup to see recent pull requests and a compact companion status indicator in the header. Select the indicator to open a popover beneath it with connection/sign-in details and the **Refresh** action. Click outside it or press Escape to dismiss it. Use **Clear history** to remove recent PRs after confirmation, or **Settings** to configure the extension.
+- Open the browser toolbar popup to see recent pull requests or switch to **Reviewing** and **Reviewed**. **Start Reviewing** adds a PR to Reviewing; completion of that announced review moves it to Reviewed with a **Review complete** label. Status also appears on native PR lists, and the popup remembers your selected tab. Select the compact companion status indicator for connection/sign-in details and **Refresh**; click outside or press Escape to dismiss it. Use **Clear history** on Recently Viewed to remove recent visits after confirmation without removing tracked reviews, or **Settings** to configure the extension.
 - Open settings directly from the discussion panel's gear button or the ADO Boost action menu beside the native review actions.
 
 Core review features are enabled by default. Generated-file hiding, lockfile hiding, review-start announcements, and Copilot features can be configured in settings.
@@ -61,7 +61,7 @@ ADO Boost previews user-visible writes before posting them. It does not automati
 
 - ADO Boost uses the signed-in Azure DevOps browser session and same-origin Azure DevOps APIs. It does not require or collect a personal access token.
 - Settings, review progress, private drafts, and submission receipts are stored in extension-local browser storage. ADO Boost does not send analytics or store pull request content in browser sync storage.
-- While ADO Boost is enabled, opening a PR records its title, author's display name, organization/project/repository, identity, URL, and visit time locally. The popup shows the author beneath each PR title; previously recorded entries gain author information when revisited. The latest 100 unique PRs are shared across ADO accounts in this browser profile, not synced across devices. Revisits move a PR to the top; file and tab changes within a PR do not. Clearing history leaves drafts and review progress untouched. Older browser history is not imported.
+- While ADO Boost is enabled, opening a PR records its title, author's display name, organization/project/repository, identity, URL, and visit time locally. The popup shows the author beneath each PR title; previously recorded entries gain author information when revisited. The latest 100 unique PRs are shared across ADO accounts in this browser profile, not synced across devices. Revisits move a PR to the top; file and tab changes within a PR do not. Announced reviews also retain local PR summary metadata with their review state, so they remain accessible outside the recent-history limit. Older saved announcements gain this metadata when revisited. Clearing history leaves drafts and review progress untouched. Older browser history is not imported.
 - Optional Copilot features send only the pull request context shown in their preview through GitHub Copilot. Use them only when allowed by your organization's policies.
 - Files larger than 2 MiB, binary files, unavailable versions, and fetch failures are shown as incomplete rather than exact.
 - Azure DevOps review submission is not atomic. Comments may appear before the final vote, and ADO Boost preserves failed or uncertain drafts for review instead of blindly reposting them.

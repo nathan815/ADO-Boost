@@ -10,7 +10,8 @@ import { RECENT_PRS_KEY } from "../core/recent-prs";
 import { migrateSettings } from "../features/registry";
 import { SETTINGS_KEY } from "../features/settings-service";
 import type { PopupMessage } from "../background/popup-service";
-import { ExtensionPopup } from "./popup";
+import { ExtensionPopup, POPUP_TAB_KEY, popupTabs, type PopupTab } from "./popup";
+import { ChromeReviewActivityStorage } from "../adapters/review-activity-storage";
 
 async function send<T>(kind: Exclude<PopupMessage["kind"], "record-visit">): Promise<T> {
   const response = await chrome.runtime.sendMessage({ channel: "adopp-popup", kind }) as { ok: true; data: T } | { ok: false; error: string } | undefined;
@@ -27,13 +28,21 @@ if (!root) throw new Error("Popup root is missing");
 const popup = new ExtensionPopup(root, {
   health: () => send("health"),
   list: () => send("list-recent"),
+  reviews: () => new ChromeReviewActivityStorage().list(),
+  loadTab: async () => {
+    const value: unknown = (await chrome.storage.local.get(POPUP_TAB_KEY))[POPUP_TAB_KEY];
+    if (value === undefined) return "recent";
+    if (!popupTabs.includes(value as PopupTab)) throw new Error("Invalid saved popup tab");
+    return value as PopupTab;
+  },
+  saveTab: (tab) => chrome.storage.local.set({ [POPUP_TAB_KEY]: tab }),
   clear: () => send("clear-recent"),
   openSettings: () => chrome.runtime.openOptionsPage(),
   settings: async () => migrateSettings((await chrome.storage.local.get(SETTINGS_KEY))[SETTINGS_KEY]),
   subscribe: (listener) => {
     const handler = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
       if (area !== "local") return;
-      if (RECENT_PRS_KEY in changes) listener("history");
+      if (RECENT_PRS_KEY in changes || Object.keys(changes).some((key) => key.startsWith("announcement:"))) listener("history");
       if (SETTINGS_KEY in changes) listener("settings");
     };
     chrome.storage.onChanged.addListener(handler);

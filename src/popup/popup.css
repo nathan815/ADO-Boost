@@ -72,6 +72,14 @@ h2 { font-size: 14px; font-weight: 600; }
 .muted { color: var(--text-secondary-color); }
 .error { color: var(--popup-error); overflow-wrap: anywhere; }
 .recent { min-height: 0; }
+.popup-tabs { display: flex; gap: 16px; padding: 0 16px; border-bottom: 1px solid var(--popup-border); }
+.popup-tabs button { border: 0; border-bottom: 2px solid transparent; padding: 12px 0 9px; background: transparent; color: var(--text-secondary-color); font: inherit; cursor: pointer; }
+.popup-tabs button[aria-selected="true"] { border-bottom-color: var(--communication-foreground); color: var(--text-primary-color); font-weight: 600; }
+.pr-review-status { justify-self: start; font-size: 11px; font-weight: 600; border: 1px solid currentColor; border-radius: 3px; padding: 1px 6px; }
+.status-reviewing { color: var(--communication-foreground); }
+.status-reviewed { color: var(--text-secondary-color); }
+.recent-list .pr-reviewing { background: var(--popup-hover); }
+.recent-list .pr-reviewed { background: color-mix(in srgb, var(--communication-foreground) 5%, var(--background-color)); }
 .recent-heading { padding: 10px 16px; }
 .recent-list { margin: 0; padding: 0; list-style: none; max-height: 330px; overflow-y: auto; }
 .recent-list li + li { border-top: 1px solid var(--popup-border); }

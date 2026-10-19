@@ -21,6 +21,9 @@ function setup(overrides: Partial<PopupDependencies> = {}) {
   const deps = {
     health: vi.fn(async () => ({ connected: true, authenticated: true, login: "reviewer" })),
     list: vi.fn(async () => [pr]),
+    reviews: vi.fn(async () => []),
+    loadTab: vi.fn(async () => "recent" as const),
+    saveTab: vi.fn(async () => undefined),
     clear: vi.fn(async () => undefined),
     openSettings: vi.fn(async () => undefined),
     settings: vi.fn(async () => defaultSettings()),
@@ -46,6 +49,51 @@ afterEach(() => {
 });
 
 describe("extension popup", () => {
+  it("filters review tabs, highlights status, and refreshes completion from storage", async () => {
+    let reviews = [{ ...pr, reviewStatus: "reviewing" as "reviewing" | "reviewed" }];
+    const { root, deps, changed } = setup({ reviews: async () => reviews });
+    await vi.waitFor(() => expect(root.querySelector(".pr-review-status")?.textContent).toBe("Reviewing"));
+    expect(root.querySelector(".pr-reviewing")).not.toBeNull();
+    expect([...root.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)).toEqual(["Recently Viewed", "Reviewing", "Reviewed"]);
+    button(root, "Reviewing").click();
+    expect(root.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Reviewing");
+    expect(root.textContent).not.toContain("Clear history");
+    await vi.waitFor(() => expect(deps.saveTab).toHaveBeenCalledWith("reviewing"));
+    reviews = [{ ...pr, reviewStatus: "reviewed" }];
+    changed("history");
+    await vi.waitFor(() => expect(root.textContent).toContain("No pull requests being reviewed"));
+    button(root, "Reviewed").click();
+    expect(root.querySelector(".pr-review-status")?.textContent).toBe("Review complete");
+    expect(root.querySelector(".pr-reviewed")).not.toBeNull();
+  });
+
+  it("restores the saved tab, supports keyboard navigation, and retains tracked reviews after clearing history", async () => {
+    const { root, deps } = setup({
+      list: async () => [], reviews: async () => [{ ...pr, reviewStatus: "reviewed" }],
+      loadTab: async () => "reviewed"
+    });
+    await vi.waitFor(() => expect(root.querySelector(".pr-review-status")?.textContent).toBe("Review complete"));
+    expect(root.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Reviewed");
+    button(root, "Reviewed").dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
+    expect(root.textContent).toContain("No recent pull requests yet");
+    expect(document.activeElement?.textContent).toBe("Recently Viewed");
+    button(root, "Recently Viewed").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    expect(root.querySelector(".pr-title")?.textContent).toBe(pr.title);
+    await vi.waitFor(() => expect(deps.saveTab).toHaveBeenLastCalledWith("reviewed"));
+  });
+
+  it("does not replace a user selection with a late saved tab and surfaces save errors", async () => {
+    let loaded!: (tab: "reviewed") => void;
+    const { root } = setup({
+      loadTab: () => new Promise((resolve) => { loaded = resolve; }),
+      saveTab: async () => { throw new Error("Cannot save tab"); }
+    });
+    button(root, "Reviewing").click();
+    loaded("reviewed");
+    await vi.waitFor(() => expect(root.textContent).toContain("Cannot save tab"));
+    expect(root.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Reviewing");
+  });
+
   it("sets a stable document width before popup JavaScript loads", () => {
     const html = new DOMParser().parseFromString(popupHtml, "text/html");
     const style = document.createElement("style");

@@ -75,6 +75,31 @@ describe("AnnouncementService", () => {
     expect(posts).toBe(1);
   });
 
+  it("retains PR metadata with the announcement independently of recent history", async () => {
+    const store = new MemoryBrowserStore();
+    const service = new AnnouncementService({
+      findAnnouncement: async () => null,
+      postAnnouncement: async () => ({ threadId: 1, commentId: 2 })
+    } as unknown as AdoApi, store);
+    const record = await service.post(context);
+    expect(record.pullRequest).toMatchObject({
+      organization: "org", project: "project", repository: "repo", repositoryId: "repo-id",
+      pullRequestId: 7, title: "PR", url: "https://dev.azure.com/org/project/_git/repo/pullrequest/7"
+    });
+    expect((await store.getAnnouncement(service.key(context)))?.pullRequest).toEqual(record.pullRequest);
+  });
+
+  it("enriches legacy saved announcements without reposting or dropping completions", async () => {
+    const store = new MemoryBrowserStore();
+    const service = new AnnouncementService({} as AdoApi, store);
+    const completions = [{ id: "done", kind: "vote" as const, vote: 10 as const, at: "2026-10-20T12:00:00Z", status: "closed" as const }];
+    await store.saveAnnouncement({ key: service.key(context), status: "posted", body: "Started", completions });
+    const updated = await service.status(context);
+    expect(updated?.pullRequest?.title).toBe("PR");
+    expect(updated?.completions).toEqual(completions);
+    expect(await store.getAnnouncement(service.key(context))).toEqual(updated);
+  });
+
   it.each([false, true])("handles null thread properties without duplicating announcements (existing: %s)", async (existing) => {
     const body = announcementBody(context, "2026-10-14T04:00:00.000Z");
     const fetch = vi.fn()
