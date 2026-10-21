@@ -33,7 +33,7 @@ describe("PanelToast", () => {
     expect(alert.getAttribute("aria-atomic")).toBe("true");
     expect(alert.querySelector("strong")?.textContent).toBe("ADO Boost");
     expect(alert.lastElementChild?.tagName).toBe("BUTTON");
-    expect(alert.lastElementChild?.textContent).toBe("X");
+    expect(alert.lastElementChild?.textContent).toBe("\u00d7");
   });
 
   it("can be dismissed immediately and does not reappear on remount", () => {

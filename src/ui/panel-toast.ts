@@ -18,7 +18,7 @@ export class PanelToast {
     const dismiss = documentRef.createElement("button");
     dismiss.type = "button";
     dismiss.className = "icon";
-    dismiss.textContent = "X";
+    dismiss.textContent = "\u00d7";
     dismiss.setAttribute("aria-label", "Dismiss notification");
     dismiss.title = "Dismiss notification";
     dismiss.addEventListener("click", () => this.dismiss());
