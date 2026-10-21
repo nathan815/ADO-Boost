@@ -24,7 +24,8 @@ export class NativeTreeClient implements NativeTreePort {
     private readonly analysis: PullRequestAnalysis,
     private readonly scope = window,
     private readonly semantic?: SemanticGroupState,
-    private readonly regenerate?: () => void
+    private readonly regenerate?: () => void,
+    private readonly viewSession?: () => void
   ) {}
 
   configure(filters: TreeFilters, countsEnabled: boolean): void {
@@ -94,6 +95,7 @@ export class NativeTreeClient implements NativeTreePort {
       if (action.data.session !== this.session || !this.semantic?.enabled || !this.semantic.available
         || !this.status || !["active", "counts-unavailable"].includes(this.status.state)) return;
       if (action.data.action === "select") this.semantic.select(action.data.view);
+      else if (action.data.action === "view-session") this.viewSession?.();
       else if (!this.semantic.busy) this.regenerate?.();
       return;
     }

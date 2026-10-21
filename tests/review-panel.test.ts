@@ -955,4 +955,29 @@ describe("ReviewPanel semantic groups", () => {
       expect(root.querySelector(".rail")?.children).toHaveLength(4);
     }
   });
+
+  it("opens the Groups sidebar at the session details without generating or changing the group view", async () => {
+    const cached = vi.fn<CopilotGateway["cachedSemanticGroups"]>().mockResolvedValue(groupResult([], null, true));
+    const { root, semanticGroups, state, settings } = await fixture(false, true, vi.fn(), cached);
+    await vi.waitFor(() => expect(root.querySelector(".copilot-session")).not.toBeNull());
+    const originalView = { ...state.view };
+    const workspace = root.querySelector<HTMLElement>(".workspace")!;
+    workspace.scrollTop = 350;
+    workspace.dispatchEvent(new Event("scroll"));
+    panel!.openDiscussions();
+    root.querySelector<HTMLButtonElement>(".close")!.click();
+    panel!.openCopilotGroups();
+    expect(root.querySelector(".rail")?.getAttribute("data-open")).toBe("true");
+    expect(root.querySelector("#groups-tab")?.getAttribute("aria-selected")).toBe("true");
+    expect(root.activeElement?.id).toBe("groups-tab");
+    expect(root.querySelector(".workspace")!.scrollTop).toBe(0);
+    expect(state.view).toEqual(originalView);
+    expect(semanticGroups).not.toHaveBeenCalled();
+    expect(cached).toHaveBeenCalledOnce();
+    expect(root.querySelector(".dialog")).toBeNull();
+    root.querySelector<HTMLButtonElement>(".close")!.click();
+    panel!.updateSettings({ ...settings, features: { ...settings.features, copilotSemanticGroups: false } });
+    panel!.openCopilotGroups();
+    expect(root.querySelector(".rail")?.getAttribute("data-open")).toBe("false");
+  });
 });

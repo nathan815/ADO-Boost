@@ -55,7 +55,7 @@ let adapter: SemanticTreeAdapter | undefined;
 afterEach(() => { adapter?.dispose(); adapter = undefined; document.body.replaceChildren(); });
 
 function fixture(configuration = config(), changes = collection()) {
-  document.body.innerHTML = '<div><div><table class="repos-file-explorer-tree"><td class="bolt-table-cell"></td></table></div></div><div class="repository-selector"></div>';
+  document.body.innerHTML = '<div><div><table class="repos-file-explorer-tree"><td class="bolt-table-cell"></td></table></div></div><div class="repository-selector"></div><button class="native-menu-button" aria-haspopup="true"></button>';
   const element = document.querySelector("table")!;
   const sourceRoots = changes.rootTreeItem.childItems!;
   const flatten = (nodes: NativeNode[]): { underlyingItem: NativeNode }[] =>
@@ -132,6 +132,10 @@ function fixture(configuration = config(), changes = collection()) {
   Reflect.set(document.querySelector("td")!, "__reactFiber$test", {
     stateNode: null, memoizedProps: { tableColumn: {}, columnIndex: 0 }, type: function Cell() { return "bolt-table-cell-content"; }, return: null
   });
+  Reflect.set(document.querySelector(".native-menu-button")!, "__reactFiber$test", {
+    stateNode: { props: { contextualMenuProps: {} }, renderMenu: vi.fn(), expand: vi.fn(), collapse: vi.fn() },
+    type: "MenuButton", memoizedProps: {}, return: null
+  });
   const action = vi.fn();
   const failed = vi.fn();
   const invalidate = vi.fn();
@@ -191,8 +195,8 @@ describe("semantic native projection", () => {
 describe("semantic native adapter", () => {
   it.each([
     [false, false, "Generate"],
-    [true, false, "Regenerate"],
-    [true, true, "Grouping..."],
+    [true, false, "Options"],
+    [true, true, "Options"],
     [false, true, "Grouping..."]
   ])("shows the generation action for existing groups=%s, busy=%s", (generated, busy, label) => {
     const configuration = config();
@@ -209,20 +213,40 @@ describe("semantic native adapter", () => {
     if (!react.isValidElement(heading) || !Array.isArray(heading.props.children)) throw new Error("Missing heading");
     const button: unknown = heading.props.children[1];
     if (!react.isValidElement(button)) throw new Error("Missing generate button");
-    expect(button.props.children).toBe(label);
-    expect(button.props.disabled).toBe(busy);
+    expect(generated ? button.props.text : button.props.children).toBe(label);
+    if (generated) {
+      expect(button.type).toBe("MenuButton");
+      expect(button.props.disabled).not.toBe(true);
+      const options = button.props.contextualMenuProps;
+      if (!record(options) || !record(options.menuProps) || typeof options.onActivate !== "function") throw new Error("Missing options menu");
+      expect(options.menuProps.items).toMatchObject([
+        { id: "adopp-semantic-session", text: "View Details on Sidebar" },
+        { id: "adopp-semantic-regenerate", text: "Regenerate Groups", disabled: busy }
+      ]);
+      const collapse = vi.fn();
+      if (typeof button.props.ref !== "function") throw new Error("Missing menu reference");
+      button.props.ref({ collapse });
+      options.onActivate({ id: "adopp-semantic-session" });
+      expect(collapse).toHaveBeenCalledOnce();
+      expect(f.action).toHaveBeenCalledWith("view-session", configuration.semantic!.view);
+      options.onActivate({ id: "adopp-semantic-regenerate" });
+      expect(f.action).toHaveBeenCalledTimes(busy ? 1 : 2);
+      if (!busy) expect(f.action).toHaveBeenLastCalledWith("regenerate", configuration.semantic!.view);
+    } else {
+      expect(button.props.disabled).toBe(busy);
+    }
     expect(heading.props["aria-busy"]).toBe(busy);
     const dropdown: unknown = portal.children.props.children[1];
     if (!react.isValidElement(dropdown)) throw new Error("Missing group dropdown");
     expect(dropdown.props.disabled).toBe(!generated);
-    expect(dropdown.props.ariaLabel).toBe(generated ? "Copilot Groups" : "Copilot groups not yet generated for this PR");
+    expect(dropdown.props.ariaLabel).toBe(generated ? "Copilot Groups" : "Groups not yet generated for this PR");
     const renderExpandable = dropdown.props.renderExpandable;
     if (typeof renderExpandable !== "function") throw new Error("Missing dropdown renderer");
     const expandable: unknown = renderExpandable({ disabled: dropdown.props.disabled, renderSelectedItems: () => "All files (2)" });
     if (!react.isValidElement(expandable) || !react.isValidElement(expandable.props.children)) throw new Error("Missing dropdown label");
     expect(expandable.props.disabled).toBe(!generated);
-    expect(expandable.props.children.props.children).toBe(generated ? "All files (2)" : "Copilot groups not yet generated for this PR");
-    if (!busy) {
+    expect(expandable.props.children.props.children).toBe(generated ? "All files (2)" : "Groups not yet generated for this PR");
+    if (!generated && !busy) {
       (button.props.onClick as () => void)();
       expect(f.action).toHaveBeenCalledWith("regenerate", configuration.semantic!.view);
     }

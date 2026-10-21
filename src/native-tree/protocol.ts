@@ -79,7 +79,7 @@ export const semanticActionSchema = z.object({
   channel: z.literal(CHANNEL),
   kind: z.literal("semantic-action"),
   session: z.string().uuid(),
-  action: z.enum(["regenerate", "select"]),
+  action: z.enum(["regenerate", "select", "view-session"]),
   view: semanticViewSchema
 }).strict();
 

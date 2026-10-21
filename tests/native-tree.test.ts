@@ -583,4 +583,32 @@ describe("native tree bridge client", () => {
     send(action);
     expect(regenerate).toHaveBeenCalledOnce();
   });
+
+  it("opens session details during grouping only for a live, same-session semantic action", () => {
+    const state = new SemanticGroupState();
+    state.setEnabled(true);
+    const regenerate = vi.fn();
+    const viewSession = vi.fn();
+    client = new NativeTreeClient(analysis, window, state, regenerate, viewSession);
+    const command = configured();
+    const action = { channel: CHANNEL, kind: "semantic-action", session: command.session, action: "view-session", view: state.view };
+    send(action);
+    expect(viewSession).not.toHaveBeenCalled();
+    send({ channel: CHANNEL, kind: "status", session: command.session, state: "active", detail: "Ready", fileCount: 2 });
+    send({ ...action, session: configuration().session });
+    send(action, null);
+    send(action, window, "https://other.example");
+    expect(viewSession).not.toHaveBeenCalled();
+    state.begin();
+    send(action);
+    expect(viewSession).toHaveBeenCalledOnce();
+    expect(regenerate).not.toHaveBeenCalled();
+    state.setEnabled(false);
+    send(action);
+    expect(viewSession).toHaveBeenCalledOnce();
+    state.setEnabled(true);
+    client.stop();
+    send(action);
+    expect(viewSession).toHaveBeenCalledOnce();
+  });
 });

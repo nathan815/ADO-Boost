@@ -107,6 +107,7 @@ export interface NativeSelection {
 
 export interface BoltComponents {
   Dropdown: unknown;
+  MenuButton: unknown;
   Expandable: unknown;
   Cell: unknown;
   Selection: new () => NativeSelection;
@@ -122,8 +123,15 @@ export function discoverBoltComponents(host: NativeHost): BoltComponents {
   const repository = fiberChain(host.element.ownerDocument.querySelector(".repository-selector"));
   const dropdown = repository.find(({ stateNode }) => record(stateNode) && record(stateNode.parentSelection) && typeof stateNode.renderCallout === "function");
   const expandable = repository.find(({ stateNode }) => record(stateNode) && stateNode.buttonElement && typeof stateNode.renderCallout === "function");
+  let menu: Fiber | undefined;
+  for (const button of host.element.ownerDocument.querySelectorAll("button[aria-haspopup]")) {
+    menu = fiberChain(button).find(({ stateNode }) => record(stateNode) && record(stateNode.props)
+      && stateNode.props.contextualMenuProps && typeof stateNode.renderMenu === "function"
+      && typeof stateNode.expand === "function" && typeof stateNode.collapse === "function");
+    if (menu) break;
+  }
   const cached = boltComponents.get(host.element.ownerDocument);
-  if (cached && cached.Dropdown === dropdown?.type && cached.Expandable === expandable?.type) return cached;
+  if (cached && cached.Dropdown === dropdown?.type && cached.Expandable === expandable?.type && cached.MenuButton === menu?.type) return cached;
   const selection = record(dropdown?.stateNode) && record(dropdown.stateNode.parentSelection)
     ? Reflect.get(Object.getPrototypeOf(dropdown.stateNode.parentSelection), "constructor") : null;
   let cell: Fiber | undefined;
@@ -133,10 +141,10 @@ export function discoverBoltComponents(host: NativeHost): BoltComponents {
       && String(frame.type).includes("bolt-table-cell-content"));
     if (cell) break;
   }
-  if (!dropdown || !expandable || !cell || !selectionConstructor(selection)) {
-    throw new Error("ADO's native group dropdown components are unavailable. Group results remain available in the sidebar.");
+  if (!dropdown || !expandable || !menu || !cell || !selectionConstructor(selection)) {
+    throw new Error("ADO's native group dropdown or menu components are unavailable. Group results remain available in the sidebar.");
   }
-  const components = { Dropdown: dropdown.type, Expandable: expandable.type, Cell: cell.type, Selection: selection };
+  const components = { Dropdown: dropdown.type, MenuButton: menu.type, Expandable: expandable.type, Cell: cell.type, Selection: selection };
   boltComponents.set(host.element.ownerDocument, components);
   return components;
 }

@@ -150,7 +150,8 @@ class ContentApp {
           isReviewFinished: () => this.panel?.isReviewFinished() ?? false,
           triggerTestToast: () => this.panel?.triggerTestToast(),
           openSettings: this.openSettings
-        }, new NativeTreeClient(analysis, window, semanticGroups, () => this.panel?.requestSemanticGroups()), undefined, semanticGroups);
+        }, new NativeTreeClient(analysis, window, semanticGroups,
+          () => this.panel?.requestSemanticGroups(), () => this.panel?.openCopilotGroups()), undefined, semanticGroups);
         this.enhancer.start();
         this.counts.setAnalysis(analysis);
         void this.counts.update(this.diffPolicy);

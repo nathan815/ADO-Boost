@@ -154,6 +154,15 @@ export class ReviewPanel {
     this.root.querySelector<HTMLElement>(".rail")?.focus();
   }
 
+  openCopilotGroups(): void {
+    if (this.destroyed || !resolveFeature(this.settings, "copilotSemanticGroups").enabled) return;
+    this.selectTab("groups");
+    this.tabScroll.groups = 0;
+    this.open = true;
+    this.render();
+    this.root.querySelector<HTMLButtonElement>("#groups-tab")?.focus();
+  }
+
   requestSemanticGroups(): void {
     if (this.destroyed || this.copilotBusy || this.groupConfirmation || !this.semanticGroups.enabled || !this.semanticGroups.available) return;
     if (this.settings.features.confirmCopilotGroups) {
