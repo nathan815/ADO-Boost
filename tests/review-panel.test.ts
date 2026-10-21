@@ -10,6 +10,8 @@ import { RuntimeWriteGateway, type WriteGateway } from "../src/core/write-gatewa
 import { defaultSettings } from "../src/features/registry";
 import { MemorySettingsStorage, SettingsService } from "../src/features/settings-service";
 import { ReviewPanel } from "../src/ui/review-panel";
+import type { CopilotGateway } from "../src/core/copilot-gateway";
+import type { SemanticGroupProposal } from "../src/core/types";
 
 let panel: ReviewPanel | undefined;
 
@@ -333,5 +335,95 @@ describe("ReviewPanel unresolved changes", () => {
     expect(root?.textContent).toContain("<img src=x>: <script>unexpected metadata</script>");
     expect(root?.querySelectorAll("script, img")).toHaveLength(0);
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("ReviewPanel semantic groups", () => {
+  async function fixture() {
+    document.body.innerHTML = '<div class="region-content"><main class="repos-pr-details-page">Native PR content</main></div>';
+    const settings = defaultSettings();
+    settings.features.startReviewing = false;
+    settings.features.threadNavigator = false;
+    settings.features.copilotSemanticGroups = true;
+    const analysis: PullRequestAnalysis = {
+      context: {
+        origin: "https://dev.azure.com", organization: "org", project: "project", repository: "repo",
+        repositoryId: "repo-id", pullRequestId: 7, title: "PR", sourceCommit: "source", targetCommit: "target",
+        mergeBaseCommit: "base", iterationId: 3, identity: "identity", reviewer: { id: "me", displayName: "Me" }
+      },
+      files: ["/src/first.ts", "/src/other.ts"].map((path, index) => ({
+        path, trackingId: index + 1, changeType: "edit", additions: 1, deletions: 1,
+        state: "exact", generated: false, lockfile: false
+      })),
+      groups: [], threads: { state: "available", active: 0, resolved: 0, total: 0 }, completedTrackingIds: new Set()
+    };
+    const api = new AdoApi({ fetch: vi.fn() });
+    vi.spyOn(api, "getFileContent").mockResolvedValue({ text: "content", size: 7 });
+    const semanticGroups = vi.fn<CopilotGateway["semanticGroups"]>();
+    panel = new ReviewPanel({
+      analysis, api, settings, store: new MemoryBrowserStore(),
+      settingsService: new SettingsService(new MemorySettingsStorage()), reviewKey: "org/project/repo-id/7",
+      writes: new RuntimeWriteGateway(),
+      copilot: { semanticGroups, health: vi.fn(), chat: vi.fn() }, openSettings: vi.fn()
+    });
+    panel.openDiscussions();
+    await vi.waitFor(() => expect(document.querySelector("[data-adopp-review-panel]")).not.toBeNull());
+    await Promise.resolve();
+    const root = document.querySelector("[data-adopp-review-panel]")!.shadowRoot!;
+    const requestGroups = () => {
+      root.querySelector<HTMLButtonElement>(".copilot-groups")!.click();
+      root.querySelector<HTMLButtonElement>(".confirm-context")!.click();
+    };
+    return { root, analysis, semanticGroups, settings, requestGroups };
+  }
+
+  it("shows progress, renders safe group results including omitted files, and opens native files", async () => {
+    const { root, semanticGroups, requestGroups, analysis } = await fixture();
+    let complete!: (groups: SemanticGroupProposal[]) => void;
+    semanticGroups.mockImplementation(() => new Promise((resolve) => { complete = resolve; }));
+    requestGroups();
+    expect(root.querySelector(".copilot-groups")?.textContent).toBe("Grouping changes...");
+    expect(root.querySelector<HTMLButtonElement>(".copilot-groups")?.disabled).toBe(true);
+    await vi.waitFor(() => expect(semanticGroups).toHaveBeenCalledOnce());
+    complete([{ title: "<img src=x>", rationale: "<script>explanation</script>", paths: ["/src/first.ts"] }]);
+    await vi.waitFor(() => expect(root.querySelector(".copilot-results")).not.toBeNull());
+    expect(root.querySelector(".copilot-results [role=status]")?.textContent).toContain("2 groups covering 2 changed files");
+    expect(root.querySelectorAll(".copilot-result")).toHaveLength(2);
+    expect(root.querySelector(".copilot-result summary")?.textContent).toContain("<img src=x>");
+    expect(root.querySelector(".group-note")?.textContent).toBe("<script>explanation</script>");
+    expect(root.querySelectorAll(".copilot-results script,.copilot-results img")).toHaveLength(0);
+    expect(root.querySelector(".copilot-results")?.textContent).toContain("Unassigned changes");
+    expect(root.querySelector(".copilot-groups")?.textContent).toBe("Regenerate semantic groups");
+    expect(semanticGroups.mock.calls[0]?.[3]).toBe(false);
+    expect(analysis.groups).toEqual([]);
+
+    const link = root.querySelector<HTMLAnchorElement>("[data-copilot-path]")!;
+    expect(new URL(link.href).searchParams.get("path")).toBe("/src/first.ts");
+    const native = document.createElement("a");
+    native.href = link.href;
+    const navigate = vi.fn((event: Event) => event.preventDefault());
+    native.addEventListener("click", navigate);
+    document.body.append(native);
+    link.click();
+    expect(navigate).toHaveBeenCalledOnce();
+
+    semanticGroups.mockResolvedValue([{ title: "Updated", rationale: "New grouping", paths: analysis.files.map((file) => file.path) }]);
+    requestGroups();
+    await vi.waitFor(() => expect(root.querySelector(".copilot-result summary")?.textContent).toContain("Updated"));
+    expect(semanticGroups.mock.calls[1]?.[3]).toBe(true);
+  });
+
+  it("shows regeneration errors without losing previous results and hides groups when disabled", async () => {
+    const { root, semanticGroups, requestGroups, settings } = await fixture();
+    semanticGroups.mockResolvedValue([{ title: "Changes", rationale: "Related", paths: ["/src/first.ts"] }]);
+    requestGroups();
+    await vi.waitFor(() => expect(root.querySelector(".copilot-results")).not.toBeNull());
+    semanticGroups.mockRejectedValue(new Error("Companion disconnected"));
+    requestGroups();
+    await vi.waitFor(() => expect(root.querySelector(".delivery.error")?.textContent).toBe("Companion disconnected"));
+    expect(root.querySelectorAll("[data-copilot-path]")).toHaveLength(2);
+    expect(root.querySelector<HTMLButtonElement>(".copilot-groups")?.disabled).toBe(false);
+    panel!.updateSettings({ ...settings, features: { ...settings.features, copilotSemanticGroups: false } });
+    expect(root.querySelector(".copilot-results")).toBeNull();
   });
 });

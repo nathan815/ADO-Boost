@@ -19,6 +19,7 @@ import { ReviewPanelLayout } from "./review-panel-layout";
 import { isTypingEvent } from "./keyboard";
 import { PanelToast } from "./panel-toast";
 import { ReviewCompletionMonitor } from "./review-completion-monitor";
+import { adoFileUrl, navigateToAdoFile } from "./ado-navigation";
 
 interface ReviewPanelDependencies {
   analysis: PullRequestAnalysis;
@@ -55,6 +56,7 @@ export class ReviewPanel {
   private copilotGroups: ReviewGroup[] | null = null;
   private copilotHealth: CopilotHealth | null = null;
   private copilotBusy = false;
+  private copilotGrouping = false;
   private copilotError = "";
   private copilotAnswer = "";
 
@@ -229,6 +231,13 @@ export class ReviewPanel {
     this.root.querySelector(".copilot-groups")?.addEventListener("click", () => this.showCopilotPrivacy("groups"));
     this.root.querySelector(".copilot-ask")?.addEventListener("click", () => this.showCopilotPrivacy("chat"));
     this.root.querySelector(".copilot-draft")?.addEventListener("click", () => this.discussion.showGeneralDraft(this.root, this.copilotAnswer));
+    for (const link of this.root.querySelectorAll<HTMLAnchorElement>("[data-copilot-path]")) {
+      link.addEventListener("click", (event) => {
+        if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        navigateToAdoFile(link.dataset.copilotPath!);
+      });
+    }
   }
 
   private copilotMarkup(): string {
@@ -236,7 +245,18 @@ export class ReviewPanel {
     const chatEnabled = resolveFeature(this.settings, "copilotChat").enabled;
     if (!groupsEnabled && !chatEnabled) return "";
     const status = this.copilotHealth ? this.copilotHealth.authenticated ? `Connected${this.copilotHealth.login ? ` as ${escapeHtml(this.copilotHealth.login)}` : ""}` : `Needs login${this.copilotHealth.detail ? `: ${escapeHtml(this.copilotHealth.detail)}` : ""}` : "Not checked";
-    return `<section class="copilot-panel"><div class="section-head"><div><h3>Local Copilot companion</h3><p class="muted">${status}. PR metadata is sent only after an explicit action and may use your configured model provider.</p></div><button class="secondary copilot-health" type="button" ${this.copilotBusy ? "disabled" : ""}>Check connection</button></div>${this.copilotError ? `<div class="delivery error">${escapeHtml(this.copilotError)}</div>` : ""}<div class="copilot-actions">${groupsEnabled ? `<button class="secondary copilot-groups" type="button" ${this.copilotBusy ? "disabled" : ""}>${this.copilotGroups ? "Use cached semantic groups" : "Group changes with Copilot"}</button>` : ""}</div>${chatEnabled ? `<textarea class="copilot-question" rows="3" placeholder="Ask a question about the PR file summary"></textarea><button class="secondary copilot-ask" type="button" ${this.copilotBusy ? "disabled" : ""}>Ask Copilot</button>${this.copilotAnswer ? `<div class="preview copilot-answer">${escapeHtml(this.copilotAnswer)}</div><button class="secondary copilot-draft" type="button">Use answer as feedback draft</button>` : ""}` : ""}</section>`;
+    return `<section class="copilot-panel"><div class="section-head"><div><h3>Local Copilot companion</h3><p class="muted">${status}. PR metadata is sent only after an explicit action and may use your configured model provider.</p></div><button class="secondary copilot-health" type="button" ${this.copilotBusy ? "disabled" : ""}>Check connection</button></div>${this.copilotError ? `<div class="delivery error">${escapeHtml(this.copilotError)}</div>` : ""}<div class="copilot-actions">${groupsEnabled ? `<button class="secondary copilot-groups" type="button" ${this.copilotBusy ? "disabled" : ""}>${this.copilotGrouping ? "Grouping changes..." : this.copilotGroups ? "Regenerate semantic groups" : "Group changes with Copilot"}</button>` : ""}</div>${groupsEnabled ? this.copilotGroupsMarkup() : ""}${chatEnabled ? `<textarea class="copilot-question" rows="3" placeholder="Ask a question about the PR file summary"></textarea><button class="secondary copilot-ask" type="button" ${this.copilotBusy ? "disabled" : ""}>Ask Copilot</button>${this.copilotAnswer ? `<div class="preview copilot-answer">${escapeHtml(this.copilotAnswer)}</div><button class="secondary copilot-draft" type="button">Use answer as feedback draft</button>` : ""}` : ""}</section>`;
+  }
+
+  private copilotGroupsMarkup(): string {
+    if (this.copilotGrouping) return `<p class="muted" role="status">Grouping changes with Copilot...</p>`;
+    if (!this.copilotGroups) return "";
+    const fileCount = this.copilotGroups.reduce((count, group) => count + group.files.length, 0);
+    return `<section class="copilot-results" aria-label="Semantic groups"><p class="muted" role="status">${this.copilotGroups.length} groups covering ${fileCount} changed files. Open a file below to review it; the native file tree is unchanged.</p>${this.copilotGroups.map((group) =>
+      `<details class="copilot-result" open><summary>${escapeHtml(group.title)} <span class="group-count">(${group.files.length})</span></summary><p class="group-note">${escapeHtml(group.rationale)}</p><ul>${group.files.map((file) =>
+        `<li><a class="file-link" data-copilot-path="${escapeHtml(file.path)}" href="${escapeHtml(adoFileUrl(file.path))}">${escapeHtml(file.path)}</a></li>`
+      ).join("")}</ul></details>`
+    ).join("")}</section>`;
   }
 
   private async checkCopilot(): Promise<void> {
@@ -256,6 +276,7 @@ export class ReviewPanel {
 
   private async loadCopilotGroups(files: FileStat[]): Promise<void> {
     this.copilotBusy = true;
+    this.copilotGrouping = true;
     this.copilotError = "";
     this.render();
     try {
@@ -267,6 +288,7 @@ export class ReviewPanel {
       this.copilotError = error instanceof Error ? error.message : "Copilot grouping failed";
     } finally {
       this.copilotBusy = false;
+      this.copilotGrouping = false;
       this.render();
     }
   }

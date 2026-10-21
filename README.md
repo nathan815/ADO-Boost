@@ -70,6 +70,8 @@ ADO Boost previews user-visible writes before posting them. It does not automati
 
 The Windows-only companion enables the default-off Copilot features through an installed GitHub Copilot CLI. Core extension features work without it.
 
+Enable **Copilot semantic groups** in settings, then select **Group changes with Copilot** in the Assistant panel and confirm the context to send. Results appear in the panel as expandable groups with explanations and links to the native ADO file views; they do not rearrange the native file tree. **Regenerate semantic groups** requests a fresh grouping after another context confirmation.
+
 The toolbar popup checks the companion automatically, even when optional Copilot features are disabled or no PR is open. This may start the native host and Copilot CLI on demand; it checks connectivity and sign-in without sending PR content or running an AI request. The host disconnects after it becomes idle; the popup is not a persistent process monitor. A connected host can still require `ado-boost login`. If unavailable, run `ado-boost doctor` and refresh the connection check.
 
 See [ADO Boost companion](companion/README.md) for requirements, setup, diagnostics, login, and removal commands.
