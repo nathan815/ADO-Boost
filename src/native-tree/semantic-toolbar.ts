@@ -74,6 +74,8 @@ export class SemanticToolbar {
 
   render(config: TreeConfiguration, counts: ReadonlyMap<string, number>, total: number): unknown {
     const semantic = config.semantic!;
+    const hasGroups = semantic.groups.length > 0;
+    const emptyLabel = "Copilot groups not yet generated for this PR";
     const react = this.host.react;
     const item = (group: TreeGroup): GroupOption => {
       const visible = counts.get(group.id) ?? 0;
@@ -97,7 +99,8 @@ export class SemanticToolbar {
       ? "No files in this group match the current filters." : "");
     const dropdown = react.createElement(this.components.Dropdown, {
       ref: this.setDropdown,
-      ariaLabel: "Copilot Groups",
+      ariaLabel: hasGroups ? "Copilot Groups" : emptyLabel,
+      disabled: !hasGroups,
       className: "adopp-semantic-dropdown",
       calloutContentClassName: "adopp-semantic-options",
       items: items.map((option) => ({ ...option, ariaLabel: [option.text, option.description].filter(Boolean).join(". ") })),
@@ -106,8 +109,8 @@ export class SemanticToolbar {
       renderExpandable: (props: Record<string, unknown>) => {
         const { expandableRef, items, selection, renderSelectedItems, ...rest } = props;
         return react.createElement(this.components.Expandable, { ...rest, ref: expandableRef },
-          react.createElement("div", { className: "bolt-dropdown-expandable-button-label justify-start flex-grow text-ellipsis" },
-            typeof renderSelectedItems === "function" ? renderSelectedItems(selection, items) : ""));
+          react.createElement("div", { className: "bolt-dropdown-expandable-button-label justify-start flex-grow text-ellipsis", title: hasGroups ? undefined : emptyLabel },
+            !hasGroups ? emptyLabel : typeof renderSelectedItems === "function" ? renderSelectedItems(selection, items) : ""));
       },
       renderItem: (_row: unknown, columnIndex: unknown, tableColumn: unknown, option: GroupOption) =>
         react.createElement(this.components.Cell, { key: option.id, columnIndex, tableColumn },
@@ -117,14 +120,15 @@ export class SemanticToolbar {
       onSelect: (_event: unknown, option: GroupOption) => this.action("select", option.view)
     });
     const content = react.createElement("div", {},
-      react.createElement("div", { className: "adopp-semantic-heading" },
+      react.createElement("div", { className: "adopp-semantic-heading", "aria-busy": semantic.busy },
         react.createElement("strong", {}, "Copilot Groups"),
         react.createElement("button", { type: "button", className: "adopp-semantic-regenerate bolt-focus-treatment",
           disabled: semantic.busy, onClick: () => this.action("regenerate", semantic.view),
-          title: semantic.groups.length ? "Regenerate semantic groups" : "Generate semantic groups" }, semantic.busy ? "Grouping..." : "Regenerate")),
+          title: semantic.groups.length ? "Regenerate semantic groups" : "Generate semantic groups" }, semantic.busy ? "Grouping..." : semantic.groups.length ? "Regenerate" : "Generate")),
       dropdown,
       semantic.view.mode === "group" && selected
         ? react.createElement("p", { className: "adopp-semantic-description" }, selected.rationale) : null,
+      semantic.busy ? react.createElement("p", { className: "adopp-semantic-message", role: "status" }, "Generating Copilot groups...") : null,
       notice ? react.createElement("p", { className: "adopp-semantic-message", role: semantic.error ? "alert" : "status" }, notice) : null);
     // The public portal factory only creates the portal descriptor; ADO's renderer owns all host elements.
     const portal: unknown = Reflect.apply(createPortal, undefined, [content, this.element, "adopp-semantic-toolbar"]);

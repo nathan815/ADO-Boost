@@ -10,6 +10,7 @@ import { isTypingEvent } from "../ui/keyboard";
 import type { NativeTreePort } from "../native-tree/client";
 import { describeDiffPolicy } from "../native-tree/diff-preferences";
 import { lineCountParts } from "../core/line-counts";
+import type { SemanticGroupState } from "../core/semantic-groups";
 
 interface NativePrEnhancerActions {
   openDiscussions(): void;
@@ -50,6 +51,7 @@ export class NativePrEnhancer {
   private hideGenerated: boolean;
   private hideLockfiles: boolean;
   private unsubscribeNativeTree: (() => void) | null = null;
+  private unsubscribeSemantic: (() => void) | null = null;
   private nativeFileCount: HTMLElement | null = null;
   private filesTabBadge: HTMLElement | null = null;
   private prIdControl: { host: HTMLElement; original: Node[]; button: HTMLButtonElement } | null = null;
@@ -60,7 +62,8 @@ export class NativePrEnhancer {
     private settings: FeatureSettings,
     private readonly actions: NativePrEnhancerActions,
     private readonly nativeTree?: NativeTreePort,
-    private readonly clipboard: ClipboardWriter = { writeText: (text) => navigator.clipboard.writeText(text) }
+    private readonly clipboard: ClipboardWriter = { writeText: (text) => navigator.clipboard.writeText(text) },
+    private readonly semanticGroups?: SemanticGroupState
   ) {
     this.hideGenerated = settings.features.hideGenerated;
     this.hideLockfiles = settings.features.hideLockfiles;
@@ -68,6 +71,7 @@ export class NativePrEnhancer {
 
   start(): void {
     this.ensureStyles();
+    this.unsubscribeSemantic = this.semanticGroups?.subscribe(() => this.updateGroupingIndicator()) ?? null;
     this.unsubscribeNativeTree = this.nativeTree?.subscribe(() => this.renderNativeTreeStatus()) ?? null;
     this.observer = new MutationObserver((records) => {
       if (records.some((record) => !isOwnedMutationRecord(record))) this.schedule();
@@ -95,6 +99,8 @@ export class NativePrEnhancer {
     this.nativeTree?.stop();
     this.unsubscribeNativeTree?.();
     this.unsubscribeNativeTree = null;
+    this.unsubscribeSemantic?.();
+    this.unsubscribeSemantic = null;
     this.observer?.disconnect();
     this.observer = null;
     window.clearTimeout(this.scheduled);
@@ -117,6 +123,20 @@ export class NativePrEnhancer {
     for (const phrase of document.querySelectorAll<HTMLElement>("[data-adopp-merge-proposal-text]")) {
       phrase.replaceWith(document.createTextNode(phrase.dataset.adoppOriginalText ?? ""));
     }
+  }
+
+  private updateGroupingIndicator(start = document.querySelector<HTMLButtonElement>(".adopp-start-button")): void {
+    if (!start) return;
+    const busy = this.semanticGroups?.busy ?? false;
+    start.setAttribute("aria-busy", String(busy));
+    start.setAttribute("aria-label", busy ? "ADO Boost: generating Copilot groups" : "ADO Boost");
+    start.title = busy ? "ADO Boost: generating Copilot groups..." : "ADO Boost";
+    if (busy && !start.querySelector(".adopp-grouping-spinner")) {
+      const spinner = document.createElement("span");
+      spinner.className = "adopp-grouping-spinner";
+      spinner.setAttribute("aria-hidden", "true");
+      start.append(spinner);
+    } else if (!busy) start.querySelector(".adopp-grouping-spinner")?.remove();
   }
 
   private schedule(): void {
@@ -354,6 +374,7 @@ export class NativePrEnhancer {
     start.insertBefore(assistantIcon, startText);
     start.setAttribute("aria-label", startLabel);
     start.title = startLabel;
+    this.updateGroupingIndicator(start);
     start.disabled = false;
     start.hidden = false;
     start.addEventListener("click", () => this.actions.openDiscussions());
@@ -1271,6 +1292,11 @@ function capitalize(value: string): string {
 }
 
 const nativeStyles = `
+.adopp-action-menu{position:fixed!important}
+.adopp-start-button{position:relative}
+.adopp-grouping-spinner{position:absolute;right:2px;bottom:2px;width:10px;height:10px;border:2px solid var(--background-color,#fff);border-top-color:var(--communication-foreground,#0078d4);border-radius:50%;animation:adopp-grouping-spin 1s linear infinite}
+@keyframes adopp-grouping-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.adopp-grouping-spinner{animation:none}}
 .adopp-copy-pr-id{appearance:none;border:0;padding:0;background:transparent;color:inherit;font:inherit;cursor:pointer}.adopp-copy-pr-id:hover{text-decoration:underline}.adopp-copy-pr-id:focus-visible{outline:2px solid var(--communication-background,#0078d4);outline-offset:2px}
 [data-adopp-copy-pr-control]{position:relative;display:inline-block}
 [data-adopp-copy-pr-feedback]{position:absolute;top:100%;left:50%;transform:translate(-50%,0);white-space:nowrap;pointer-events:none;font:11px/1.4 "Segoe UI",sans-serif;opacity:0}
@@ -1290,5 +1316,5 @@ const nativeStyles = `
 .adopp-nav-icon{display:block;width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;overflow:visible}.adopp-nav-double-icon{height:16px}.adopp-native-dropdown{position:relative;min-width:0}.adopp-native-dropdown-trigger{width:100%;min-width:0;justify-content:space-between!important;gap:8px!important}.adopp-native-dropdown-trigger .bolt-button-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.adopp-native-dropdown-chevron{display:block;width:12px;height:12px;flex:none;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round}.adopp-native-menu{z-index:100000;box-sizing:border-box!important;overflow:hidden!important}.adopp-native-menu[data-adopp-filter-portal="true"]{position:fixed!important}.adopp-native-menu[hidden]{display:none!important}.adopp-native-menu .bolt-callout-content,.adopp-native-menu .bolt-menu,.adopp-native-menu .bolt-list,.adopp-native-menu .bolt-list-row,.adopp-native-menu .bolt-list-cell{box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important}.adopp-native-menu .bolt-list-row,.adopp-native-menu .bolt-list-cell{display:block!important}.adopp-native-menu .bolt-menu-button{box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important;overflow:hidden!important}.adopp-native-menu-check{display:inline-flex;width:16px;flex:none;visibility:hidden}.adopp-native-menu-check[data-active="true"]{visibility:visible}
 .adopp-ado-tooltip{position:fixed!important;z-index:2147483647;max-width:320px;animation:adopp-tooltip-fade-in 300ms ease-in}.adopp-ado-tooltip .bolt-callout-content{background-color:transparent}.adopp-ado-tooltip .bolt-tooltip-content{padding:8px 12px;border-radius:2px;background:rgba(var(--palette-neutral-80,51,51,51),.95);color:rgba(var(--palette-neutral-0,255,255,255),1);font:12px "Segoe UI",sans-serif;text-align:left;white-space:nowrap}.ms-vss-web-vsts-theme-hc-dark .adopp-ado-tooltip .bolt-tooltip-content,.ms-vss-web-vsts-theme-hc-light .adopp-ado-tooltip .bolt-tooltip-content{border:2px solid var(--focus-border-color,#0078d4);background:var(--background-color,#fff);color:var(--text-primary-color,#000)}@keyframes adopp-tooltip-fade-in{from{opacity:0}to{opacity:1}}
 .adopp-header-action-item{white-space:nowrap}.adopp-header-wrap.adopp-header-actions-wrapped{flex-wrap:wrap!important}.adopp-header-wrap.adopp-header-actions-wrapped>.adopp-header-action-item{display:flex!important;flex:0 0 100%!important;width:100%!important;max-width:100%!important;justify-content:flex-end!important;margin-left:0!important;padding-top:8px}.adopp-action-group{position:relative;display:inline-flex;align-items:center;gap:0;margin-right:0}.adopp-total-diff{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 8px;margin-left:8px;border:1px solid var(--palette-neutral-30,#c8c6c4);border-radius:5px;background:var(--background-color,#fff);font:600 12px Consolas,"Cascadia Mono",monospace;white-space:nowrap;vertical-align:middle;cursor:default}.adopp-total-diff:focus-visible{outline:2px solid var(--communication-background,#0078d4);outline-offset:1px}.adopp-total-plus{color:var(--status-success-foreground,#107c10)}.adopp-total-minus{color:var(--status-error-foreground,#a4262c)}.adopp-total-partial{font:10px "Segoe UI",sans-serif;color:var(--palette-neutral-60,#8a8886)}.adopp-total-popover{position:fixed!important;z-index:2147483647;box-sizing:border-box;width:176px}.adopp-total-popover-content{box-sizing:border-box;padding:10px 12px;font:12px "Segoe UI",sans-serif}.adopp-total-popover-title{margin-bottom:7px;font-weight:600}.adopp-total-popover-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:2px 0;color:var(--palette-neutral-80,#323130)}.adopp-total-popover-row strong{font-weight:600;font-variant-numeric:tabular-nums}.adopp-total-popover-divider{height:1px;margin:7px 0 5px;background:var(--palette-neutral-20,#edebe9)}.adopp-merge-proposal-text{display:inline-block;margin:0 6px;color:var(--palette-neutral-60,#8a8886);font-weight:600}.adopp-start-split{border-radius:2px;overflow:hidden;box-shadow:0 1px 2px var(--callout-shadow-color,rgba(0,0,0,.22)),inset 0 0 0 1px rgba(var(--palette-neutral-100),.18)}.adopp-start-split>.adopp-start-button,.adopp-start-split>.inline-flex-row>.adopp-action-menu-button{background:rgba(var(--palette-neutral-100),.08)!important;color:var(--text-primary-color)!important;transition:background-color 120ms ease}.adopp-start-split>.adopp-start-button:hover,.adopp-start-split>.inline-flex-row>.adopp-action-menu-button:hover{background:rgba(var(--palette-neutral-100),.14)!important}.adopp-start-review-icon{display:block;width:20px;height:20px;flex:none}.adopp-start-split>.adopp-start-button{min-width:36px!important;padding-right:8px!important;padding-left:8px!important;border-right:0!important;justify-content:center!important}.adopp-start-split>.bolt-split-button-divider{width:.5px!important;min-width:.5px!important;max-width:.5px!important;flex:0 0 .5px!important}.adopp-start-split>.inline-flex-row>.adopp-action-menu-button{border-left:0!important}
-.adopp-action-menu{position:fixed!important}.adopp-action-menu .adopp-menu-label{padding:8px 12px 5px;color:var(--palette-neutral-60,#8a8886);font:600 11px/16px "Segoe UI",sans-serif}.adopp-action-menu .bolt-menu-button,.adopp-native-menu .bolt-menu-button{width:100%;justify-content:flex-start!important}.adopp-action-menu .bolt-button-text,.adopp-native-menu .bolt-button-text{min-width:0;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.adopp-action-menu .adopp-menu-label{padding:8px 12px 5px;color:var(--palette-neutral-60,#8a8886);font:600 11px/16px "Segoe UI",sans-serif}.adopp-action-menu .bolt-menu-button,.adopp-native-menu .bolt-menu-button{width:100%;justify-content:flex-start!important}.adopp-action-menu .bolt-button-text,.adopp-native-menu .bolt-button-text{min-width:0;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 `;

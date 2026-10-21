@@ -6,6 +6,7 @@ import { NativePrEnhancer } from "../src/content/native-pr-enhancer";
 import type { PullRequestAnalysis } from "../src/core/types";
 import { defaultSettings } from "../src/features/registry";
 import type { TreeStatus } from "../src/native-tree/protocol";
+import { SemanticGroupState } from "../src/core/semantic-groups";
 
 const analysis: PullRequestAnalysis = {
   context: {
@@ -35,6 +36,32 @@ const analysis: PullRequestAnalysis = {
 let enhancer: NativePrEnhancer | null = null;
 
 describe("NativePrEnhancer", () => {
+  it("keeps the ADO Boost processing indicator in sync across header remounts and failures", () => {
+    const state = new SemanticGroupState();
+    state.setEnabled(true);
+    const openDiscussions = vi.fn();
+    enhancer = new NativePrEnhancer(analysis, defaultSettings(), {
+      openDiscussions, startReviewing: vi.fn(), isReviewAnnounced: () => false, openSettings: vi.fn()
+    }, undefined, undefined, state);
+    enhancer.start();
+    const request = state.begin();
+    let button = document.querySelector<HTMLButtonElement>(".adopp-start-button")!;
+    expect(button.getAttribute("aria-busy")).toBe("true");
+    expect(button.getAttribute("aria-label")).toContain("generating Copilot groups");
+    expect(button.querySelector(".adopp-grouping-spinner")).not.toBeNull();
+    button.click();
+    expect(openDiscussions).toHaveBeenCalledOnce();
+    enhancer.refresh();
+    button = document.querySelector<HTMLButtonElement>(".adopp-start-button")!;
+    expect(button.querySelectorAll(".adopp-grouping-spinner")).toHaveLength(1);
+    state.fail(request, "Offline");
+    expect(button.getAttribute("aria-busy")).toBe("false");
+    expect(button.getAttribute("aria-label")).toBe("ADO Boost");
+    expect(button.querySelector(".adopp-grouping-spinner")).toBeNull();
+    const next = state.begin();
+    state.complete(next, []);
+    expect(button.querySelector(".adopp-grouping-spinner")).toBeNull();
+  });
   it("shows a pending state instead of stale totals and describes the effective whitespace policy", () => {
     const value: PullRequestAnalysis = {
       ...analysis, countsUpdating: true, diffPolicy: { ignoreTrimWhitespace: true }

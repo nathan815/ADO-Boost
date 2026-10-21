@@ -189,6 +189,44 @@ describe("semantic native projection", () => {
 });
 
 describe("semantic native adapter", () => {
+  it.each([
+    [false, false, "Generate"],
+    [true, false, "Regenerate"],
+    [true, true, "Grouping..."],
+    [false, true, "Grouping..."]
+  ])("shows the generation action for existing groups=%s, busy=%s", (generated, busy, label) => {
+    const configuration = config();
+    configuration.semantic!.busy = busy;
+    if (!generated) configuration.semantic!.groups = [];
+    const f = fixture(configuration);
+    const deferred = f.explorer.render();
+    if (!react.isValidElement(deferred) || typeof deferred.props.children !== "function") throw new Error("Missing native tree callback");
+    const container: unknown = deferred.props.children();
+    if (!react.isValidElement(container) || !Array.isArray(container.props.children)) throw new Error("Missing tree container");
+    const portal: unknown = container.props.children[1];
+    if (!record(portal) || !react.isValidElement(portal.children) || !Array.isArray(portal.children.props.children)) throw new Error("Missing toolbar");
+    const heading: unknown = portal.children.props.children[0];
+    if (!react.isValidElement(heading) || !Array.isArray(heading.props.children)) throw new Error("Missing heading");
+    const button: unknown = heading.props.children[1];
+    if (!react.isValidElement(button)) throw new Error("Missing generate button");
+    expect(button.props.children).toBe(label);
+    expect(button.props.disabled).toBe(busy);
+    expect(heading.props["aria-busy"]).toBe(busy);
+    const dropdown: unknown = portal.children.props.children[1];
+    if (!react.isValidElement(dropdown)) throw new Error("Missing group dropdown");
+    expect(dropdown.props.disabled).toBe(!generated);
+    expect(dropdown.props.ariaLabel).toBe(generated ? "Copilot Groups" : "Copilot groups not yet generated for this PR");
+    const renderExpandable = dropdown.props.renderExpandable;
+    if (typeof renderExpandable !== "function") throw new Error("Missing dropdown renderer");
+    const expandable: unknown = renderExpandable({ disabled: dropdown.props.disabled, renderSelectedItems: () => "All files (2)" });
+    if (!react.isValidElement(expandable) || !react.isValidElement(expandable.props.children)) throw new Error("Missing dropdown label");
+    expect(expandable.props.disabled).toBe(!generated);
+    expect(expandable.props.children.props.children).toBe(generated ? "All files (2)" : "Copilot groups not yet generated for this PR");
+    if (!busy) {
+      (button.props.onClick as () => void)();
+      expect(f.action).toHaveBeenCalledWith("regenerate", configuration.semantic!.view);
+    }
+  });
   it("extends the toolbar background under the scrollbar and tracks resizing, scrolling, and disposal", () => {
     let resize: (() => void) | undefined;
     const disconnect = vi.fn();

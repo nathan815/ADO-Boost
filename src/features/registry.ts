@@ -17,6 +17,8 @@ export type FeatureId =
   | "submitReview"
   | "feedbackExport"
   | "copilotSemanticGroups"
+  | "autoGenerateCopilotGroups"
+  | "confirmCopilotGroups"
   | "copilotChat";
 
 export interface FeatureDefinition {
@@ -44,7 +46,9 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
   { id: "draftQueue", group: "discussions", label: "Private feedback drafts", description: "Save local general, inline, and reply drafts from native Azure DevOps comment composers and show them in context until submission.", defaultEnabled: true, dependencies: ["reviewProgress"] },
   { id: "submitReview", group: "discussions", label: "Submit Review", description: "Preview selected drafts, publish feedback, then apply an optional Azure DevOps review decision.", defaultEnabled: true, dependencies: ["draftQueue"] },
   { id: "feedbackExport", group: "discussions", label: "Feedback export", description: "Copy or download queued feedback and discussion references as Markdown.", defaultEnabled: true, dependencies: ["draftQueue"] },
-  { id: "copilotSemanticGroups", group: "copilot", label: "Copilot semantic groups", description: "Generate intent-based groups with explicit context confirmation, then browse or filter them in the native file tree.", defaultEnabled: false, dependencies: ["groupedNavigation"] },
+  { id: "copilotSemanticGroups", group: "copilot", label: "Copilot semantic groups", description: "Generate intent-based groups, then browse or filter them in the native file tree or the Copilot Groups sidebar tab.", defaultEnabled: false, dependencies: ["groupedNavigation"] },
+  { id: "autoGenerateCopilotGroups", group: "copilot", label: "Automatically generate Copilot groups on PR page load", description: "Send all PR file paths and bounded context to Copilot running locally when a PR opens, without opening the sidebar or asking for confirmation.", defaultEnabled: false, dependencies: ["copilotSemanticGroups"] },
+  { id: "confirmCopilotGroups", group: "copilot", label: "Confirm before generating Copilot groups", description: "Show a context confirmation before manually generating or regenerating groups. Automatic generation uses the opt-in above.", defaultEnabled: true, dependencies: ["copilotSemanticGroups"] },
   { id: "copilotChat", group: "copilot", label: "Copilot PR questions", description: "Ask bounded PR questions through the local companion. Suggested feedback remains a private draft.", defaultEnabled: false, dependencies: ["copilotSemanticGroups", "draftQueue"] }
 ] as const;
 

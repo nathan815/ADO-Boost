@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { AdoApi } from "../src/adapters/ado-api";
 import { MemoryBrowserStore } from "../src/adapters/browser";
 import { RuntimeCopilotGateway } from "../src/core/copilot-gateway";
@@ -392,12 +392,31 @@ describe("ReviewPanel unresolved changes", () => {
 });
 
 describe("ReviewPanel semantic groups", () => {
-  async function fixture() {
+  const dialogMethods = ["showModal", "close"] as const;
+  const originalDialogMethods = dialogMethods.map((name) => Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, name));
+  beforeAll(() => {
+    // jsdom does not implement the browser's modal top layer.
+    Object.defineProperties(HTMLDialogElement.prototype, {
+      showModal: { configurable: true, value: function (this: HTMLDialogElement) { this.open = true; } },
+      close: { configurable: true, value: function (this: HTMLDialogElement) { this.open = false; } }
+    });
+  });
+  afterAll(() => {
+    dialogMethods.forEach((name, index) => {
+      const descriptor = originalDialogMethods[index];
+      if (descriptor) Object.defineProperty(HTMLDialogElement.prototype, name, descriptor);
+      else Reflect.deleteProperty(HTMLDialogElement.prototype, name);
+    });
+  });
+
+  async function fixture(autoGenerate = false, confirm = true, generate = vi.fn<CopilotGateway["semanticGroups"]>()) {
     document.body.innerHTML = '<div class="region-content"><main class="repos-pr-details-page">Native PR content</main></div>';
     const settings = defaultSettings();
     settings.features.startReviewing = false;
     settings.features.threadNavigator = false;
     settings.features.copilotSemanticGroups = true;
+    settings.features.autoGenerateCopilotGroups = autoGenerate;
+    settings.features.confirmCopilotGroups = confirm;
     const analysis: PullRequestAnalysis = {
       context: {
         origin: "https://dev.azure.com", organization: "org", project: "project", repository: "repo",
@@ -412,30 +431,35 @@ describe("ReviewPanel semantic groups", () => {
     };
     const api = new AdoApi({ fetch: vi.fn() });
     vi.spyOn(api, "getFileContent").mockResolvedValue({ text: "content", size: 7 });
-    const semanticGroups = vi.fn<CopilotGateway["semanticGroups"]>();
+    const semanticGroups = generate;
+    const chat = vi.fn<CopilotGateway["chat"]>();
     const state = new SemanticGroupState();
+    const settingsService = new SettingsService(new MemorySettingsStorage());
     panel = new ReviewPanel({
       analysis, api, settings, store: new MemoryBrowserStore(),
-      settingsService: new SettingsService(new MemorySettingsStorage()), reviewKey: "org/project/repo-id/7",
+      settingsService, reviewKey: "org/project/repo-id/7",
       writes: new RuntimeWriteGateway(),
-      copilot: { semanticGroups, health: vi.fn(), chat: vi.fn() }, openSettings: vi.fn(), semanticGroups: state
+      copilot: { semanticGroups, health: vi.fn(), chat }, openSettings: vi.fn(), semanticGroups: state
     });
+    const initiallyOpen = document.querySelector<HTMLElement>("[data-adopp-review-panel]")!.dataset.open;
     panel.openDiscussions();
     await vi.waitFor(() => expect(document.querySelector("[data-adopp-review-panel]")).not.toBeNull());
     await Promise.resolve();
     const root = document.querySelector("[data-adopp-review-panel]")!.shadowRoot!;
-    const requestGroups = () => {
+    root.querySelector<HTMLButtonElement>('[data-panel-tab="groups"]')!.click();
+    const requestGroups = async () => {
       root.querySelector<HTMLButtonElement>(".copilot-groups")!.click();
-      root.querySelector<HTMLButtonElement>(".confirm-context")!.click();
+      root.querySelector<HTMLButtonElement>(".confirm-context")?.click();
+      await Promise.resolve();
     };
-    return { root, analysis, semanticGroups, settings, requestGroups, state };
+    return { root, analysis, semanticGroups, settings, requestGroups, state, settingsService, api, initiallyOpen, chat };
   }
 
   it("shows progress, renders safe group results including omitted files, and opens native files", async () => {
     const { root, semanticGroups, requestGroups, analysis } = await fixture();
     let complete!: (groups: SemanticGroupProposal[]) => void;
     semanticGroups.mockImplementation(() => new Promise((resolve) => { complete = resolve; }));
-    requestGroups();
+    await requestGroups();
     expect(root.querySelector(".copilot-groups")?.textContent).toBe("Grouping changes...");
     expect(root.querySelector<HTMLButtonElement>(".copilot-groups")?.disabled).toBe(true);
     await vi.waitFor(() => expect(semanticGroups).toHaveBeenCalledOnce());
@@ -462,7 +486,7 @@ describe("ReviewPanel semantic groups", () => {
     }
 
     semanticGroups.mockResolvedValue([{ title: "Updated", rationale: "New grouping", paths: analysis.files.map((file) => file.path) }]);
-    requestGroups();
+    await requestGroups();
     await vi.waitFor(() => expect(root.querySelector(".copilot-result summary")?.textContent).toContain("Updated"));
     expect(semanticGroups.mock.calls[1]?.[3]).toBe(true);
   });
@@ -470,10 +494,10 @@ describe("ReviewPanel semantic groups", () => {
   it("shows regeneration errors without losing previous results and hides groups when disabled", async () => {
     const { root, semanticGroups, requestGroups, settings } = await fixture();
     semanticGroups.mockResolvedValue([{ title: "Changes", rationale: "Related", paths: ["/src/first.ts"] }]);
-    requestGroups();
+    await requestGroups();
     await vi.waitFor(() => expect(root.querySelector(".copilot-results")).not.toBeNull());
     semanticGroups.mockRejectedValue(new Error("Companion disconnected"));
-    requestGroups();
+    await requestGroups();
     await vi.waitFor(() => expect(root.querySelector(".delivery.error")?.textContent).toBe("Companion disconnected"));
     expect(root.querySelectorAll("[data-copilot-path]")).toHaveLength(2);
     expect(root.querySelector<HTMLButtonElement>(".copilot-groups")?.disabled).toBe(false);
@@ -492,11 +516,47 @@ describe("ReviewPanel semantic groups", () => {
     expect(semanticGroups).not.toHaveBeenCalled();
   });
 
+  it("keeps a modal confirmation open with its choices and focus across panel updates", async () => {
+    const { root, settings, semanticGroups } = await fixture();
+    panel!.requestSemanticGroups();
+    const dialog = root.querySelector<HTMLDialogElement>("dialog.dialog-backdrop")!;
+    expect(dialog.open).toBe(true);
+    expect(dialog.getAttribute("aria-labelledby")).toBe("group-confirm-title");
+    const checkbox = dialog.querySelector<HTMLInputElement>(".auto-generate-groups")!;
+    checkbox.checked = true;
+    checkbox.focus();
+    panel!.updateSettings(settings);
+    expect(root.querySelector("dialog.dialog-backdrop")).toBe(dialog);
+    expect(dialog.open).toBe(true);
+    expect(checkbox.checked).toBe(true);
+    expect(root.activeElement).toBe(checkbox);
+    dialog.dispatchEvent(new Event("cancel", { cancelable: true }));
+    expect(dialog.open).toBe(false);
+    expect(dialog.isConnected).toBe(false);
+    expect(semanticGroups).not.toHaveBeenCalled();
+    expect(root.activeElement?.classList.contains("copilot-groups")).toBe(true);
+  });
+
+  it("closes the modal when the feature is disabled or the panel is destroyed", async () => {
+    const { root, settings } = await fixture();
+    panel!.requestSemanticGroups();
+    const first = root.querySelector<HTMLDialogElement>("dialog")!;
+    panel!.updateSettings({ ...settings, features: { ...settings.features, copilotSemanticGroups: false } });
+    expect(first.open).toBe(false);
+    expect(first.isConnected).toBe(false);
+    panel!.updateSettings(settings);
+    panel!.requestSemanticGroups();
+    const second = root.querySelector<HTMLDialogElement>("dialog")!;
+    panel!.destroy();
+    expect(second.open).toBe(false);
+    expect(second.isConnected).toBe(false);
+  });
+
   it("discards pending generation when the comparison changes", async () => {
     const { root, semanticGroups, requestGroups, state } = await fixture();
     let complete!: (groups: SemanticGroupProposal[]) => void;
     semanticGroups.mockImplementation(() => new Promise((resolve) => { complete = resolve; }));
-    requestGroups();
+    await requestGroups();
     await vi.waitFor(() => expect(semanticGroups).toHaveBeenCalledOnce());
     state.setAvailable(false);
     complete([{ title: "Stale", rationale: "Old comparison", paths: ["/src/first.ts"] }]);
@@ -505,5 +565,121 @@ describe("ReviewPanel semantic groups", () => {
     expect(root.querySelector(".copilot-results")).toBeNull();
     expect(root.querySelector(".copilot-panel")?.textContent).toContain("comparison changed");
     expect(root.querySelector<HTMLButtonElement>(".copilot-groups")?.disabled).toBe(true);
+  });
+
+  it("separates discussions and groups with keyboard-accessible tabs and independent scroll positions", async () => {
+    const { root } = await fixture();
+    const workspace = root.querySelector<HTMLElement>(".workspace")!;
+    workspace.scrollTop = 250;
+    workspace.dispatchEvent(new Event("scroll"));
+    panel!.openDiscussions();
+    expect(root.querySelector<HTMLElement>("#groups-panel")!.hidden).toBe(true);
+    expect(root.querySelector<HTMLElement>("#discussions-panel")!.hidden).toBe(false);
+    expect(root.querySelector(".workspace")!.scrollTop).toBe(0);
+    const tab = root.querySelector<HTMLButtonElement>("#discussions-tab")!;
+    tab.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    expect(root.querySelector("#groups-tab")!.getAttribute("aria-selected")).toBe("true");
+    expect(root.activeElement?.id).toBe("groups-tab");
+    expect(root.querySelector(".workspace")!.scrollTop).toBe(250);
+  });
+
+  it("remembers confirmation choices and sends all files without a file picker on subsequent requests", async () => {
+    const { root, semanticGroups, requestGroups, analysis, settingsService, state } = await fixture();
+    semanticGroups.mockResolvedValue([]);
+    panel!.requestSemanticGroups();
+    expect(root.querySelector(".dialog")?.textContent).toContain("All PR files and context will be sent to Copilot running locally.");
+    expect(root.querySelector("[data-context-path]")).toBeNull();
+    expect(root.querySelector<HTMLInputElement>(".auto-generate-groups")!.checked).toBe(false);
+    expect(root.querySelector<HTMLInputElement>(".skip-group-confirmation")!.checked).toBe(true);
+    root.querySelector<HTMLInputElement>(".auto-generate-groups")!.checked = true;
+    root.querySelector<HTMLButtonElement>(".confirm-context")!.click();
+    await vi.waitFor(() => expect(semanticGroups).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(state.busy).toBe(false));
+    const saved = await settingsService.load();
+    expect(saved.features.autoGenerateCopilotGroups).toBe(true);
+    expect(saved.features.confirmCopilotGroups).toBe(false);
+    expect(semanticGroups).toHaveBeenCalledOnce();
+    expect(semanticGroups.mock.calls[0]![1]).toEqual(analysis.files);
+    expect(semanticGroups.mock.calls[0]![2].map((excerpt) => excerpt.path)).toEqual(analysis.files.map((file) => file.path));
+    await requestGroups();
+    await vi.waitFor(() => expect(semanticGroups).toHaveBeenCalledTimes(2));
+    expect(root.querySelector(".dialog")).toBeNull();
+  });
+
+  it("keeps confirmation enabled when unchecked, and cancellation does not save or send", async () => {
+    const { root, semanticGroups, settingsService } = await fixture();
+    const save = vi.spyOn(settingsService, "save");
+    panel!.requestSemanticGroups();
+    root.querySelector<HTMLButtonElement>(".cancel")!.click();
+    expect(save).not.toHaveBeenCalled();
+    expect(semanticGroups).not.toHaveBeenCalled();
+    panel!.requestSemanticGroups();
+    root.querySelector<HTMLInputElement>(".skip-group-confirmation")!.checked = false;
+    semanticGroups.mockResolvedValue([]);
+    root.querySelector<HTMLButtonElement>(".confirm-context")!.click();
+    await vi.waitFor(() => expect(semanticGroups).toHaveBeenCalledOnce());
+    expect((await settingsService.load()).features.confirmCopilotGroups).toBe(true);
+  });
+
+  it("automatically generates once on load without opening the sidebar or showing confirmation", async () => {
+    const generate = vi.fn<CopilotGateway["semanticGroups"]>().mockImplementation(() => new Promise(() => {}));
+    const { root, state, settings, semanticGroups, initiallyOpen } = await fixture(true, true, generate);
+    expect(initiallyOpen).toBe("false");
+    expect(state.busy).toBe(true);
+    expect(root.querySelector(".grouping-spinner")).not.toBeNull();
+    expect(root.querySelector(".copilot-panel")?.getAttribute("aria-busy")).toBe("true");
+    expect(root.querySelector(".confirm-context")).toBeNull();
+    await vi.waitFor(() => expect(semanticGroups).toHaveBeenCalledOnce());
+    panel!.updateSettings(settings);
+    expect(semanticGroups).toHaveBeenCalledOnce();
+  });
+
+  it("does not send on load by default and can bypass confirmation explicitly", async () => {
+    const { root, semanticGroups, requestGroups } = await fixture(false, false);
+    expect(semanticGroups).not.toHaveBeenCalled();
+    semanticGroups.mockResolvedValue([]);
+    await requestGroups();
+    await vi.waitFor(() => expect(semanticGroups).toHaveBeenCalledOnce());
+    expect(root.querySelector(".confirm-context")).toBeNull();
+  });
+
+  it("keeps manual generation unobtrusive after confirmation has been disabled", async () => {
+    const { root, semanticGroups } = await fixture(false, false);
+    root.querySelector<HTMLButtonElement>(".close")!.click();
+    semanticGroups.mockResolvedValue([]);
+    panel!.requestSemanticGroups();
+    expect(root.querySelector(".rail")!.getAttribute("data-open")).toBe("false");
+    await vi.waitFor(() => expect(semanticGroups).toHaveBeenCalledOnce());
+    expect(root.querySelector(".dialog")).toBeNull();
+  });
+
+  it("preserves questions across tabs and switches to Discussions when drafting a Copilot answer", async () => {
+    const { root, settings, chat } = await fixture();
+    panel!.updateSettings({ ...settings, features: { ...settings.features, copilotChat: true } });
+    const question = root.querySelector<HTMLTextAreaElement>(".copilot-question")!;
+    question.value = "What should reviewers focus on?";
+    question.dispatchEvent(new Event("input"));
+    root.querySelector<HTMLButtonElement>("#discussions-tab")!.click();
+    root.querySelector<HTMLButtonElement>("#groups-tab")!.click();
+    expect(root.querySelector<HTMLTextAreaElement>(".copilot-question")!.value).toBe(question.value);
+    chat.mockResolvedValue("Review the comparison lifecycle");
+    root.querySelector<HTMLButtonElement>(".copilot-ask")!.click();
+    expect(root.querySelectorAll("[data-context-path]")).toHaveLength(2);
+    root.querySelector<HTMLButtonElement>(".confirm-context")!.click();
+    await vi.waitFor(() => expect(root.querySelector(".copilot-draft")).not.toBeNull());
+    root.querySelector<HTMLButtonElement>(".copilot-draft")!.click();
+    expect(root.querySelector<HTMLElement>("#discussions-panel")!.hidden).toBe(false);
+    expect(root.querySelector("#discussions-tab")!.getAttribute("aria-selected")).toBe("true");
+    expect(root.querySelector<HTMLTextAreaElement>(".draft-body")!.value).toBe("Review the comparison lifecycle");
+  });
+
+  it("surfaces preference-save failures without sending context", async () => {
+    const { root, semanticGroups, settingsService } = await fixture();
+    vi.spyOn(settingsService, "save").mockRejectedValue(new Error("Storage unavailable"));
+    panel!.requestSemanticGroups();
+    root.querySelector<HTMLButtonElement>(".confirm-context")!.click();
+    await vi.waitFor(() => expect(root.querySelector(".confirmation-error")?.textContent).toBe("Storage unavailable"));
+    expect(semanticGroups).not.toHaveBeenCalled();
+    expect(root.querySelector<HTMLButtonElement>(".confirm-context")!.disabled).toBe(false);
   });
 });

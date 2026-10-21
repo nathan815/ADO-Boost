@@ -47,6 +47,8 @@ export class ReviewPanel {
   private readonly completionMonitor: ReviewCompletionMonitor;
   private settings: FeatureSettings;
   private open = false;
+  private activeTab: "discussions" | "groups" = "discussions";
+  private readonly tabScroll = { discussions: 0, groups: 0 };
   private overlay = false;
   private destroyed = false;
   private announcementPosted = false;
@@ -62,6 +64,8 @@ export class ReviewPanel {
   private get copilotGrouping() { return this.semanticGroups.busy; }
   private copilotError = "";
   private copilotAnswer = "";
+  private copilotQuestion = "";
+  private groupConfirmation: HTMLDialogElement | null = null;
 
   constructor(private readonly dependencies: ReviewPanelDependencies) {
     this.settings = dependencies.settings;
@@ -86,6 +90,9 @@ export class ReviewPanel {
     if (resolveFeature(this.settings, "startReviewing").enabled) void this.loadAnnouncementStatus();
     void this.discussion.load();
     this.render();
+    if (resolveFeature(this.settings, "autoGenerateCopilotGroups").enabled) {
+      void this.loadCopilotGroups(this.dependencies.analysis.files);
+    }
   }
 
   updateSettings(settings: FeatureSettings): void {
@@ -93,6 +100,11 @@ export class ReviewPanel {
     const announcementsWereEnabled = resolveFeature(this.settings, "startReviewing").enabled;
     this.settings = settings;
     this.semanticGroups.setEnabled(resolveFeature(settings, "copilotSemanticGroups").enabled);
+    if (!this.semanticGroups.enabled) {
+      this.groupConfirmation?.close();
+      this.groupConfirmation?.remove();
+      this.groupConfirmation = null;
+    }
     if (!resolveFeature(settings, "startReviewing").enabled) this.announcementDialog?.close();
     this.updateCompletionMonitor();
     this.host.dataset.theme = settings.presentation.theme;
@@ -108,6 +120,8 @@ export class ReviewPanel {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.groupConfirmation?.close();
+    this.groupConfirmation = null;
     this.unsubscribeSemantic();
     this.semanticGroups.setEnabled(false);
     this.announcementDialog?.close();
@@ -121,15 +135,25 @@ export class ReviewPanel {
   }
 
   openDiscussions(): void {
+    this.selectTab("discussions");
     this.open = true;
     this.render();
     this.root.querySelector<HTMLElement>(".rail")?.focus();
   }
 
   requestSemanticGroups(): void {
-    if (this.destroyed || this.copilotBusy || !this.semanticGroups.enabled || !this.semanticGroups.available) return;
-    this.openDiscussions();
-    this.showCopilotPrivacy("groups");
+    if (this.destroyed || this.copilotBusy || this.groupConfirmation || !this.semanticGroups.enabled || !this.semanticGroups.available) return;
+    if (this.settings.features.confirmCopilotGroups) {
+      this.selectTab("groups");
+      this.open = true;
+      this.render();
+      this.showGroupConfirmation();
+    } else void this.loadCopilotGroups(this.dependencies.analysis.files);
+  }
+
+  private selectTab(tab: "discussions" | "groups"): void {
+    this.tabScroll[this.activeTab] = this.root.querySelector(".workspace")?.scrollTop ?? 0;
+    this.activeTab = tab;
   }
 
   startReviewing(): void {
@@ -191,7 +215,11 @@ export class ReviewPanel {
   private render(): void {
     if (this.destroyed) return;
     const analysis = this.dependencies.analysis;
-    const scrollTop = this.root.querySelector(".workspace")?.scrollTop ?? 0;
+    const groupsEnabled = resolveFeature(this.settings, "copilotSemanticGroups").enabled;
+    if (!groupsEnabled) this.activeTab = "discussions";
+    const scrollTop = this.tabScroll[this.activeTab];
+    const confirmationFocus = this.groupConfirmation?.contains(this.root.activeElement) ? this.root.activeElement : null;
+    this.groupConfirmation?.close();
     this.header?.destroy();
     this.layout.update(this.open, this.overlay ? "overlay" : "inline");
     this.root.innerHTML = `
@@ -203,11 +231,17 @@ export class ReviewPanel {
           <div class="metric"><b>${analysis.threads.resolved}</b><span>resolved</span></div>
           <div class="metric"><b>${analysis.threads.total}</b><span>all threads</span></div>
         </section>
+        <nav class="panel-tabs" role="tablist" aria-label="Review views">
+          <button id="discussions-tab" type="button" role="tab" aria-controls="discussions-panel" aria-selected="${this.activeTab === "discussions"}" tabindex="${this.activeTab === "discussions" ? 0 : -1}" data-panel-tab="discussions">Discussions</button>
+          ${groupsEnabled ? `<button id="groups-tab" type="button" role="tab" aria-controls="groups-panel" aria-selected="${this.activeTab === "groups"}" tabindex="${this.activeTab === "groups" ? 0 : -1}" data-panel-tab="groups">Copilot Groups${this.copilotGrouping ? '<span class="grouping-spinner" aria-hidden="true"></span><span class="sr-only">Generating...</span>' : ""}</button>` : ""}
+        </nav>
         <main class="workspace">
           ${this.unresolvedChangesMarkup()}
           ${this.announcementError ? `<div class="delivery error">${escapeHtml(this.announcementError)}. Announce Review Start will check again before posting.</div>` : ""}
-          ${this.copilotMarkup()}
+          <div id="groups-panel" role="tabpanel" aria-labelledby="groups-tab" ${this.activeTab === "groups" ? "" : "hidden"}>${this.copilotMarkup()}</div>
+          <div id="discussions-panel" role="tabpanel" aria-labelledby="discussions-tab" ${this.activeTab === "discussions" ? "" : "hidden"}>
           ${resolveFeature(this.settings, "draftQueue").enabled || resolveFeature(this.settings, "threadNavigator").enabled ? this.discussion.markup() : ""}
+          </div>
         </main>
       </aside>
     `;
@@ -225,8 +259,14 @@ export class ReviewPanel {
     });
     this.bind();
     this.toast.mount();
+    if (this.groupConfirmation) {
+      this.root.append(this.groupConfirmation);
+      this.groupConfirmation.showModal();
+      if (confirmationFocus instanceof HTMLElement) confirmationFocus.focus();
+    }
     const workspace = this.root.querySelector(".workspace");
     if (workspace) workspace.scrollTop = scrollTop;
+    workspace?.addEventListener("scroll", () => { this.tabScroll[this.activeTab] = workspace.scrollTop; }, { passive: true });
   }
 
   private closePanel(): void {
@@ -247,9 +287,30 @@ export class ReviewPanel {
   private bind(): void {
     this.discussion.bind(this.root);
     this.root.querySelector(".copilot-health")?.addEventListener("click", () => void this.checkCopilot());
-    this.root.querySelector(".copilot-groups")?.addEventListener("click", () => this.showCopilotPrivacy("groups"));
-    this.root.querySelector(".copilot-ask")?.addEventListener("click", () => this.showCopilotPrivacy("chat"));
-    this.root.querySelector(".copilot-draft")?.addEventListener("click", () => this.discussion.showGeneralDraft(this.root, this.copilotAnswer));
+    for (const tab of this.root.querySelectorAll<HTMLButtonElement>("[data-panel-tab]")) {
+      const activate = (target: HTMLButtonElement) => {
+        this.selectTab(target.dataset.panelTab === "groups" ? "groups" : "discussions");
+        this.render();
+        this.root.querySelector<HTMLButtonElement>(`[data-panel-tab="${this.activeTab}"]`)?.focus();
+      };
+      tab.addEventListener("click", () => activate(tab));
+      tab.addEventListener("keydown", (event) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const tabs = [...this.root.querySelectorAll<HTMLButtonElement>("[data-panel-tab]")];
+        const index = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (tabs.indexOf(tab) + 1) % tabs.length;
+        activate(tabs[index]!);
+      });
+    }
+    this.root.querySelector(".copilot-groups")?.addEventListener("click", () => this.requestSemanticGroups());
+    this.root.querySelector<HTMLTextAreaElement>(".copilot-question")?.addEventListener("input", (event) => {
+      this.copilotQuestion = (event.target as HTMLTextAreaElement).value;
+    });
+    this.root.querySelector(".copilot-ask")?.addEventListener("click", () => this.showCopilotPrivacy());
+    this.root.querySelector(".copilot-draft")?.addEventListener("click", () => {
+      this.selectTab("discussions");
+      this.discussion.showGeneralDraft(this.root, this.copilotAnswer);
+    });
     for (const link of this.root.querySelectorAll<HTMLAnchorElement>("[data-copilot-path]")) {
       link.addEventListener("click", (event) => {
         if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
@@ -268,7 +329,7 @@ export class ReviewPanel {
     const status = this.copilotHealth ? this.copilotHealth.authenticated ? `Connected${this.copilotHealth.login ? ` as ${escapeHtml(this.copilotHealth.login)}` : ""}` : `Needs login${this.copilotHealth.detail ? `: ${escapeHtml(this.copilotHealth.detail)}` : ""}` : "Not checked";
     const comparisonNotice = groupsEnabled && !this.semanticGroups.available
       ? '<p class="delivery" role="status">Semantic groups were cleared because the comparison changed. Choose All Changes to generate groups for the analyzed comparison.</p>' : "";
-    return `<section class="copilot-panel"><div class="section-head"><div><h3>Local Copilot companion</h3><p class="muted">${status}. PR metadata is sent only after an explicit action and may use your configured model provider.</p></div><button class="secondary copilot-health" type="button" ${this.copilotBusy ? "disabled" : ""}>Check connection</button></div>${this.copilotError ? `<div class="delivery error">${escapeHtml(this.copilotError)}</div>` : ""}${comparisonNotice}<div class="copilot-actions">${groupsEnabled ? `<button class="secondary copilot-groups" type="button" ${this.copilotBusy || !this.semanticGroups.available ? "disabled" : ""}>${this.copilotGrouping ? "Grouping changes..." : this.copilotGroups ? "Regenerate semantic groups" : "Group changes with Copilot"}</button>` : ""}</div>${groupsEnabled ? this.copilotGroupsMarkup() : ""}${chatEnabled ? `<textarea class="copilot-question" rows="3" placeholder="Ask a question about the PR file summary"></textarea><button class="secondary copilot-ask" type="button" ${this.copilotBusy ? "disabled" : ""}>Ask Copilot</button>${this.copilotAnswer ? `<div class="preview copilot-answer">${escapeHtml(this.copilotAnswer)}</div><button class="secondary copilot-draft" type="button">Use answer as feedback draft</button>` : ""}` : ""}</section>`;
+    return `<section class="copilot-panel" aria-busy="${this.copilotGrouping}"><div class="section-head"><div><h3>Local Copilot companion</h3><p class="muted">${status}. PR context is sent when you generate groups or enable automatic generation, and may use your configured model provider.</p></div><button class="secondary copilot-health" type="button" ${this.copilotBusy ? "disabled" : ""}>Check connection</button></div>${this.copilotError ? `<div class="delivery error" role="alert">${escapeHtml(this.copilotError)}</div>` : ""}${comparisonNotice}<div class="copilot-actions">${groupsEnabled ? `<button class="secondary copilot-groups" type="button" ${this.copilotBusy || !this.semanticGroups.available ? "disabled" : ""}>${this.copilotGrouping ? "Grouping changes..." : this.copilotGroups ? "Regenerate semantic groups" : "Generate"}</button>` : ""}</div>${groupsEnabled ? this.copilotGroupsMarkup() : ""}${chatEnabled ? `    <textarea class="copilot-question" rows="3" placeholder="Ask a question about the PR file summary">${escapeHtml(this.copilotQuestion)}</textarea><button class="secondary copilot-ask" type="button" ${this.copilotBusy ? "disabled" : ""}>Ask Copilot</button>${this.copilotAnswer ? `<div class="preview copilot-answer">${escapeHtml(this.copilotAnswer)}</div><button class="secondary copilot-draft" type="button">Use answer as feedback draft</button>` : ""}` : ""}</section>`;
   }
 
   private copilotGroupsMarkup(): string {
@@ -298,9 +359,9 @@ export class ReviewPanel {
   }
 
   private async loadCopilotGroups(files: FileStat[]): Promise<void> {
-    if (!this.semanticGroups.enabled || !this.semanticGroups.available || this.copilotBusy) return;
-    const request = this.semanticGroups.begin();
+    if (this.destroyed || !this.semanticGroups.enabled || !this.semanticGroups.available || this.copilotBusy) return;
     this.copilotBusy = true;
+    const request = this.semanticGroups.begin();
     this.copilotError = "";
     this.render();
     try {
@@ -313,6 +374,7 @@ export class ReviewPanel {
       if (!this.semanticGroups.isCurrent(request)) return;
       this.copilotError = error instanceof Error ? error.message : "Copilot grouping failed";
       this.semanticGroups.fail(request, this.copilotError);
+      if (!this.open) this.toast.show(`Copilot grouping failed: ${this.copilotError}`);
     } finally {
       this.copilotBusy = false;
       this.render();
@@ -336,23 +398,72 @@ export class ReviewPanel {
     }
   }
 
-  private showCopilotPrivacy(action: "groups" | "chat"): void {
-    if (this.copilotBusy || this.root.querySelector(".dialog-backdrop")
-      || (action === "groups" && (!this.semanticGroups.enabled || !this.semanticGroups.available))) return;
-    const question = action === "chat" ? this.root.querySelector<HTMLTextAreaElement>(".copilot-question")?.value.trim() : "";
-    if (action === "chat" && !question) return;
+  private showGroupConfirmation(): void {
+    if (this.root.querySelector(".dialog-backdrop")) return;
+    const backdrop = document.createElement("dialog");
+    backdrop.className = "dialog-backdrop";
+    backdrop.setAttribute("aria-labelledby", "group-confirm-title");
+    let saving = false;
+    backdrop.innerHTML = `    <section class="dialog"><h3 id="group-confirm-title">Generate Copilot groups?</h3><p>All PR files and context will be sent to Copilot running locally.</p><p>All changed-file paths and counts are included. Changed-line excerpts are bounded to ${MAX_COPILOT_FILES} files, 200 changed lines per file, 32 KB per file, and 128 KB total; binary, unavailable, and truncated content is marked omitted. Copilot may use your configured model provider.</p><label class="confirmation-option"><input class="auto-generate-groups" type="checkbox"> Automatically generate on PR page load</label><label class="confirmation-option"><input class="skip-group-confirmation" type="checkbox" checked> Don't show this confirmation next time</label><p class="confirmation-error delivery error" role="alert" hidden></p><div class="dialog-actions"><button class="secondary cancel" type="button">Cancel</button><button class="primary confirm-context" type="button">Send and generate</button></div></section>`;
+    const close = () => {
+      if (saving) return;
+      this.groupConfirmation = null;
+      backdrop.close();
+      backdrop.remove();
+      this.root.querySelector<HTMLButtonElement>(".copilot-groups")?.focus();
+    };
+    backdrop.querySelector(".cancel")?.addEventListener("click", close);
+    backdrop.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      close();
+    });
+    backdrop.querySelector(".confirm-context")?.addEventListener("click", () => {
+      if (saving) return;
+      saving = true;
+      const auto = backdrop.querySelector<HTMLInputElement>(".auto-generate-groups")!.checked;
+      const skip = backdrop.querySelector<HTMLInputElement>(".skip-group-confirmation")!.checked;
+      const next = { ...this.settings, features: { ...this.settings.features, autoGenerateCopilotGroups: auto, confirmCopilotGroups: !skip } };
+      for (const button of backdrop.querySelectorAll<HTMLButtonElement>("button")) button.disabled = true;
+      void this.dependencies.settingsService.save(next).then(() => {
+        if (this.destroyed) return;
+        this.settings = next;
+        this.groupConfirmation = null;
+        backdrop.close();
+        backdrop.remove();
+        void this.loadCopilotGroups(this.dependencies.analysis.files);
+      }).catch((error: unknown) => {
+        if (this.destroyed) return;
+        saving = false;
+        const message = error instanceof Error ? error.message : "Could not save Copilot preferences";
+        const output = backdrop.querySelector<HTMLElement>(".confirmation-error")!;
+        output.hidden = false;
+        output.textContent = message;
+        this.toast.show(message);
+        for (const button of backdrop.querySelectorAll<HTMLButtonElement>("button")) button.disabled = false;
+      });
+    });
+    backdrop.querySelector<HTMLInputElement>(".auto-generate-groups")!.checked = this.settings.features.autoGenerateCopilotGroups;
+    this.groupConfirmation = backdrop;
+    this.root.append(backdrop);
+    backdrop.showModal();
+    backdrop.querySelector<HTMLButtonElement>(".confirm-context")?.focus();
+  }
+
+  private showCopilotPrivacy(): void {
+    if (this.copilotBusy || this.root.querySelector(".dialog-backdrop")) return;
+    const question = this.root.querySelector<HTMLTextAreaElement>(".copilot-question")?.value.trim();
+    if (!question) return;
     const candidates = this.dependencies.analysis.files.slice(0, MAX_COPILOT_FILES);
     const backdrop = document.createElement("div");
     backdrop.className = "dialog-backdrop";
-    backdrop.innerHTML = `<section class="dialog" role="dialog" aria-modal="true"><h3>Send bounded PR context to Copilot?</h3><p>ADO Boost will send the PR title, comparison identity, all changed-file paths and counts, plus changed-line excerpts only for the selected files below. Excerpts are capped at 20 files, 200 changed lines per file, 32 KB per file, and 128 KB total. Unselected, binary, unavailable, and truncated content is marked omitted.</p><div class="context-files">${candidates.map((file) => `<label><input type="checkbox" data-context-path="${escapeHtml(file.path)}" ${file.generated || file.lockfile ? "" : "checked"}> ${escapeHtml(file.path)}</label>`).join("")}</div><div class="dialog-actions"><button class="secondary cancel" type="button">Cancel</button><button class="primary confirm-context" type="button">${action === "groups" ? "Send and group changes" : "Send and ask question"}</button></div></section>`;
+    backdrop.innerHTML = `<section class="dialog" role="dialog" aria-modal="true"><h3>Send bounded PR context to Copilot?</h3><p>ADO Boost will send the PR title, comparison identity, all changed-file paths and counts, plus changed-line excerpts only for the selected files below. Excerpts are capped at 20 files, 200 changed lines per file, 32 KB per file, and 128 KB total. Unselected, binary, unavailable, and truncated content is marked omitted.</p><div class="context-files">${candidates.map((file) => `<label><input type="checkbox" data-context-path="${escapeHtml(file.path)}" ${file.generated || file.lockfile ? "" : "checked"}> ${escapeHtml(file.path)}</label>`).join("")}</div><div class="dialog-actions"><button class="secondary cancel" type="button">Cancel</button><button class="primary confirm-context" type="button">Send and ask question</button></div></section>`;
     this.root.append(backdrop);
     backdrop.querySelector(".cancel")?.addEventListener("click", () => backdrop.remove());
     backdrop.querySelector(".confirm-context")?.addEventListener("click", () => {
       const selected = new Set([...backdrop.querySelectorAll<HTMLInputElement>("[data-context-path]:checked")].map((input) => input.dataset.contextPath));
       const files = candidates.filter((file) => selected.has(file.path));
       backdrop.remove();
-      if (action === "groups") void this.loadCopilotGroups(files);
-      else void this.askCopilot(files, question!);
+      void this.askCopilot(files, question);
     });
   }
 

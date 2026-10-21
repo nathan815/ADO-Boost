@@ -3,6 +3,16 @@ import { defaultSettings, FEATURE_REGISTRY, migrateSettings, resolveFeature } fr
 import { MemorySettingsStorage, SettingsService } from "../src/features/settings-service";
 
 describe("feature settings", () => {
+  it("defaults automatic grouping off and manual confirmation on for existing settings", () => {
+    const settings = migrateSettings({ features: { copilotSemanticGroups: true } });
+    expect(settings.features.autoGenerateCopilotGroups).toBe(false);
+    expect(settings.features.confirmCopilotGroups).toBe(true);
+    const enabled = migrateSettings({ features: { copilotSemanticGroups: true, autoGenerateCopilotGroups: true, confirmCopilotGroups: false } });
+    expect(resolveFeature(enabled, "autoGenerateCopilotGroups").enabled).toBe(true);
+    expect(enabled.features.confirmCopilotGroups).toBe(false);
+    enabled.features.copilotSemanticGroups = false;
+    expect(resolveFeature(enabled, "autoGenerateCopilotGroups").enabled).toBe(false);
+  });
   it("defaults comment timestamps on independently of drafts and the thread navigator", () => {
     const settings = migrateSettings({ features: { draftQueue: false, threadNavigator: false } });
     expect(resolveFeature(settings, "commentTimestamps").enabled).toBe(true);
