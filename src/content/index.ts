@@ -20,6 +20,7 @@ import { PrVisitTracker } from "./pr-visit-tracker";
 import { DiffCountController } from "../core/diff-counts";
 import type { DiffPolicy } from "../core/types";
 import { NativeDiffPreferencesClient, readPageDiffPreference } from "../native-tree/diff-preferences";
+import { SemanticGroupState } from "../core/semantic-groups";
 
 class ContentApp {
   private readonly api = new AdoApi(new FetchHttpClient());
@@ -129,6 +130,7 @@ class ContentApp {
         const analysis = await this.analyzer.analyze(route, controller.signal, policy.ignoreTrimWhitespace);
         if (controller.signal.aborted) return;
         analysis.diffPolicy = policy;
+        const semanticGroups = new SemanticGroupState();
         this.panel = new ReviewPanel({
           analysis,
           api: this.api,
@@ -138,7 +140,8 @@ class ContentApp {
           writes: this.writes,
           copilot: this.copilot,
           reviewKey: this.analyzer.reviewKey(analysis.context),
-          openSettings: this.openSettings
+          openSettings: this.openSettings,
+          semanticGroups
         });
         this.enhancer = new NativePrEnhancer(analysis, this.settings, {
           openDiscussions: () => this.panel?.openDiscussions(),
@@ -147,7 +150,7 @@ class ContentApp {
           isReviewFinished: () => this.panel?.isReviewFinished() ?? false,
           triggerTestToast: () => this.panel?.triggerTestToast(),
           openSettings: this.openSettings
-        }, new NativeTreeClient(analysis));
+        }, new NativeTreeClient(analysis, window, semanticGroups, () => this.panel?.requestSemanticGroups()));
         this.enhancer.start();
         this.counts.setAnalysis(analysis);
         void this.counts.update(this.diffPolicy);

@@ -46,7 +46,7 @@ export interface NativeTree {
 }
 
 export interface HostReact {
-  createElement(type: string, props: Record<string, unknown>, ...children: unknown[]): unknown;
+  createElement(type: unknown, props: Record<string, unknown>, ...children: unknown[]): unknown;
   cloneElement(element: NativeElement, props: Record<string, unknown>, ...children: unknown[]): NativeElement;
   isValidElement(element: unknown): element is NativeElement;
 }

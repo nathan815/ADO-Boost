@@ -3,6 +3,8 @@ import { columns, nativeChanges } from "./host";
 import { hasFilters, matchesFilters, record } from "./protocol";
 import type { TreeConfiguration, TreeFile, TreeStatus } from "./protocol";
 import { lineCountParts } from "../core/line-counts";
+import { SemanticTreeAdapter } from "./semantic-adapter";
+import { discoverSemanticHost } from "./semantic-host";
 
 export type ReportStatus = (state: TreeStatus["state"], detail: string, fileCount: number | null) => void;
 
@@ -26,6 +28,10 @@ export class NativeTreeAdapter {
   private failed = false;
   private countsFailure = "";
   private filterRevision = 0;
+  private renderRevision = 0;
+  private semantic: SemanticTreeAdapter | undefined;
+  private semanticFailure = "";
+  private semanticSelection: string | undefined;
   private readonly processDescriptor: PropertyDescriptor | undefined;
   private renderDescriptor: PropertyDescriptor | undefined;
   private readonly originalProcess;
@@ -67,6 +73,9 @@ export class NativeTreeAdapter {
 
   rebind(host: NativeHost): void {
     if (this.disposed || this.failed || host.view !== this.host.view) return;
+    if (this.semantic) this.semanticSelection = this.semantic.selectedPath;
+    this.semantic?.dispose();
+    this.semantic = undefined;
     restoreProperty(this.host.tree, "render", this.render, this.renderDescriptor);
     this.restoreCells();
     this.host.element = host.element;
@@ -75,7 +84,9 @@ export class NativeTreeAdapter {
     this.originalRender = host.tree.render;
     this.rowKey = undefined;
     host.tree.render = this.render;
+    this.syncSemantic();
     host.tree.forceUpdate();
+    this.onChanged();
   }
 
   update(config: TreeConfiguration): void {
@@ -91,12 +102,22 @@ export class NativeTreeAdapter {
     if (changed) {
       this.filterRevision++;
       this.refresh();
+    } else {
+      this.syncSemantic();
+      try { this.semantic?.update(config); } catch (error) { this.failSemantic(error); }
+      this.onChanged();
     }
+  }
+
+  reconcile(): void {
+    if (!this.disposed && !this.failed && this.config.semantic && !this.semantic && !this.semanticFailure) this.onChanged();
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.semantic?.dispose();
+    this.semantic = undefined;
     this.observable.unsubscribe(this.onChanged);
     restoreProperty(this.host.view, "processChanges", this.processChanges, this.processDescriptor);
     restoreProperty(this.host.tree, "render", this.render, this.renderDescriptor);
@@ -123,6 +144,7 @@ export class NativeTreeAdapter {
 
   private readonly onChanged = (): void => {
     if (this.disposed || this.failed) return;
+    this.syncSemantic();
     if (this.renderedCollection !== this.host.view.changes.value) {
       this.renderedCollection = this.host.view.changes.value;
       this.rowKey = undefined;
@@ -131,11 +153,53 @@ export class NativeTreeAdapter {
     }
     if (!comparisonMatches(this.host, this.config)) {
       this.report("comparison-mismatch", "Native filters remain available. ADO Boost counts and extra filters require the analyzed merge-base comparison.", null);
+    } else if (this.semanticFailure) {
+      this.report("groups-unavailable", this.semanticFailure, this.host.view.changes.value.totalChanges);
     } else if (this.countsFailure) {
-      this.report("counts-unavailable", this.countsFailure, this.host.view.changes.value.totalChanges);
+      this.report("counts-unavailable", this.countsFailure, this.semantic?.fileCount ?? this.host.view.changes.value.totalChanges);
     } else {
-      this.report("active", "Native model filtering and React-rendered counts are active. Use ADO's Filter control for search and reviewed state.", this.host.view.changes.value.totalChanges);
+      this.report("active", "Native model filtering and React-rendered counts are active. Use ADO's Filter control for search and reviewed state.",
+        this.semantic?.fileCount ?? this.host.view.changes.value.totalChanges);
     }
+  };
+
+  private syncSemantic(): void {
+    if (!this.config.semantic || !comparisonMatches(this.host, this.config) || (this.semantic && !this.semantic.matches(this.host))) {
+      if (this.semantic) this.semanticSelection = this.semantic.selectedPath;
+      this.semantic?.dispose();
+      this.semantic = undefined;
+    }
+    if (!this.config.semantic) this.semanticFailure = "";
+    if (!this.config.semantic || !comparisonMatches(this.host, this.config)) this.semanticSelection = undefined;
+    if (!this.config.semantic || !comparisonMatches(this.host, this.config) || this.semanticFailure || this.semantic) return;
+    // Restoring the old explorer can synchronously commit ADO's replacement tree.
+    if (!this.host.element.isConnected || this.host.element.ownerDocument.querySelector(".repos-file-explorer-tree") !== this.host.element) return;
+    const native = discoverSemanticHost(this.host.element);
+    if (native && native.explorer.props.changes !== this.host.view.changes.value) return;
+    try {
+      this.semantic = new SemanticTreeAdapter(this.host, this.config, this.invalidateRows, (action, view) => {
+        const scope = this.host.element.ownerDocument.defaultView;
+        scope?.postMessage({ channel: this.config.channel, kind: "semantic-action", session: this.config.session, action, view }, scope.location.origin);
+      }, this.failSemantic, this.semanticSelection);
+      this.semantic.start();
+    } catch (error) { this.failSemantic(error); }
+  }
+
+  private readonly invalidateRows = (): void => {
+    this.rowKey = undefined;
+    this.renderRevision++;
+    if (this.host.element.isConnected) this.host.tree.forceUpdate();
+  };
+
+  private readonly failSemantic = (error: unknown): void => {
+    if (this.semanticFailure) return;
+    this.semanticFailure = error instanceof Error ? error.message : "Native semantic grouping is unavailable.";
+    console.warn("ADO Boost semantic tree unavailable:", error);
+    this.report("groups-unavailable", this.semanticFailure, this.host.view.changes.value.totalChanges);
+    this.scheduleFailure(() => {
+      this.semantic?.dispose();
+      this.semantic = undefined;
+    });
   };
 
   private fail(detail: string): void {
@@ -176,24 +240,27 @@ export class NativeTreeAdapter {
 
   private readonly render = (): unknown => {
     this.restoreCells();
-    if (this.disposed || this.failed || this.countsFailure || !this.config.countsEnabled || !comparisonMatches(this.host, this.config)) {
+    if (this.disposed || this.failed || !comparisonMatches(this.host, this.config)
+      || ((!this.config.countsEnabled || this.countsFailure) && !this.semantic)) {
       return this.originalRender.call(this.host.tree);
     }
-    const nativeColumns = this.host.tree.props.columns;
-    if (!columns(nativeColumns)) {
-      this.failCounts("Native Table column contract changed; counts were disabled.");
-      return this.originalRender.call(this.host.tree);
+    if (this.config.countsEnabled && !this.countsFailure) {
+      const nativeColumns = this.host.tree.props.columns;
+      if (!columns(nativeColumns)) {
+        this.failCounts("Native Table column contract changed; counts were disabled.");
+        return this.originalRender.call(this.host.tree);
+      }
+      const name = nativeColumns.find((column) => column.id === "name")!;
+      const descriptor = Object.getOwnPropertyDescriptor(name, "renderCell");
+      if (!descriptor?.writable) {
+        this.failCounts("Native name-column callback is not writable; counts were disabled.");
+        return this.originalRender.call(this.host.tree);
+      }
+      const owned = this.decorateColumn(name).renderCell;
+      this.cellHooks.set(name, { descriptor, owned });
+      // Tree.renderRow reads its own column objects, not Table's replacement props.
+      name.renderCell = owned;
     }
-    const name = nativeColumns.find((column) => column.id === "name")!;
-    const descriptor = Object.getOwnPropertyDescriptor(name, "renderCell");
-    if (!descriptor?.writable) {
-      this.failCounts("Native name-column callback is not writable; counts were disabled.");
-      return this.originalRender.call(this.host.tree);
-    }
-    const owned = this.decorateColumn(name).renderCell;
-    this.cellHooks.set(name, { descriptor, owned });
-    // Tree.renderRow reads its own column objects, not Table's replacement props.
-    name.renderCell = owned;
     const element = this.originalRender.call(this.host.tree);
     let refreshed = false;
     const refreshList = (node: unknown): unknown => {
@@ -205,7 +272,7 @@ export class NativeTreeAdapter {
           this.nativeRowKey = nativeRowKey;
           this.rowKey = (index, item) => {
             const key: unknown = typeof nativeRowKey === "function" ? nativeRowKey(index, item) : index;
-            return `${typeof key === "string" || typeof key === "number" ? key : index}:adopp:${this.config.session}`;
+            return `${typeof key === "string" || typeof key === "number" ? key : index}:adopp:${this.config.session}:${this.renderRevision}`;
           };
         }
         // List invalidates its cached row observers when getRowKey changes.
@@ -216,7 +283,10 @@ export class NativeTreeAdapter {
       return this.host.react.cloneElement(node, {}, ...children.map(refreshList));
     };
     const result = refreshList(element);
-    if (!refreshed) this.failCounts("Native virtualized List renderer contract changed; counts were disabled.");
+    if (!refreshed) {
+      this.failCounts("Native virtualized List renderer contract changed; counts were disabled.");
+      if (this.semantic) this.failSemantic(new Error("Native virtualized List renderer changed; semantic grouping was disabled."));
+    }
     return result;
   };
 

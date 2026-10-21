@@ -1,13 +1,13 @@
 import type { BrowserStore } from "../adapters/browser";
 import type { AdoApi } from "../adapters/ado-api";
 import { AnnouncementService } from "../core/announcement";
-import type { FileStat, PullRequestAnalysis, ReviewGroup } from "../core/types";
+import type { FileStat, PullRequestAnalysis } from "../core/types";
 import type { FeatureSettings } from "../features/registry";
 import { resolveFeature } from "../features/registry";
 import type { SettingsService } from "../features/settings-service";
 import type { WriteGateway } from "../core/write-gateway";
 import type { CopilotGateway, CopilotHealth } from "../core/copilot-gateway";
-import { validateSemanticGroups } from "../core/semantic-groups";
+import { SemanticGroupState, validateSemanticGroups } from "../core/semantic-groups";
 import type { SemanticGroupProposal } from "../core/types";
 import { buildCopilotExcerpts, MAX_COPILOT_FILES } from "../core/diff-context";
 import { DiffDialog } from "./diff-dialog";
@@ -32,6 +32,7 @@ interface ReviewPanelDependencies {
   copilot: CopilotGateway;
   openSettings: () => void;
   synthetic?: boolean;
+  semanticGroups?: SemanticGroupState;
 }
 
 export class ReviewPanel {
@@ -53,15 +54,20 @@ export class ReviewPanel {
   private completionSignature = "";
   private announcementError = "";
   private announcementDialog: AnnouncementDialog | null = null;
-  private copilotGroups: ReviewGroup[] | null = null;
+  private readonly semanticGroups: SemanticGroupState;
+  private readonly unsubscribeSemantic: () => void;
+  private get copilotGroups() { return this.semanticGroups.groups; }
   private copilotHealth: CopilotHealth | null = null;
   private copilotBusy = false;
-  private copilotGrouping = false;
+  private get copilotGrouping() { return this.semanticGroups.busy; }
   private copilotError = "";
   private copilotAnswer = "";
 
   constructor(private readonly dependencies: ReviewPanelDependencies) {
     this.settings = dependencies.settings;
+    this.semanticGroups = dependencies.semanticGroups ?? new SemanticGroupState();
+    this.semanticGroups.setEnabled(resolveFeature(this.settings, "copilotSemanticGroups").enabled);
+    this.unsubscribeSemantic = this.semanticGroups.subscribe(() => this.render());
     this.completionMonitor = new ReviewCompletionMonitor(
       () => this.checkReviewCompletion(),
       (message, error) => {
@@ -86,6 +92,7 @@ export class ReviewPanel {
     const threadsWereEnabled = resolveFeature(this.settings, "threadNavigator").enabled;
     const announcementsWereEnabled = resolveFeature(this.settings, "startReviewing").enabled;
     this.settings = settings;
+    this.semanticGroups.setEnabled(resolveFeature(settings, "copilotSemanticGroups").enabled);
     if (!resolveFeature(settings, "startReviewing").enabled) this.announcementDialog?.close();
     this.updateCompletionMonitor();
     this.host.dataset.theme = settings.presentation.theme;
@@ -101,6 +108,8 @@ export class ReviewPanel {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.unsubscribeSemantic();
+    this.semanticGroups.setEnabled(false);
     this.announcementDialog?.close();
     this.discussion.destroy();
     this.completionMonitor.stop();
@@ -115,6 +124,12 @@ export class ReviewPanel {
     this.open = true;
     this.render();
     this.root.querySelector<HTMLElement>(".rail")?.focus();
+  }
+
+  requestSemanticGroups(): void {
+    if (this.destroyed || this.copilotBusy || !this.semanticGroups.enabled || !this.semanticGroups.available) return;
+    this.openDiscussions();
+    this.showCopilotPrivacy("groups");
   }
 
   startReviewing(): void {
@@ -251,14 +266,16 @@ export class ReviewPanel {
     const chatEnabled = resolveFeature(this.settings, "copilotChat").enabled;
     if (!groupsEnabled && !chatEnabled) return "";
     const status = this.copilotHealth ? this.copilotHealth.authenticated ? `Connected${this.copilotHealth.login ? ` as ${escapeHtml(this.copilotHealth.login)}` : ""}` : `Needs login${this.copilotHealth.detail ? `: ${escapeHtml(this.copilotHealth.detail)}` : ""}` : "Not checked";
-    return `<section class="copilot-panel"><div class="section-head"><div><h3>Local Copilot companion</h3><p class="muted">${status}. PR metadata is sent only after an explicit action and may use your configured model provider.</p></div><button class="secondary copilot-health" type="button" ${this.copilotBusy ? "disabled" : ""}>Check connection</button></div>${this.copilotError ? `<div class="delivery error">${escapeHtml(this.copilotError)}</div>` : ""}<div class="copilot-actions">${groupsEnabled ? `<button class="secondary copilot-groups" type="button" ${this.copilotBusy ? "disabled" : ""}>${this.copilotGrouping ? "Grouping changes..." : this.copilotGroups ? "Regenerate semantic groups" : "Group changes with Copilot"}</button>` : ""}</div>${groupsEnabled ? this.copilotGroupsMarkup() : ""}${chatEnabled ? `<textarea class="copilot-question" rows="3" placeholder="Ask a question about the PR file summary"></textarea><button class="secondary copilot-ask" type="button" ${this.copilotBusy ? "disabled" : ""}>Ask Copilot</button>${this.copilotAnswer ? `<div class="preview copilot-answer">${escapeHtml(this.copilotAnswer)}</div><button class="secondary copilot-draft" type="button">Use answer as feedback draft</button>` : ""}` : ""}</section>`;
+    const comparisonNotice = groupsEnabled && !this.semanticGroups.available
+      ? '<p class="delivery" role="status">Semantic groups were cleared because the comparison changed. Choose All Changes to generate groups for the analyzed comparison.</p>' : "";
+    return `<section class="copilot-panel"><div class="section-head"><div><h3>Local Copilot companion</h3><p class="muted">${status}. PR metadata is sent only after an explicit action and may use your configured model provider.</p></div><button class="secondary copilot-health" type="button" ${this.copilotBusy ? "disabled" : ""}>Check connection</button></div>${this.copilotError ? `<div class="delivery error">${escapeHtml(this.copilotError)}</div>` : ""}${comparisonNotice}<div class="copilot-actions">${groupsEnabled ? `<button class="secondary copilot-groups" type="button" ${this.copilotBusy || !this.semanticGroups.available ? "disabled" : ""}>${this.copilotGrouping ? "Grouping changes..." : this.copilotGroups ? "Regenerate semantic groups" : "Group changes with Copilot"}</button>` : ""}</div>${groupsEnabled ? this.copilotGroupsMarkup() : ""}${chatEnabled ? `<textarea class="copilot-question" rows="3" placeholder="Ask a question about the PR file summary"></textarea><button class="secondary copilot-ask" type="button" ${this.copilotBusy ? "disabled" : ""}>Ask Copilot</button>${this.copilotAnswer ? `<div class="preview copilot-answer">${escapeHtml(this.copilotAnswer)}</div><button class="secondary copilot-draft" type="button">Use answer as feedback draft</button>` : ""}` : ""}</section>`;
   }
 
   private copilotGroupsMarkup(): string {
     if (this.copilotGrouping) return `<p class="muted" role="status">Grouping changes with Copilot...</p>`;
     if (!this.copilotGroups) return "";
     const fileCount = this.copilotGroups.reduce((count, group) => count + group.files.length, 0);
-    return `<section class="copilot-results" aria-label="Semantic groups"><p class="muted" role="status">${this.copilotGroups.length} groups covering ${fileCount} changed files. Open a file below to review it; the native file tree is unchanged.</p>${this.copilotGroups.map((group) =>
+    return `<section class="copilot-results" aria-label="Semantic groups"><p class="muted" role="status">${this.copilotGroups.length} groups covering ${fileCount} changed files. Use Copilot Groups above the native file tree to switch views. These links remain available if native grouping is unavailable.</p>${this.copilotGroups.map((group) =>
       `<details class="copilot-result" open><summary>${escapeHtml(group.title)} <span class="group-count">(${group.files.length})</span></summary><p class="group-note">${escapeHtml(group.rationale)}</p><ul>${group.files.map((file) =>
         `<li><a class="file-link" data-copilot-path="${escapeHtml(file.path)}" href="${escapeHtml(adoFileUrl(file.path))}">${escapeHtml(file.path)}</a></li>`
       ).join("")}</ul></details>`
@@ -281,20 +298,23 @@ export class ReviewPanel {
   }
 
   private async loadCopilotGroups(files: FileStat[]): Promise<void> {
+    if (!this.semanticGroups.enabled || !this.semanticGroups.available || this.copilotBusy) return;
+    const request = this.semanticGroups.begin();
     this.copilotBusy = true;
-    this.copilotGrouping = true;
     this.copilotError = "";
     this.render();
     try {
       const excerpts = await buildCopilotExcerpts(this.dependencies.api, this.dependencies.analysis.context, files);
+      if (!this.semanticGroups.isCurrent(request) || this.destroyed) return;
       const proposals: SemanticGroupProposal[] = await this.dependencies.copilot.semanticGroups(this.dependencies.analysis.context, this.dependencies.analysis.files, excerpts, this.copilotGroups !== null);
-      if (!this.host.isConnected) return;
-      this.copilotGroups = validateSemanticGroups(this.dependencies.analysis.files, proposals);
+      if (!this.host.isConnected || !this.semanticGroups.isCurrent(request)) return;
+      this.semanticGroups.complete(request, validateSemanticGroups(this.dependencies.analysis.files, proposals));
     } catch (error) {
+      if (!this.semanticGroups.isCurrent(request)) return;
       this.copilotError = error instanceof Error ? error.message : "Copilot grouping failed";
+      this.semanticGroups.fail(request, this.copilotError);
     } finally {
       this.copilotBusy = false;
-      this.copilotGrouping = false;
       this.render();
     }
   }
@@ -317,6 +337,8 @@ export class ReviewPanel {
   }
 
   private showCopilotPrivacy(action: "groups" | "chat"): void {
+    if (this.copilotBusy || this.root.querySelector(".dialog-backdrop")
+      || (action === "groups" && (!this.semanticGroups.enabled || !this.semanticGroups.available))) return;
     const question = action === "chat" ? this.root.querySelector<HTMLTextAreaElement>(".copilot-question")?.value.trim() : "";
     if (action === "chat" && !question) return;
     const candidates = this.dependencies.analysis.files.slice(0, MAX_COPILOT_FILES);

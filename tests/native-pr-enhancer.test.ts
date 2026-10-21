@@ -1122,6 +1122,7 @@ describe("NativePrEnhancer", () => {
     }, defaultSettings(), {
       openDiscussions: vi.fn(), startReviewing: vi.fn(), isReviewAnnounced: () => false, openSettings: vi.fn()
     });
+
     enhancer.start();
     enhancer.refresh();
     document.querySelector<HTMLButtonElement>("[data-adopp-next-unreviewed]")!.click();
@@ -1137,6 +1138,30 @@ describe("NativePrEnhancer", () => {
 
     document.querySelector<HTMLButtonElement>("[data-adopp-next-unreviewed]")?.click();
 
+    expect(navigated).toHaveBeenCalledOnce();
+  });
+
+  it("does not treat synthetic semantic roots as repository folder names during next-unreviewed navigation", () => {
+    document.querySelector("tbody")!.innerHTML = `
+      <tr role="row" aria-level="1" aria-expanded="true"><td><span data-adopp-semantic-tooltip="one">First group</span></td></tr>
+      <tr role="row" aria-level="2" aria-expanded="true"><td>src/one</td></tr>
+      <tr role="row" aria-level="3" aria-selected="true" data-row="first"><td><button>main.yml</button></td></tr>
+      <tr role="row" aria-level="1" aria-expanded="true"><td><span data-adopp-semantic-tooltip="two">Second group</span></td></tr>
+      <tr role="row" aria-level="2" aria-expanded="true"><td>src/two</td></tr>
+      <tr role="row" aria-level="3" data-row="second"><td><button>main.yml</button></td></tr>
+    `;
+    const navigated = vi.fn();
+    document.querySelector('[data-row="second"]')!.addEventListener("click", navigated);
+    enhancer = new NativePrEnhancer({
+      ...analysis, files: [
+        { ...analysis.files[0]!, path: "/src/one/main.yml" },
+        { ...analysis.files[1]!, path: "/src/two/main.yml" }
+      ]
+    }, defaultSettings(), {
+      openDiscussions: vi.fn(), startReviewing: vi.fn(), isReviewAnnounced: () => false, openSettings: vi.fn()
+    });
+    enhancer.start();
+    document.querySelector<HTMLButtonElement>("[data-adopp-next-unreviewed]")!.click();
     expect(navigated).toHaveBeenCalledOnce();
   });
 

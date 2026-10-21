@@ -14,6 +14,7 @@ import { ReviewPanel } from "../src/ui/review-panel";
 import type { CopilotGateway } from "../src/core/copilot-gateway";
 import type { SemanticGroupProposal } from "../src/core/types";
 import * as adoNavigation from "../src/ui/ado-navigation";
+import { SemanticGroupState } from "../src/core/semantic-groups";
 
 let panel: ReviewPanel | undefined;
 
@@ -412,11 +413,12 @@ describe("ReviewPanel semantic groups", () => {
     const api = new AdoApi({ fetch: vi.fn() });
     vi.spyOn(api, "getFileContent").mockResolvedValue({ text: "content", size: 7 });
     const semanticGroups = vi.fn<CopilotGateway["semanticGroups"]>();
+    const state = new SemanticGroupState();
     panel = new ReviewPanel({
       analysis, api, settings, store: new MemoryBrowserStore(),
       settingsService: new SettingsService(new MemorySettingsStorage()), reviewKey: "org/project/repo-id/7",
       writes: new RuntimeWriteGateway(),
-      copilot: { semanticGroups, health: vi.fn(), chat: vi.fn() }, openSettings: vi.fn()
+      copilot: { semanticGroups, health: vi.fn(), chat: vi.fn() }, openSettings: vi.fn(), semanticGroups: state
     });
     panel.openDiscussions();
     await vi.waitFor(() => expect(document.querySelector("[data-adopp-review-panel]")).not.toBeNull());
@@ -426,7 +428,7 @@ describe("ReviewPanel semantic groups", () => {
       root.querySelector<HTMLButtonElement>(".copilot-groups")!.click();
       root.querySelector<HTMLButtonElement>(".confirm-context")!.click();
     };
-    return { root, analysis, semanticGroups, settings, requestGroups };
+    return { root, analysis, semanticGroups, settings, requestGroups, state };
   }
 
   it("shows progress, renders safe group results including omitted files, and opens native files", async () => {
@@ -477,5 +479,31 @@ describe("ReviewPanel semantic groups", () => {
     expect(root.querySelector<HTMLButtonElement>(".copilot-groups")?.disabled).toBe(false);
     panel!.updateSettings({ ...settings, features: { ...settings.features, copilotSemanticGroups: false } });
     expect(root.querySelector(".copilot-results")).toBeNull();
+  });
+
+  it("opens privacy confirmation from the native action without transmitting context or duplicating dialogs", async () => {
+    const { root, semanticGroups } = await fixture();
+    panel!.requestSemanticGroups();
+    panel!.requestSemanticGroups();
+    expect(root.querySelectorAll(".confirm-context")).toHaveLength(1);
+    expect(semanticGroups).not.toHaveBeenCalled();
+    root.querySelector<HTMLButtonElement>(".dialog-backdrop .cancel")!.click();
+    expect(root.querySelector(".confirm-context")).toBeNull();
+    expect(semanticGroups).not.toHaveBeenCalled();
+  });
+
+  it("discards pending generation when the comparison changes", async () => {
+    const { root, semanticGroups, requestGroups, state } = await fixture();
+    let complete!: (groups: SemanticGroupProposal[]) => void;
+    semanticGroups.mockImplementation(() => new Promise((resolve) => { complete = resolve; }));
+    requestGroups();
+    await vi.waitFor(() => expect(semanticGroups).toHaveBeenCalledOnce());
+    state.setAvailable(false);
+    complete([{ title: "Stale", rationale: "Old comparison", paths: ["/src/first.ts"] }]);
+    await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>(".copilot-health")?.disabled).toBe(false));
+    expect(state.groups).toBeNull();
+    expect(root.querySelector(".copilot-results")).toBeNull();
+    expect(root.querySelector(".copilot-panel")?.textContent).toContain("comparison changed");
+    expect(root.querySelector<HTMLButtonElement>(".copilot-groups")?.disabled).toBe(true);
   });
 });

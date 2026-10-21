@@ -22,7 +22,7 @@ function report(state: TreeStatus["state"], detail: string, fileCount: number | 
   if (!config) return;
   const status: TreeStatus = {
     channel: CHANNEL, kind: "status", session: config.session, state, detail, fileCount,
-    filtersActive: hasFilters(config.filters) || Boolean(mounted?.view.getFilesFilter().hasChangesToReset())
+    filtersActive: hasFilters(config.filters) || config.semantic?.view.mode === "group" || Boolean(mounted?.view.getFilesFilter().hasChangesToReset())
   };
   const serialized = JSON.stringify(status);
   if (serialized === lastStatus) return;
@@ -70,6 +70,7 @@ function reconcile(): void {
     waitingSince = Date.now();
     if (mounted?.view === host.view && adapter) {
       if (mounted.tree !== host.tree || mounted.element !== host.element) adapter.rebind(host);
+      else adapter.reconcile();
       mounted = host;
       return;
     }

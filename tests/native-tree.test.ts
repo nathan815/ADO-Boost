@@ -8,6 +8,7 @@ import type { HostReact, NativeChanges, NativeColumn, NativeElement, NativeHost 
 import { CHANNEL, commandSchema, configurationSchema, matchesFilters, record } from "../src/native-tree/protocol";
 import type { TreeConfiguration, TreeFile } from "../src/native-tree/protocol";
 import type { PullRequestAnalysis } from "../src/core/types";
+import { SemanticGroupState, validateSemanticGroups } from "../src/core/semantic-groups";
 
 const react: HostReact = {
   createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
@@ -137,6 +138,17 @@ describe("native tree adapter", () => {
     f.raw.changeEntries.push({ item: { path: "/unresolved" } });
     f.adapter.start();
     expect(f.processed()?.changeEntries).toHaveLength(3);
+    f.adapter.dispose();
+  });
+
+  it("waits for the replacement DOM tree instead of failing semantic compatibility on an unmounted explorer", () => {
+    const f = fixture();
+    f.config.semantic = { revision: 0, groups: [], view: { mode: "all", groupId: null }, busy: false, error: "" };
+    f.host.element.remove();
+    f.adapter.start();
+    expect(f.report).not.toHaveBeenCalledWith("groups-unavailable", expect.anything(), expect.anything());
+    f.adapter.reconcile();
+    expect(f.report).not.toHaveBeenCalledWith("groups-unavailable", expect.anything(), expect.anything());
     f.adapter.dispose();
   });
 
@@ -529,5 +541,46 @@ describe("native tree bridge client", () => {
     unsubscribe();
     client.configure(configuration().filters, true);
     expect(window.postMessage).toHaveBeenCalledTimes(3);
+  });
+
+  it("shares semantic results and keeps the latest native filters when semantic state changes", () => {
+    const state = new SemanticGroupState();
+    state.setEnabled(true);
+    client = new NativeTreeClient(analysis, window, state);
+    const command = configured();
+    const filters = { ...configuration().filters, extension: "ts" };
+    client.configure(filters, true);
+    state.complete(state.begin(), validateSemanticGroups(analysis.files, []));
+    expect(window.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+      filters, semantic: expect.objectContaining({ revision: 1, view: { mode: "inline", groupId: null } })
+    }), location.origin);
+    send({ channel: CHANNEL, kind: "status", session: command.session, state: "comparison-mismatch", detail: "Different comparison", fileCount: null });
+    expect(state.groups).toBeNull();
+    expect(state.available).toBe(false);
+    client.stop();
+    const calls = vi.mocked(window.postMessage).mock.calls.length;
+    state.setAvailable(true);
+    expect(window.postMessage).toHaveBeenCalledTimes(calls);
+  });
+
+  it("routes regenerate to confirmation only for a live, same-session semantic action", () => {
+    const state = new SemanticGroupState();
+    state.setEnabled(true);
+    const regenerate = vi.fn();
+    client = new NativeTreeClient(analysis, window, state, regenerate);
+    const command = configured();
+    const action = { channel: CHANNEL, kind: "semantic-action", session: command.session, action: "regenerate", view: state.view };
+    send(action);
+    expect(regenerate).not.toHaveBeenCalled();
+    send({ channel: CHANNEL, kind: "status", session: command.session, state: "active", detail: "Ready", fileCount: 2 });
+    send({ ...action, session: configuration().session });
+    send(action, null);
+    send(action, window, "https://other.example");
+    expect(regenerate).not.toHaveBeenCalled();
+    send(action);
+    expect(regenerate).toHaveBeenCalledOnce();
+    state.begin();
+    send(action);
+    expect(regenerate).toHaveBeenCalledOnce();
   });
 });

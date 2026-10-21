@@ -44,7 +44,7 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
   { id: "draftQueue", group: "discussions", label: "Private feedback drafts", description: "Save local general, inline, and reply drafts from native Azure DevOps comment composers and show them in context until submission.", defaultEnabled: true, dependencies: ["reviewProgress"] },
   { id: "submitReview", group: "discussions", label: "Submit Review", description: "Preview selected drafts, publish feedback, then apply an optional Azure DevOps review decision.", defaultEnabled: true, dependencies: ["draftQueue"] },
   { id: "feedbackExport", group: "discussions", label: "Feedback export", description: "Copy or download queued feedback and discussion references as Markdown.", defaultEnabled: true, dependencies: ["draftQueue"] },
-  { id: "copilotSemanticGroups", group: "copilot", label: "Copilot semantic groups", description: "Explicitly send changed-file metadata to the local native companion for intent-based grouping.", defaultEnabled: false, dependencies: ["groupedNavigation"] },
+  { id: "copilotSemanticGroups", group: "copilot", label: "Copilot semantic groups", description: "Generate intent-based groups with explicit context confirmation, then browse or filter them in the native file tree.", defaultEnabled: false, dependencies: ["groupedNavigation"] },
   { id: "copilotChat", group: "copilot", label: "Copilot PR questions", description: "Ask bounded PR questions through the local companion. Suggested feedback remains a private draft.", defaultEnabled: false, dependencies: ["copilotSemanticGroups", "draftQueue"] }
 ] as const;
 

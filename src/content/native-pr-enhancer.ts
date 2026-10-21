@@ -591,6 +591,7 @@ export class NativePrEnhancer {
     const summary = document.querySelector<HTMLElement>("[data-adopp-native-status]");
     if (summary) {
       const text = !this.nativeTree || status?.state === "unavailable" ? "File filters unavailable"
+        : status?.state === "groups-unavailable" ? "Copilot Groups unavailable"
         : status?.state === "counts-unavailable" ? "Diff counts unavailable"
         : status?.state === "comparison-mismatch" ? "Choose All Changes to use these filters" : "";
       summary.hidden = !text;
@@ -1057,6 +1058,7 @@ function nativeTreeRowPaths(rows: HTMLElement[]): Map<HTMLElement, string> {
     const level = treeRowLevel(row);
     if (level === null) continue;
     while (folders.length && folders.at(-1)!.level >= level) folders.pop();
+    if (row.querySelector("[data-adopp-semantic-tooltip]")) continue;
     const label = nativeRowText(row).replace(/^[⌄>]+\s*/, "").replace(/\s+\+$/, "");
     const path = normalizeFilePath([folders.at(-1)?.path, label].filter(Boolean).join("/"));
     paths.set(row, path);
@@ -1064,6 +1066,11 @@ function nativeTreeRowPaths(rows: HTMLElement[]): Map<HTMLElement, string> {
     if (isFolderRow(row)) folders.push({ level, path });
   }
   for (const row of rows) {
+    const countPath = row.querySelector("[data-adopp-react-stat]")?.getAttribute("data-adopp-react-stat");
+    if (countPath) {
+      paths.set(row, normalizeFilePath(countPath));
+      continue;
+    }
     const elements = [row, ...row.querySelectorAll<HTMLElement>("[title],[aria-label],[data-path]")];
     for (const element of elements) {
       const path = ["data-path", "title", "aria-label"]
@@ -1114,7 +1121,7 @@ function escapeHtml(value: string): string {
 
 function isOwnedMutation(target: Node): boolean {
   const element = target instanceof Element ? target : target.parentElement;
-  return Boolean(element?.closest("[data-adopp-native-toolbar],[data-adopp-total-file-count],[data-adopp-files-tab-count],[data-adopp-action-group],[data-adopp-next-unreviewed],[data-adopp-tooltip],[data-adopp-total-diff],[data-adopp-total-diff-popover],[data-adopp-merge-proposal-text],[data-adopp-react-stat],[data-adopp-announcement-dialog],.adopp-native-menu,.adopp-action-menu"));
+  return Boolean(element?.closest("[data-adopp-native-toolbar],[data-adopp-semantic-toolbar],.adopp-semantic-options,[data-adopp-total-file-count],[data-adopp-files-tab-count],[data-adopp-action-group],[data-adopp-next-unreviewed],[data-adopp-tooltip],[data-adopp-total-diff],[data-adopp-total-diff-popover],[data-adopp-merge-proposal-text],[data-adopp-react-stat],[data-adopp-announcement-dialog],.adopp-native-menu,.adopp-action-menu"));
 }
 
 function isOwnedMutationRecord(record: MutationRecord): boolean {
