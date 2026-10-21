@@ -283,8 +283,8 @@ describe("ADO file navigation", () => {
       expect(location.search).toBe("");
     });
 
-    it("opens the same-PR native Files tab and waits for the tree to render", async () => {
-      document.body.innerHTML = '<a role="tab" target="_blank" href="?_a=files">Files</a><a role="tab" href="?_a=files">Files</a>';
+    it.each(["Files", 'Files<span data-adopp-files-tab-count="true">12</span>'])("opens the same-PR native Files tab (%s) and waits for the tree to render", async (label) => {
+      document.body.innerHTML = `<a role="tab" target="_blank" href="?_a=files">Files</a><a role="tab" href="?_a=files">${label}</a>`;
       const links = document.querySelectorAll("a");
       const external = vi.fn((event: Event) => event.preventDefault());
       links[0]!.addEventListener("click", external);

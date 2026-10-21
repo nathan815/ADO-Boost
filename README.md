@@ -13,6 +13,7 @@ ADO Boost is an Edge-first browser extension that makes Azure DevOps pull reques
 
 - Overall PR and per-file added/removed line diff counts follow the user's whitespace setting supplied by ADO on PR and PR-list pages. Counts show deletions before additions, matching ADO's native header, and omit zero values. With whitespace display off, leading/trailing whitespace-only edits are ignored; enabling it includes those edits. Counts refresh when the setting changes, and tooltips say "whitespace ignored" or "whitespace included". If ADO's setting cannot be read, counts are marked unavailable rather than guessed. PR-list totals are cached separately for each policy.
 - Enhanced file filtering - file types, change types, and options to hide generated files and lockfiles
+- A compact native Bolt total-file-count badge beside the PR **Files** tab, visible across PR tabs and unaffected by file filters.
 - A docked discussion panel with thread filters, replies, and links back to native comments.
 - Relative creation and content-edit times on posted PR comments, inline comments, and replies, both in Azure DevOps and the discussion panel. Hover either time for the exact local date and timezone. Disable **Comment creation and edit times** in settings to restore the original display.
 - Browser-local drafts for general comments, replies, and inline feedback, rendered in the matching native Azure DevOps discussion surface with a clear draft marker.

@@ -1,8 +1,11 @@
+import { createElement } from "react";
+import { render, unmountComponentAtNode } from "react-dom";
+import { TabBadge } from "azure-devops-ui/Tabs";
 import type { FileStat, PullRequestAnalysis } from "../core/types";
 import { totalStats } from "../core/diff";
 import type { FeatureSettings } from "../features/registry";
 import { resolveFeature } from "../features/registry";
-import { navigateToAdoFile } from "../ui/ado-navigation";
+import { findFilesTab, navigateToAdoFile } from "../ui/ado-navigation";
 import { isTypingEvent } from "../ui/keyboard";
 import type { NativeTreePort } from "../native-tree/client";
 import { describeDiffPolicy } from "../native-tree/diff-preferences";
@@ -47,6 +50,7 @@ export class NativePrEnhancer {
   private hideLockfiles: boolean;
   private unsubscribeNativeTree: (() => void) | null = null;
   private nativeFileCount: HTMLElement | null = null;
+  private filesTabBadge: HTMLElement | null = null;
   private prIdControl: { host: HTMLElement; original: Node[]; button: HTMLButtonElement } | null = null;
 
   constructor(
@@ -104,6 +108,7 @@ export class NativePrEnhancer {
     closeAdoTooltip();
     this.restoreNativeFileCount();
     this.restorePrId();
+    this.removeFilesTabCount();
     document.querySelector("[data-adopp-native-toolbar]")?.remove();
     document.querySelector("[data-adopp-action-group]")?.remove();
     document.querySelector("[data-adopp-total-diff]")?.remove();
@@ -125,6 +130,7 @@ export class NativePrEnhancer {
     this.renderToolbar(forceToolbar);
     this.renderNextUnreviewedAction();
     this.renderHeaderMetadata();
+    this.renderFilesTabCount();
     this.renderActionGroup();
     this.applyFilters();
   }
@@ -403,6 +409,39 @@ export class NativePrEnhancer {
     });
     group.append(startSplit);
     this.configureHeaderWrapping(actionHost);
+  }
+
+  private renderFilesTabCount(): void {
+    if (!resolveFeature(this.settings, "prOverview").enabled) {
+      this.removeFilesTabCount();
+      return;
+    }
+    const tab = findFilesTab(document, window);
+    if (!tab) {
+      this.removeFilesTabCount();
+      return;
+    }
+    const mount = tab.querySelector(".bolt-tab-inner-container") ?? tab;
+    if (!this.filesTabBadge) {
+      this.filesTabBadge = document.createElement("span");
+      this.filesTabBadge.dataset.adoppFilesTabCount = "true";
+    }
+    const badge = this.filesTabBadge;
+    const count = this.analysis.files.length + (this.analysis.unresolvedChanges?.length ?? 0);
+    const text = String(count);
+    const description = `${count} changed file${count === 1 ? "" : "s"} in this pull request`;
+    if (badge.textContent !== text) {
+      render(createElement(TabBadge, { tooltipProps: { text: description } }, text), badge);
+    }
+    badge.setAttribute("aria-label", description);
+    if (badge.parentElement !== mount) mount.append(badge);
+  }
+
+  private removeFilesTabCount(): void {
+    if (!this.filesTabBadge) return;
+    unmountComponentAtNode(this.filesTabBadge);
+    this.filesTabBadge.remove();
+    this.filesTabBadge = null;
   }
 
   private renderHeaderMetadata(): void {
@@ -1055,7 +1094,7 @@ function escapeHtml(value: string): string {
 
 function isOwnedMutation(target: Node): boolean {
   const element = target instanceof Element ? target : target.parentElement;
-  return Boolean(element?.closest("[data-adopp-native-toolbar],[data-adopp-total-file-count],[data-adopp-action-group],[data-adopp-next-unreviewed],[data-adopp-tooltip],[data-adopp-total-diff],[data-adopp-total-diff-popover],[data-adopp-merge-proposal-text],[data-adopp-react-stat],[data-adopp-announcement-dialog],.adopp-native-menu,.adopp-action-menu"));
+  return Boolean(element?.closest("[data-adopp-native-toolbar],[data-adopp-total-file-count],[data-adopp-files-tab-count],[data-adopp-action-group],[data-adopp-next-unreviewed],[data-adopp-tooltip],[data-adopp-total-diff],[data-adopp-total-diff-popover],[data-adopp-merge-proposal-text],[data-adopp-react-stat],[data-adopp-announcement-dialog],.adopp-native-menu,.adopp-action-menu"));
 }
 
 function isOwnedMutationRecord(record: MutationRecord): boolean {

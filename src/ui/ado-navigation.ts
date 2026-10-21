@@ -197,11 +197,11 @@ function waitForNativeComment<T extends HTMLElement>(findComment: () => T | null
   });
 }
 
-function findFilesTab(documentRef: Document, windowRef: Window): HTMLAnchorElement | undefined {
+export function findFilesTab(documentRef: Document, windowRef: Window): HTMLAnchorElement | undefined {
   return [...documentRef.querySelectorAll<HTMLAnchorElement>("a[href]")].find((candidate) => {
     try {
       const url = new URL(candidate.href, windowRef.location.href);
-      return candidate.getAttribute("role") === "tab" && candidate.textContent?.trim() === "Files"
+      return candidate.getAttribute("role") === "tab"
         && (!candidate.target || candidate.target.toLowerCase() === "_self")
         && url.origin === windowRef.location.origin && url.pathname === windowRef.location.pathname
         && url.searchParams.get("_a") === "files";

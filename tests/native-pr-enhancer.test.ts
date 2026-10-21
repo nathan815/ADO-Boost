@@ -238,6 +238,10 @@ describe("NativePrEnhancer", () => {
           <span class="proposal">Me proposes to merge source into main</span>
         </div>
       </div>
+      <div role="tablist">
+        <a role="tab" href="?_a=overview"><span class="bolt-tab-inner-container"><span class="bolt-tab-text">Overview</span></span></a>
+        <a role="tab" href="?_a=files"><span class="bolt-tab-inner-container"><span class="bolt-tab-text">Files</span></span></a>
+      </div>
       <div class="page-layout">
         <aside class="project-navigation">Project navigation</aside>
         <section data-file-pane>
@@ -275,6 +279,57 @@ describe("NativePrEnhancer", () => {
   afterEach(() => {
     enhancer?.destroy();
     enhancer = null;
+  });
+
+  it("adds one total-count badge to the Files tab on Overview and keeps it independent of file filters", () => {
+    history.replaceState({}, "", "?_a=overview");
+    enhancer = new NativePrEnhancer(analysis, defaultSettings(), {
+      openDiscussions: vi.fn(), startReviewing: vi.fn(), isReviewAnnounced: () => false, openSettings: vi.fn()
+    }, createNativePort());
+    enhancer.start();
+    enhancer.refresh();
+    const tab = document.querySelector<HTMLAnchorElement>('a[role="tab"][href="?_a=files"]')!;
+    const badge = tab.querySelector<HTMLElement>("[data-adopp-files-tab-count]")!;
+    expect(badge.textContent).toBe("2");
+    expect(badge.previousElementSibling?.textContent).toBe("Files");
+    expect(badge.getAttribute("aria-label")).toBe("2 changed files in this pull request");
+    const pill = badge.querySelector(".bolt-tab-badge.bolt-pill.compact.count")!;
+    expect(pill).not.toBeNull();
+    expect(pill.querySelector(".bolt-pill-content")?.textContent).toBe("2");
+    expect(pill.querySelector("[tabindex]")).toBeNull();
+    expect(document.querySelectorAll("[data-adopp-files-tab-count]")).toHaveLength(1);
+    document.querySelector<HTMLButtonElement>('[data-choice-kind="change"][data-choice-value="add"]')!.click();
+    expect(badge.textContent).toBe("2");
+    enhancer.destroy();
+    expect(badge.childNodes).toHaveLength(0);
+    expect(tab.textContent).toBe("Files");
+    expect(document.querySelector("[data-adopp-files-tab-count]")).toBeNull();
+  });
+
+  it.each([0, 1, 1234])("shows %s files including unresolved changes and refreshes after a tab remount", (count) => {
+    const value: PullRequestAnalysis = {
+      ...analysis, files: count ? analysis.files.slice(0, 1) : [],
+      unresolvedChanges: Array.from({ length: Math.max(0, count - 1) }, () => ({
+        unresolved: true, raw: null, detail: "Unmapped change"
+      }))
+    };
+    enhancer = new NativePrEnhancer(value, defaultSettings(), {
+      openDiscussions: vi.fn(), startReviewing: vi.fn(), isReviewAnnounced: () => false, openSettings: vi.fn()
+    }, createNativePort());
+    enhancer.start();
+    expect(document.querySelector("[data-adopp-files-tab-count]")?.textContent).toBe(String(count));
+    const tab = document.querySelector<HTMLAnchorElement>('a[role="tab"][href="?_a=files"]')!;
+    tab.innerHTML = '<span class="bolt-tab-inner-container"><span class="bolt-tab-text">Files</span></span>';
+    enhancer.refresh();
+    expect(tab.querySelectorAll("[data-adopp-files-tab-count]")).toHaveLength(1);
+    expect(tab.querySelector("[data-adopp-files-tab-count]")?.textContent).toBe(String(count));
+    value.files.push(analysis.files[1]!);
+    enhancer.refresh();
+    expect(tab.querySelector(".bolt-tab-badge .bolt-pill-content")?.textContent).toBe(String(count + 1));
+    const settings = defaultSettings();
+    settings.features.prOverview = false;
+    enhancer.updateSettings(settings);
+    expect(document.querySelector("[data-adopp-files-tab-count]")).toBeNull();
   });
 
   it("copies only the numeric PR ID and preserves the native label on cleanup", async () => {
