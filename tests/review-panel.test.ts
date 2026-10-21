@@ -379,6 +379,7 @@ describe("ReviewPanel unresolved changes", () => {
       copilot: new RuntimeCopilotGateway(),
       openSettings: vi.fn()
     });
+
     panel.openDiscussions();
     const root = [...document.documentElement.children].find((element) => element.shadowRoot)?.shadowRoot;
     await vi.waitFor(() => expect(root?.querySelector("summary")?.textContent).toBe("2 unresolved changes retained. Diff totals are partial."));
