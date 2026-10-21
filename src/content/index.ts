@@ -145,6 +145,7 @@ class ContentApp {
           startReviewing: () => this.panel?.startReviewing(),
           isReviewAnnounced: () => this.panel?.isReviewAnnounced() ?? false,
           isReviewFinished: () => this.panel?.isReviewFinished() ?? false,
+          triggerTestToast: () => this.panel?.triggerTestToast(),
           openSettings: this.openSettings
         }, new NativeTreeClient(analysis));
         this.enhancer.start();

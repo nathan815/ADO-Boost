@@ -14,6 +14,7 @@ interface NativePrEnhancerActions {
   isReviewAnnounced(): boolean;
   isReviewFinished?(): boolean;
   openSettings(): void;
+  triggerTestToast?(): void;
 }
 
 interface ClipboardWriter {
@@ -371,7 +372,9 @@ export class NativePrEnhancer {
       menu.className = "adopp-action-menu adopp-native-menu bolt-callout bolt-callout-shadow";
       menu.setAttribute("role", "menu");
       const reviewItem = startEnabled ? nativeMenuItem("start-review", reviewFinished ? "You've finished reviewing" : reviewStarted ? "You've started reviewing" : "Start Reviewing", reviewStarted) : "";
-      menu.innerHTML = nativeMenuContent(`${reviewItem}${nativeMenuItem("discussions", "Open discussion sidebar")}${nativeMenuItem("unreviewed", "Next unreviewed file")}${nativeMenuItem("settings", "Settings")}`, "ADO Boost");
+      const devItems = this.actions.triggerTestToast
+        ? `<div class="adopp-menu-label" role="presentation">Dev options</div>${nativeMenuItem("test-toast", "Trigger Test Toast")}` : "";
+      menu.innerHTML = nativeMenuContent(`${reviewItem}${nativeMenuItem("discussions", "Open discussion sidebar")}${nativeMenuItem("unreviewed", "Next unreviewed file")}${nativeMenuItem("settings", "Settings")}${devItems}`, "ADO Boost");
       menu.querySelector('[data-action="start-review"]')?.addEventListener("click", () => {
         closeActionMenu();
         this.actions.startReviewing();
@@ -387,6 +390,10 @@ export class NativePrEnhancer {
       menu.querySelector('[data-action="settings"]')?.addEventListener("click", () => {
         closeActionMenu();
         this.actions.openSettings();
+      });
+      menu.querySelector('[data-action="test-toast"]')?.addEventListener("click", () => {
+        closeActionMenu();
+        this.actions.triggerTestToast?.();
       });
       startSplit.dataset.menuOpen = "true";
       menuButton.classList.add("active");

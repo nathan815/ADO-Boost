@@ -4,6 +4,7 @@ import { legacyAnnouncementBody, readAnnouncementMetadata, readReviewCompletion,
 import { createResponseValidation, type ResponseWarning } from "./response-validation";
 import { readChangeEntry } from "./change-response";
 import type { PrSummary } from "../core/recent-prs";
+import { HttpResponseError } from "../core/http-error";
 
 function createReadSchemas(warn: ResponseWarning) {
   const { optional } = createResponseValidation(warn);
@@ -254,9 +255,10 @@ export class AdoApi {
 
   async getCurrentVote(context: PullRequestContext, signal?: AbortSignal): Promise<number> {
     const url = `${this.apiBase(context)}/git/repositories/${encodeURIComponent(context.repositoryId)}/pullRequests/${context.pullRequestId}/reviewers/${encodeURIComponent(context.reviewer.id)}?api-version=7.1`;
-    const response = await this.http.fetch(url, { ...(signal ? { signal } : {}), headers: { Accept: "application/json" } });
+    const request = { url, method: "GET", headers: { Accept: "application/json" }, credentials: "include" as const, body: null };
+    const response = await this.http.fetch(url, { ...(signal ? { signal } : {}), method: request.method, headers: request.headers, credentials: request.credentials });
     if (response.status === 404) return 0;
-    if (!response.ok) throw new Error(`Reviewer lookup failed (${response.status})`);
+    if (!response.ok) throw await HttpResponseError.fromResponse(`Reviewer lookup failed (${response.status})`, request, response);
     return reviewerSchema.parse(await response.json()).vote;
   }
 

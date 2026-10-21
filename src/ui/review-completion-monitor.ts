@@ -6,7 +6,7 @@ export class ReviewCompletionMonitor {
 
   constructor(
     private readonly check: () => Promise<boolean>,
-    private readonly onError: (message: string) => void,
+    private readonly onError: (message: string, error: unknown) => void,
     private readonly scope: Window = window
   ) {}
 
@@ -43,7 +43,7 @@ export class ReviewCompletionMonitor {
       const message = error instanceof Error ? error.message : "Review completion check failed";
       if (message !== this.lastError) {
         this.lastError = message;
-        this.onError(message);
+        this.onError(message, error);
       }
     } finally {
       this.checking = false;

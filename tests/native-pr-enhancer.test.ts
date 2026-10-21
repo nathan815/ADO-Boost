@@ -520,6 +520,25 @@ describe("NativePrEnhancer", () => {
     expect(startReviewing).toHaveBeenCalledOnce();
   });
 
+  it("offers a developer test toast action and closes the menu when triggered", () => {
+    const triggerTestToast = vi.fn();
+    const openDiscussions = vi.fn();
+    const startReviewing = vi.fn();
+    enhancer = createEnhancer({ triggerTestToast, openDiscussions, startReviewing });
+    enhancer.start();
+    document.querySelector<HTMLButtonElement>(".adopp-action-menu-button")!.click();
+    const menu = document.querySelector(".adopp-action-menu")!;
+    expect(menu.textContent).toContain("Dev options");
+    const trigger = menu.querySelector<HTMLButtonElement>('[data-action="test-toast"]')!;
+    expect(trigger.textContent).toBe("Trigger Test Toast");
+    trigger.click();
+    expect(triggerTestToast).toHaveBeenCalledOnce();
+    expect(document.querySelector(".adopp-action-menu")).toBeNull();
+    expect(document.querySelector(".adopp-action-menu-button")?.getAttribute("aria-expanded")).toBe("false");
+    expect(openDiscussions).not.toHaveBeenCalled();
+    expect(startReviewing).not.toHaveBeenCalled();
+  });
+
   it("keeps ADO Boost and its review-start option without an Approve button", () => {
     const actions = document.querySelector(".actions")!;
     actions.innerHTML = '<button class="bolt-button">Complete</button>';

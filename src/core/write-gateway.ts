@@ -1,5 +1,20 @@
 import type { AnnouncementRecord, PullRequestContext, ReviewCompletionTrigger, ReviewDecision, SubmissionReceipt } from "./types";
 import type { SubmissionResult } from "./submission";
+import { HttpResponseError, type HttpFailureDetails } from "./http-error";
+
+interface WriteFailure {
+  ok: false;
+  error: string;
+  details?: HttpFailureDetails;
+}
+
+export function writeFailure(error: unknown): WriteFailure {
+  return {
+    ok: false,
+    error: error instanceof Error ? error.message : "ADO Boost write failed",
+    ...(error instanceof HttpResponseError ? { details: error.details } : {})
+  };
+}
 
 export interface WriteGateway {
   postAnnouncement(route: PullRequestContext): Promise<AnnouncementRecord>;
@@ -31,8 +46,8 @@ export class RuntimeWriteGateway implements WriteGateway {
   }
 
   private async send<T>(kind: string, payload: unknown): Promise<T> {
-    const response = await chrome.runtime.sendMessage({ channel: "adopp-write", kind, payload }) as { ok: true; data: T } | { ok: false; error: string };
-    if (!response.ok) throw new Error(response.error);
+    const response = await chrome.runtime.sendMessage({ channel: "adopp-write", kind, payload }) as { ok: true; data: T } | WriteFailure;
+    if (!response.ok) throw response.details ? new HttpResponseError(response.error, response.details) : new Error(response.error);
     return response.data;
   }
 }

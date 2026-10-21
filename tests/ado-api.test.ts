@@ -413,6 +413,23 @@ describe("AdoApi", () => {
     await expect(new AdoApi(http).getCurrentVote(context)).rejects.toThrow("403");
   });
 
+  it("attaches the actual reviewer request and response body to a failed lookup", async () => {
+    const text = '{"message":"The reviewer identifier is invalid."}';
+    const fetch = vi.fn().mockResolvedValue(new Response(text, {
+      status: 400, statusText: "Bad Request", headers: { "x-vss-e2eid": "request-id" }
+    }));
+    const signal = new AbortController().signal;
+    const url = "https://dev.azure.com/org/project/_apis/git/repositories/repo-id/pullRequests/7/reviewers/me?api-version=7.1";
+    await expect(new AdoApi({ fetch }).getCurrentVote(context, signal)).rejects.toMatchObject({
+      message: "Reviewer lookup failed (400)",
+      details: {
+        request: { url, method: "GET", headers: { accept: "application/json" }, credentials: "include", body: null },
+        response: { status: 400, statusText: "Bad Request", headers: { "x-vss-e2eid": "request-id" }, text }
+      }
+    });
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(url, { method: "GET", headers: { Accept: "application/json" }, credentials: "include", signal });
+  });
+
   it("does not turn missing repository IDs or write confirmations into warnings", async () => {
     const warn = vi.fn();
     const api = new AdoApi(new QueueHttp([

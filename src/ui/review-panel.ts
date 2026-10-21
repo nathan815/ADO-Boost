@@ -64,8 +64,8 @@ export class ReviewPanel {
     this.settings = dependencies.settings;
     this.completionMonitor = new ReviewCompletionMonitor(
       () => this.checkReviewCompletion(),
-      (message) => {
-        console.error("ADO Boost review completion check failed:", message);
+      (message, error) => {
+        console.error("ADO Boost review completion check failed:", message, error instanceof Error ? error.cause ?? error : error);
         this.toast.show(`Couldn't check review completion: ${message}`);
       }
     );
@@ -119,6 +119,10 @@ export class ReviewPanel {
 
   startReviewing(): void {
     this.showAnnouncementDialog();
+  }
+
+  triggerTestToast(): void {
+    this.toast.show("This is a test notification. It stays visible until dismissed with X. No Azure DevOps request was made.");
   }
 
   isReviewAnnounced(): boolean {

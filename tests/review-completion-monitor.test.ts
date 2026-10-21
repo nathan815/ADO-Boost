@@ -91,7 +91,7 @@ describe("Review completion monitoring", () => {
       await vi.advanceTimersByTimeAsync(0);
     }
     expect(check).toHaveBeenCalledTimes(4);
-    expect(onError).toHaveBeenCalledExactlyOnceWith("Vote lookup failed");
+    expect(onError).toHaveBeenCalledExactlyOnceWith("Vote lookup failed", expect.objectContaining({ message: "Vote lookup failed" }));
     await vi.advanceTimersByTimeAsync(60000);
     expect(check).toHaveBeenCalledTimes(4);
     monitor.stop();

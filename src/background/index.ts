@@ -13,6 +13,7 @@ import { ChromeRecentPrStorage } from "../adapters/recent-pr-storage";
 import { RecentPrService } from "../core/recent-prs";
 import { parseCopilotHealth } from "../core/copilot-gateway";
 import { isPopupMessage, PopupService } from "./popup-service";
+import { writeFailure } from "../core/write-gateway";
 
 const api = new AdoApi(new FetchHttpClient());
 const store = new ChromeBrowserStore(false);
@@ -77,7 +78,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
   if (!isWriteMessage(message)) return;
   void handleWrite(message.kind, message.payload, sender)
     .then((data) => sendResponse({ ok: true, data }))
-    .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "ADO Boost write failed" }));
+    .catch((error) => sendResponse(writeFailure(error)));
   return true;
 });
 

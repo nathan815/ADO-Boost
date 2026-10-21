@@ -5,6 +5,7 @@ import { AdoApi } from "../src/adapters/ado-api";
 import { MemoryBrowserStore } from "../src/adapters/browser";
 import { RuntimeCopilotGateway } from "../src/core/copilot-gateway";
 import { AnnouncementService } from "../src/core/announcement";
+import { HttpResponseError } from "../src/core/http-error";
 import type { AnnouncementRecord, PullRequestAnalysis } from "../src/core/types";
 import { RuntimeWriteGateway, type WriteGateway } from "../src/core/write-gateway";
 import { defaultSettings } from "../src/features/registry";
@@ -65,11 +66,28 @@ describe("ReviewPanel completion lifecycle", () => {
       const { root, finishReview } = await fixture(true, new Error("Reviewer lookup failed (400)"));
       expect(finishReview).toHaveBeenCalledOnce();
       expect(root.querySelector(".panel-toast span")?.textContent).toBe("Couldn't check review completion: Reviewer lookup failed (400)");
-      expect(error).toHaveBeenCalledWith("ADO Boost review completion check failed:", "Reviewer lookup failed (400)");
+      expect(error).toHaveBeenCalledWith("ADO Boost review completion check failed:", "Reviewer lookup failed (400)", expect.objectContaining({ message: "Reviewer lookup failed (400)" }));
       expect(panel!.isReviewAnnounced()).toBe(true);
       expect(panel!.isReviewFinished()).toBe(false);
     } finally {
       error.mockRestore();
+    }
+  });
+
+  it("logs full HTTP diagnostics in the page console without putting them in the toast", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const error = await HttpResponseError.fromResponse("Reviewer lookup failed (400)", {
+        url: "https://dev.azure.com/org/project/_apis/git/repositories/repo-id/pullRequests/7/reviewers/me?api-version=7.1",
+        method: "GET", headers: { Accept: "application/json" }, credentials: "include", body: null
+      }, new Response('{"message":"Invalid reviewer ID"}', { status: 400 }));
+      const { root } = await fixture(true, error);
+      expect(log).toHaveBeenCalledExactlyOnceWith("ADO Boost review completion check failed:", error.message, error.details);
+      expect(root.querySelector(".panel-toast span")?.textContent).toBe("Couldn't check review completion: Reviewer lookup failed (400)");
+      expect(root.querySelector(".panel-toast")?.textContent).not.toContain("Invalid reviewer ID");
+      expect(panel!.isReviewFinished()).toBe(false);
+    } finally {
+      log.mockRestore();
     }
   });
 
@@ -132,6 +150,7 @@ describe("ReviewPanel native shell", () => {
     settings.features.startReviewing = false;
     settings.features.threadNavigator = false;
     const openSettings = vi.fn();
+    const fetch = vi.fn();
     panel = new ReviewPanel({
       analysis: {
         context: {
@@ -141,7 +160,7 @@ describe("ReviewPanel native shell", () => {
         },
         files: [], groups: [], threads: { state: "available", active: 0, resolved: 0, total: 0 }, completedTrackingIds: new Set()
       },
-      api: new AdoApi({ fetch: vi.fn() }),
+      api: new AdoApi({ fetch }),
       store: new MemoryBrowserStore(),
       settingsService: new SettingsService(new MemorySettingsStorage()),
       settings,
@@ -151,8 +170,24 @@ describe("ReviewPanel native shell", () => {
       openSettings
     });
     const host = document.querySelector<HTMLElement>("[data-adopp-review-panel]")!;
-    return { host, root: host.shadowRoot!, openSettings };
+    return { host, root: host.shadowRoot!, openSettings, fetch };
   }
+
+  it("shows a persistent test toast without opening the sidebar or making an API request", () => {
+    vi.useFakeTimers();
+    const { host, root, fetch } = mountPanel();
+    panel!.triggerTestToast();
+    expect(host.dataset.open).toBe("false");
+    expect(root.querySelector(".rail")?.getAttribute("data-open")).toBe("false");
+    expect(document.querySelector("[data-adopp-panel-main]")).toBeNull();
+    expect(root.querySelector(".panel-toast strong")?.textContent).toBe("ADO Boost");
+    expect(root.querySelector(".panel-toast span")?.textContent).toContain("This is a test notification.");
+    vi.advanceTimersByTime(3600000);
+    expect(root.querySelector(".panel-toast")).not.toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+    root.querySelector<HTMLButtonElement>('.panel-toast [aria-label="Dismiss notification"]')!.click();
+    expect(root.querySelector(".panel-toast")).toBeNull();
+  });
 
   it("opens inline with official Bolt buttons, switches layout, and closes without reserving space", () => {
     const { host, root, openSettings } = mountPanel();

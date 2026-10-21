@@ -57,6 +57,10 @@ Core review features are enabled by default. Generated-file hiding, lockfile hid
 
 Panel error notifications are labeled **ADO Boost** and do not time out. Use the **X** button on the right to dismiss them.
 
+To preview a notification without reproducing an error, open the ADO Boost dropdown beside the native review actions and select **Trigger Test Toast** under **Dev options**. This uses the real toast without opening the sidebar or making an Azure DevOps request.
+
+Failed reviewer-vote lookups include request and response diagnostics in the PR page's developer console: the request URL, method, configured headers, credentials mode and body, plus the response URL, status, headers and full response text. Cookie and authorization-related header values are redacted; browser-managed cookie values are not collected. The toast keeps the short error message. Diagnostics are not saved to extension storage.
+
 ADO Boost previews review announcements and submissions before posting them. After you announce a review, it checks for your recorded vote when the PR loads or the tab becomes active. A recorded review decision or an explicit comment-only review submission can add a completion reply and close the announcement thread; simply loading the PR or a failed vote lookup does not complete the review. Completion-check errors leave the announcement unchanged. ADO Boost does not automatically vote, resolve other discussion threads, merge pull requests, or run pull request code.
 
 ## Privacy and limits

@@ -10,6 +10,8 @@ export const panelStyles = `
 :host([data-theme="light"]) { --background-color:#fff; --surface:#f6f7f8; --hover:#edf4fb; --text-primary-color:#242424; --text-secondary-color:#616161; --palette-neutral-100:0,0,0; --palette-black-alpha-6:rgba(0,0,0,.06); --palette-black-alpha-20:rgba(0,0,0,.2); --communication-background:#0078d4; --communication-foreground:#005a9e; --text-on-communication-background:#fff; --green:#107c10; --red:#d13438; --amber:#8a6d00; color-scheme:light; }
 :host([data-theme="dark"]) { --background-color:#1f1f1f; --surface:#292929; --hover:#303b46; --text-primary-color:#f5f5f5; --text-secondary-color:#c1c1c1; --palette-neutral-100:255,255,255; --palette-black-alpha-6:rgba(255,255,255,.06); --palette-black-alpha-20:rgba(255,255,255,.2); --communication-background:#0078d4; --communication-foreground:#78b9e6; --text-on-communication-background:#fff; --green:#6ccb5f; --red:#f1707b; --amber:#e6c35c; color-scheme:dark; }
 :host([data-open="true"][data-layout="inline"]) { display:flex; width:clamp(300px,28vw,400px); align-self:stretch; position:sticky; top:0; }
+:host([data-open="false"]) { display:contents; }
+.rail[data-open="false"] { display:none; }
 /* Native ADO portals use z-index 1000000 and must remain above the overlay. */
 :host([data-open="true"][data-layout="overlay"]) { display:flex; position:fixed; z-index:999999; top:48px; right:0; bottom:0; width:min(400px,calc(100vw - 16px)); box-shadow:-4px 0 16px rgb(0 0 0 / 20%); }
 @media(max-width:900px) { :host([data-open="true"][data-layout="inline"]) { position:relative; flex:0 0 100%; width:100%; height:60vh; min-height:300px; } }

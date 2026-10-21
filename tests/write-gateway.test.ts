@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PullRequestContext } from "../src/core/types";
-import { RuntimeWriteGateway } from "../src/core/write-gateway";
+import { RuntimeWriteGateway, writeFailure } from "../src/core/write-gateway";
+import { AdoApi } from "../src/adapters/ado-api";
+import { HttpResponseError } from "../src/core/http-error";
 
 const context: PullRequestContext = {
   origin: "https://dev.azure.com", organization: "org", project: "project", repository: "repo",
@@ -42,5 +44,32 @@ describe("Review write gateway", () => {
     const { gateway, sendMessage } = fixture();
     sendMessage.mockResolvedValue({ ok: false, error: "Could not close announcement" });
     await expect(gateway.finishReview(context)).rejects.toThrow("Could not close announcement");
+  });
+
+  it("preserves reviewer HTTP diagnostics across the JSON runtime message boundary", async () => {
+    const { gateway, sendMessage } = fixture();
+    const api = new AdoApi({ fetch: vi.fn().mockResolvedValue(new Response("Invalid reviewer ID", { status: 400 })) });
+    sendMessage.mockImplementation(async () => {
+      try {
+        await api.getCurrentVote(context);
+        throw new Error("Expected lookup to fail");
+      } catch (error) {
+        return JSON.parse(JSON.stringify(writeFailure(error)));
+      }
+    });
+    const result = gateway.finishReview(context);
+    await expect(result).rejects.toBeInstanceOf(HttpResponseError);
+    await expect(result).rejects.toMatchObject({
+      message: "Reviewer lookup failed (400)",
+      cause: {
+        request: { method: "GET", url: expect.stringContaining("/reviewers/me?api-version=7.1") },
+        response: { status: 400, text: "Invalid reviewer ID" }
+      }
+    });
+  });
+
+  it("keeps ordinary write failures concise and does not serialize arbitrary error causes", () => {
+    expect(writeFailure(new Error("Write failed", { cause: { private: "not HTTP diagnostics" } }))).toEqual({ ok: false, error: "Write failed" });
+    expect(writeFailure("unexpected failure")).toEqual({ ok: false, error: "ADO Boost write failed" });
   });
 });
