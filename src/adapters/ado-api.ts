@@ -86,7 +86,9 @@ const createdThreadSchema = z.object({
 }).passthrough();
 
 const createdCommentSchema = z.object({ id: z.number().int().positive() }).passthrough();
-const reviewerSchema = z.object({ vote: z.number().int() }).passthrough();
+const reviewersSchema = z.object({
+  value: z.array(z.object({ id: z.string().min(1), vote: z.number().int() }).passthrough())
+}).passthrough();
 const voteEventSchema = z.object({
   id: z.number().int().positive(),
   publishedDate: z.iso.datetime({ offset: true }).optional(),
@@ -254,12 +256,13 @@ export class AdoApi {
   }
 
   async getCurrentVote(context: PullRequestContext, signal?: AbortSignal): Promise<number> {
-    const url = `${this.apiBase(context)}/git/repositories/${encodeURIComponent(context.repositoryId)}/pullRequests/${context.pullRequestId}/reviewers/${encodeURIComponent(context.reviewer.id)}?api-version=7.1`;
+    // ADO can reject a single-reviewer lookup with 400 when the user is not listed.
+    const url = `${this.apiBase(context)}/git/repositories/${encodeURIComponent(context.repositoryId)}/pullRequests/${context.pullRequestId}/reviewers?api-version=7.1`;
     const request = { url, method: "GET", headers: { Accept: "application/json" }, credentials: "include" as const, body: null };
     const response = await this.http.fetch(url, { ...(signal ? { signal } : {}), method: request.method, headers: request.headers, credentials: request.credentials });
-    if (response.status === 404) return 0;
     if (!response.ok) throw await HttpResponseError.fromResponse(`Reviewer lookup failed (${response.status})`, request, response);
-    return reviewerSchema.parse(await response.json()).vote;
+    const reviewers = reviewersSchema.parse(await response.json()).value;
+    return reviewers.find((reviewer) => reviewer.id.toLowerCase() === context.reviewer.id.toLowerCase())?.vote ?? 0;
   }
 
   async getVoteTimestamp(context: PullRequestContext, vote: ReviewVote, signal?: AbortSignal): Promise<string> {

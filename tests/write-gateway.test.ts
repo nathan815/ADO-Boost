@@ -62,7 +62,7 @@ describe("Review write gateway", () => {
     await expect(result).rejects.toMatchObject({
       message: "Reviewer lookup failed (400)",
       cause: {
-        request: { method: "GET", url: expect.stringContaining("/reviewers/me?api-version=7.1") },
+        request: { method: "GET", url: expect.stringContaining("/reviewers?api-version=7.1") },
         response: { status: 400, text: "Invalid reviewer ID" }
       }
     });

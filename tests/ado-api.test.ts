@@ -403,14 +403,25 @@ describe("AdoApi", () => {
     expect(warn).toHaveBeenCalledTimes(2);
   });
 
-  it("treats a not-listed reviewer as no existing vote", async () => {
-    const http = new QueueHttp([new Response("not found", { status: 404 })]);
+  it.each([{ value: [] }, { value: [{ id: "someone-else", vote: 10 }] }])("treats an unlisted reviewer as no existing vote (%j)", async ({ value }) => {
+    const http = new QueueHttp([json({ value })]);
     await expect(new AdoApi(http).getCurrentVote(context)).resolves.toBe(0);
+    expect(http.urls).toEqual(["https://dev.azure.com/org/project/_apis/git/repositories/repo-id/pullRequests/7/reviewers?api-version=7.1"]);
   });
 
-  it("does not swallow other reviewer lookup failures", async () => {
-    const http = new QueueHttp([new Response("denied", { status: 403 })]);
-    await expect(new AdoApi(http).getCurrentVote(context)).rejects.toThrow("403");
+  it.each([10, 5, 0, -5, -10])("reads the current reviewer's vote case-insensitively (%s)", async (vote) => {
+    const http = new QueueHttp([json({ value: [{ id: "other", vote: 10 }, { id: "ME", vote }] })]);
+    await expect(new AdoApi(http).getCurrentVote(context)).resolves.toBe(vote);
+  });
+
+  it.each([400, 401, 403, 404, 500])("does not swallow reviewer-list failures (%s)", async (status) => {
+    const http = new QueueHttp([new Response("lookup failed", { status })]);
+    await expect(new AdoApi(http).getCurrentVote(context)).rejects.toThrow(`Reviewer lookup failed (${status})`);
+  });
+
+  it.each([{}, { value: null }, { value: [{ vote: 10 }] }, { value: [{ id: "me", vote: "10" }] }])("rejects malformed reviewer lists instead of assuming no vote (%j)", async (payload) => {
+    const http = new QueueHttp([json(payload)]);
+    await expect(new AdoApi(http).getCurrentVote(context)).rejects.toThrow();
   });
 
   it("attaches the actual reviewer request and response body to a failed lookup", async () => {
@@ -419,7 +430,7 @@ describe("AdoApi", () => {
       status: 400, statusText: "Bad Request", headers: { "x-vss-e2eid": "request-id" }
     }));
     const signal = new AbortController().signal;
-    const url = "https://dev.azure.com/org/project/_apis/git/repositories/repo-id/pullRequests/7/reviewers/me?api-version=7.1";
+    const url = "https://dev.azure.com/org/project/_apis/git/repositories/repo-id/pullRequests/7/reviewers?api-version=7.1";
     await expect(new AdoApi({ fetch }).getCurrentVote(context, signal)).rejects.toMatchObject({
       message: "Reviewer lookup failed (400)",
       details: {
