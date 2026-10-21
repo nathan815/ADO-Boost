@@ -69,6 +69,8 @@ Drafts include provenance metadata that currently distinguishes manual and Copil
 
 ## ADO Boost native UI ownership
 
+Clicking the native PR ID copies only its numeric value. A status label directly beneath the ID fades and slides in and out over 1.2 seconds without shifting the header, including when the system requests reduced motion. Repeated copies restart the confirmation. Clipboard errors remain visible for retry, and removing the control cancels pending feedback.
+
 Retain Azure DevOps' native file selection, reviewed checkboxes and server persistence, and navigation. Augment the native changed-file tree with diff counts, filtering, and search controls, and place appropriate actions alongside the native toolbar. Keep the comments panel extension-owned as the complete fallback and queue-management surface. Native discussion augmentation is limited to extension-owned draft cards and composer actions; published comments, thread status, native rendering, and server persistence remain owned by Azure DevOps.
 
 Native review state should remain authoritative; adding a second reviewed-checkbox or persistence system risks divergence from Azure DevOps. Similarly, enhancements should preserve native file links and controls instead of replacing the tree with a separate navigation model.

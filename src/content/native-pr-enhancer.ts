@@ -31,6 +31,7 @@ interface NativeFileRow {
 }
 
 const STYLE_ID = "adopp-native-styles";
+const COPY_FEEDBACK_DURATION = 1200;
 const ADO_FILE_TREE_SELECTOR = [
   "table.repos-changes-explorer.repos-file-explorer-tree",
   "table.repos-file-explorer-tree",
@@ -52,6 +53,7 @@ export class NativePrEnhancer {
   private nativeFileCount: HTMLElement | null = null;
   private filesTabBadge: HTMLElement | null = null;
   private prIdControl: { host: HTMLElement; original: Node[]; button: HTMLButtonElement } | null = null;
+  private prIdFeedbackTimer = 0;
 
   constructor(
     private readonly analysis: PullRequestAnalysis,
@@ -512,30 +514,48 @@ export class NativePrEnhancer {
     const feedback = document.createElement("span");
     feedback.dataset.adoppCopyPrFeedback = "true";
     feedback.setAttribute("role", "status");
+    const control = document.createElement("span");
+    control.dataset.adoppCopyPrControl = "true";
+    control.append(button, feedback);
     button.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
       void this.copyPrId(id, button, feedback);
     });
     this.prIdControl = { host, original: [...host.childNodes], button };
-    host.replaceChildren(button, feedback);
+    host.replaceChildren(control);
   }
 
   private async copyPrId(id: string, button: HTMLButtonElement, feedback: HTMLElement): Promise<void> {
     button.disabled = true;
+    window.clearTimeout(this.prIdFeedbackTimer);
+    delete feedback.dataset.state;
     feedback.textContent = "";
     try {
       await this.clipboard.writeText(id);
-      feedback.textContent = " Copied";
+      if (this.prIdControl?.button !== button) return;
+      feedback.textContent = "Copied";
+      // Flush the reset so a rapid second copy restarts the animation.
+      void feedback.offsetWidth;
+      feedback.dataset.state = "copied";
+      this.prIdFeedbackTimer = window.setTimeout(() => {
+        feedback.textContent = "";
+        delete feedback.dataset.state;
+        this.prIdFeedbackTimer = 0;
+      }, COPY_FEEDBACK_DURATION);
     } catch (error) {
-      feedback.textContent = " Could not copy PR ID. Try again.";
       console.error("ADO Boost could not copy PR ID", error);
+      if (this.prIdControl?.button !== button) return;
+      feedback.textContent = "Could not copy PR ID. Try again.";
+      feedback.dataset.state = "error";
     } finally {
       button.disabled = false;
     }
   }
 
   private restorePrId(): void {
+    window.clearTimeout(this.prIdFeedbackTimer);
+    this.prIdFeedbackTimer = 0;
     if (!this.prIdControl) return;
     const { host, original, button } = this.prIdControl;
     if (host.contains(button)) host.replaceChildren(...original);
@@ -1245,6 +1265,11 @@ function capitalize(value: string): string {
 
 const nativeStyles = `
 .adopp-copy-pr-id{appearance:none;border:0;padding:0;background:transparent;color:inherit;font:inherit;cursor:pointer}.adopp-copy-pr-id:hover{text-decoration:underline}.adopp-copy-pr-id:focus-visible{outline:2px solid var(--communication-background,#0078d4);outline-offset:2px}
+[data-adopp-copy-pr-control]{position:relative;display:inline-block}
+[data-adopp-copy-pr-feedback]{position:absolute;top:100%;left:50%;transform:translate(-50%,0);white-space:nowrap;pointer-events:none;font:11px/1.4 "Segoe UI",sans-serif;opacity:0}
+[data-adopp-copy-pr-feedback][data-state="copied"]{animation:adopp-copy-feedback ${COPY_FEEDBACK_DURATION}ms ease both}
+[data-adopp-copy-pr-feedback][data-state="error"]{opacity:1;color:var(--status-error-foreground,#a4262c)}
+@keyframes adopp-copy-feedback{0%{opacity:0;transform:translate(-50%,-3px)}12%,75%{opacity:1;transform:translate(-50%,2px)}100%{opacity:0;transform:translate(-50%,5px)}}
 [data-adopp-native-status]{font-size:12px;color:var(--status-warning-foreground,#8a6d00)}
 [data-adopp-native-status][hidden],[data-adopp-original-file-count]{display:none!important}
 .adopp-start-split>.bolt-split-button-divider{background:rgba(var(--palette-neutral-100,0,0,0),.18) !important;opacity:1 !important}

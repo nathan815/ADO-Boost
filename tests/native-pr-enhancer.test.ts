@@ -347,12 +347,68 @@ describe("NativePrEnhancer", () => {
     expect(button.getAttribute("aria-label")).toBe("Copy PR ID 7");
     button.click();
     expect(clipboard.writeText).toHaveBeenCalledExactlyOnceWith("7");
-    await vi.waitFor(() => expect(host.querySelector('[role="status"]')?.textContent).toBe(" Copied"));
+    await vi.waitFor(() => expect(host.querySelector('[role="status"]')?.textContent).toBe("Copied"));
     expect(button.disabled).toBe(false);
     enhancer.destroy();
     expect(host.firstChild).toBe(original);
     expect(host.textContent).toBe("!7");
     expect(host.querySelector("button")).toBeNull();
+  });
+
+  it("clears copy feedback after a short animation and restarts its lifetime on repeated copies", async () => {
+    vi.useFakeTimers();
+    try {
+      const clipboard = { writeText: vi.fn().mockResolvedValue(undefined) };
+      enhancer = new NativePrEnhancer(analysis, defaultSettings(), {
+        openDiscussions: vi.fn(), startReviewing: vi.fn(), isReviewAnnounced: () => false, openSettings: vi.fn()
+      }, createNativePort(), clipboard);
+      enhancer.start();
+      const button = document.querySelector<HTMLButtonElement>("[data-adopp-copy-pr-id]")!;
+      const feedback = document.querySelector<HTMLElement>("[data-adopp-copy-pr-feedback]")!;
+      const styles = document.querySelector("#adopp-native-styles")!.textContent!;
+      expect(styles).toContain("animation:adopp-copy-feedback 1200ms ease both");
+      expect(styles).not.toContain("adopp-copy-feedback-reduced");
+      expect(feedback.parentElement).toBe(button.parentElement);
+      expect(feedback.parentElement?.hasAttribute("data-adopp-copy-pr-control")).toBe(true);
+      button.click();
+      await Promise.resolve();
+      expect(feedback.textContent).toBe("Copied");
+      expect(feedback.dataset.state).toBe("copied");
+      await vi.advanceTimersByTimeAsync(800);
+      button.click();
+      expect(feedback.textContent).toBe("");
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(400);
+      expect(feedback.textContent).toBe("Copied");
+      await vi.advanceTimersByTimeAsync(800);
+      expect(feedback.textContent).toBe("");
+      expect(feedback.dataset.state).toBeUndefined();
+      expect(button.textContent).toBe("!7");
+      button.click();
+      await Promise.resolve();
+      enhancer.destroy();
+      await vi.advanceTimersByTimeAsync(1200);
+      expect(feedback.textContent).toBe("Copied");
+      expect(document.querySelector(".pr-id")?.textContent).toBe("!7");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not show feedback from a copy that finishes after the control is removed", async () => {
+    let completeCopy!: () => void;
+    const clipboard = { writeText: vi.fn(() => new Promise<void>((resolve) => { completeCopy = resolve; })) };
+    enhancer = new NativePrEnhancer(analysis, defaultSettings(), {
+      openDiscussions: vi.fn(), startReviewing: vi.fn(), isReviewAnnounced: () => false, openSettings: vi.fn()
+    }, createNativePort(), clipboard);
+    enhancer.start();
+    const feedback = document.querySelector<HTMLElement>("[data-adopp-copy-pr-feedback]")!;
+    document.querySelector<HTMLButtonElement>("[data-adopp-copy-pr-id]")!.click();
+    enhancer.destroy();
+    completeCopy();
+    await Promise.resolve();
+    expect(feedback.textContent).toBe("");
+    expect(feedback.dataset.state).toBeUndefined();
   });
 
   it("reports clipboard errors and allows retrying", async () => {
@@ -369,7 +425,7 @@ describe("NativePrEnhancer", () => {
       await vi.waitFor(() => expect(document.querySelector("[data-adopp-copy-pr-feedback]")?.textContent).toContain("Could not copy"));
       expect(log).toHaveBeenCalledWith("ADO Boost could not copy PR ID", error);
       button.click();
-      await vi.waitFor(() => expect(document.querySelector("[data-adopp-copy-pr-feedback]")?.textContent).toBe(" Copied"));
+      await vi.waitFor(() => expect(document.querySelector("[data-adopp-copy-pr-feedback]")?.textContent).toBe("Copied"));
       expect(clipboard.writeText).toHaveBeenCalledTimes(2);
     } finally {
       log.mockRestore();
