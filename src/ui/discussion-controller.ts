@@ -154,7 +154,9 @@ export class DiscussionController {
         element.querySelector<HTMLAnchorElement>(".thread-file-link")?.addEventListener("click", (event) => {
           event.preventDefault();
           const path = (event.currentTarget as HTMLAnchorElement).dataset.path;
-          if (path) navigateToAdoFile(path);
+          if (path) void navigateToAdoFile(path).catch((error: unknown) => {
+            this.toast.show(error instanceof Error ? error.message : "Couldn't open this file in Azure DevOps.");
+          });
         });
         element.querySelector(".reply-draft")?.addEventListener("click", () => this.openComposer(root, { kind: "reply", threadId }));
         element.querySelector(".thread-status")?.addEventListener("click", () => this.showThreadStatusDialog(root, threadId, status));

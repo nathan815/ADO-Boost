@@ -3,6 +3,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { navigateToAdoComment, navigateToAdoFile } from "../src/ui/ado-navigation";
+import { NAVIGATION_CHANNEL, navigationRequestSchema, selectNativeFile } from "../src/native-tree/navigation";
 
 describe("ADO file navigation", () => {
   beforeEach(() => {
@@ -249,27 +250,119 @@ describe("ADO file navigation", () => {
     });
   });
 
-  it("uses an existing native file link instead of assigning the page location", () => {
-    const native = document.createElement("a");
-    native.href = "https://dev.azure.com/org/project/_git/repo/pullrequest/7?_a=files&path=%2Fsrc%2Fapp.ts";
-    const clicked = vi.fn((event: Event) => event.preventDefault());
-    native.addEventListener("click", clicked);
-    document.body.append(native);
+  describe("same-tab native file selection", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    });
 
-    navigateToAdoFile("/src/app.ts");
+    function mockBridge(error?: string) {
+      return vi.spyOn(window, "postMessage").mockImplementation((data: unknown) => {
+        const request = navigationRequestSchema.parse(data);
+        window.dispatchEvent(new MessageEvent("message", {
+          source: window, origin: location.origin,
+          data: { channel: NAVIGATION_CHANNEL, kind: "result", id: request.id, ...(error ? { error } : {}) }
+        }));
+      });
+    }
 
-    expect(clicked).toHaveBeenCalledOnce();
-    expect(location.pathname).toContain("/pullrequest/7");
-  });
+    it("ignores arbitrary matching links, including new-tab, cross-origin, and discussion links", async () => {
+      document.body.innerHTML = `
+        <a target="_blank" href="?_a=files&path=/src/app.ts">PR description link</a>
+        <a href="https://other.example/repo?_a=files&path=/src/app.ts">Other host</a>
+        <a class="comment-file-header-link" href="?_a=files&path=/src/app.ts&discussionId=42">Discussion</a>
+        <div class="repos-file-explorer-tree"></div>`;
+      const clicked = vi.fn((event: Event) => event.preventDefault());
+      document.querySelectorAll("a").forEach((link) => link.addEventListener("click", clicked));
+      const post = mockBridge();
+      await navigateToAdoFile("/src/app.ts");
+      expect(clicked).not.toHaveBeenCalled();
+      expect(post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        kind: "navigate", path: "/src/app.ts", page: location.origin + location.pathname
+      }), location.origin);
+      expect(location.search).toBe("");
+    });
 
-  it("falls back to a history navigation event without reloading", () => {
-    const popstate = vi.fn();
-    window.addEventListener("popstate", popstate, { once: true });
+    it("opens the same-PR native Files tab and waits for the tree to render", async () => {
+      document.body.innerHTML = '<a role="tab" target="_blank" href="?_a=files">Files</a><a role="tab" href="?_a=files">Files</a>';
+      const links = document.querySelectorAll("a");
+      const external = vi.fn((event: Event) => event.preventDefault());
+      links[0]!.addEventListener("click", external);
+      links[1]!.addEventListener("click", (event) => {
+        event.preventDefault();
+        queueMicrotask(() => {
+          const tree = document.createElement("div");
+          tree.className = "repos-file-explorer-tree";
+          document.body.append(tree);
+        });
+      });
+      const post = mockBridge();
+      await navigateToAdoFile("/src/app.ts");
+      expect(external).not.toHaveBeenCalled();
+      expect(post).toHaveBeenCalledOnce();
+    });
 
-    navigateToAdoFile("/src/app.ts");
+    it("reports native navigation errors instead of silently falling back to a URL change", async () => {
+      document.body.innerHTML = '<div class="repos-file-explorer-tree"></div>';
+      mockBridge("The file is not in this comparison.");
+      await expect(navigateToAdoFile("/missing.ts")).rejects.toThrow("not in this comparison");
+      expect(location.search).toBe("");
+    });
 
-    expect(location.search).toContain("_a=files");
-    expect(new URLSearchParams(location.search).get("path")).toBe("/src/app.ts");
-    expect(popstate).toHaveBeenCalledOnce();
+    it("rejects missing Files tabs without following other PR or cross-origin links", async () => {
+      document.body.innerHTML = '<a role="tab" href="https://other.example/?_a=files">Files</a><a role="tab" href="/org/project/_git/repo/pullrequest/8?_a=files">Files</a>';
+      const post = mockBridge();
+      await expect(navigateToAdoFile("/src/app.ts")).rejects.toThrow("Couldn't open Azure DevOps' Files tab");
+      expect(post).not.toHaveBeenCalled();
+    });
+
+    it("ignores unrelated or untrusted responses and cleans up after a timeout", async () => {
+      vi.useFakeTimers();
+      document.body.innerHTML = '<div class="repos-file-explorer-tree"></div>';
+      const post = vi.spyOn(window, "postMessage").mockImplementation(() => {});
+      const failure = expect(navigateToAdoFile("/src/app.ts")).rejects.toThrow("Couldn't open this file");
+      const request = navigationRequestSchema.parse(post.mock.calls[0]![0]);
+      for (const [origin, source, id] of [
+        ["https://other.example", window, request.id],
+        [location.origin, null, request.id],
+        [location.origin, window, crypto.randomUUID()]
+      ] as const) {
+        window.dispatchEvent(new MessageEvent("message", {
+          origin, source, data: { channel: NAVIGATION_CHANNEL, kind: "result", id }
+        }));
+      }
+      await vi.advanceTimersByTimeAsync(5000);
+      await failure;
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    function nativeTree() {
+      const tree = document.createElement("div");
+      tree.className = "repos-file-explorer-tree";
+      const item = { path: "/src/app.ts", isFolder: false };
+      const setSelectedItem = vi.fn();
+      const items = { [item.path]: item, "/src": { path: "/src", isFolder: true } };
+      const navigationService = { setSelectedItem, changes: { value: { changesByPath: items } } };
+      Reflect.set(tree, "__reactFiber$test", {
+        return: { memoizedProps: { value: { navigationService } } }
+      });
+      document.body.append(tree);
+      return { item, items, setSelectedItem };
+    }
+
+    it("selects the exact native model item, independent of rendered rows and links", () => {
+      const { item, setSelectedItem } = nativeTree();
+      selectNativeFile(item.path, document);
+      expect(setSelectedItem).toHaveBeenCalledExactlyOnceWith(item);
+    });
+
+    it("rejects folders, missing paths, and incompatible host contracts", () => {
+      const { setSelectedItem } = nativeTree();
+      expect(() => selectNativeFile("/src", document)).toThrow("not available in the current");
+      expect(() => selectNativeFile("/missing.ts", document)).toThrow("not available in the current");
+      expect(setSelectedItem).not.toHaveBeenCalled();
+      document.body.innerHTML = '<div class="repos-file-explorer-tree"></div>';
+      expect(() => selectNativeFile("/src/app.ts", document)).toThrow("native file navigation is unavailable");
+    });
   });
 });

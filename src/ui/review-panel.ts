@@ -235,7 +235,9 @@ export class ReviewPanel {
       link.addEventListener("click", (event) => {
         if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
         event.preventDefault();
-        navigateToAdoFile(link.dataset.copilotPath!);
+        void navigateToAdoFile(link.dataset.copilotPath!).catch((error: unknown) => {
+          this.toast.show(error instanceof Error ? error.message : "Couldn't open this file in Azure DevOps.");
+        });
       });
     }
   }

@@ -5,8 +5,10 @@ import { discoverHost, getHostReact } from "./host";
 import type { NativeHost } from "./host";
 import { CHANNEL, commandSchema, hasFilters } from "./protocol";
 import type { TreeConfiguration, TreeStatus } from "./protocol";
+import { startNativeFileNavigation } from "./navigation";
 
 startNativeDiffPreferences(window);
+startNativeFileNavigation(window);
 
 let config: TreeConfiguration | null = null;
 let adapter: NativeTreeAdapter | null = null;

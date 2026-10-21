@@ -12,6 +12,7 @@ import { MemorySettingsStorage, SettingsService } from "../src/features/settings
 import { ReviewPanel } from "../src/ui/review-panel";
 import type { CopilotGateway } from "../src/core/copilot-gateway";
 import type { SemanticGroupProposal } from "../src/core/types";
+import * as adoNavigation from "../src/ui/ado-navigation";
 
 let panel: ReviewPanel | undefined;
 
@@ -414,13 +415,13 @@ describe("ReviewPanel semantic groups", () => {
 
     const link = root.querySelector<HTMLAnchorElement>("[data-copilot-path]")!;
     expect(new URL(link.href).searchParams.get("path")).toBe("/src/first.ts");
-    const native = document.createElement("a");
-    native.href = link.href;
-    const navigate = vi.fn((event: Event) => event.preventDefault());
-    native.addEventListener("click", navigate);
-    document.body.append(native);
-    link.click();
-    expect(navigate).toHaveBeenCalledOnce();
+    const navigate = vi.spyOn(adoNavigation, "navigateToAdoFile").mockResolvedValue();
+    try {
+      link.click();
+      expect(navigate).toHaveBeenCalledExactlyOnceWith("/src/first.ts");
+    } finally {
+      navigate.mockRestore();
+    }
 
     semanticGroups.mockResolvedValue([{ title: "Updated", rationale: "New grouping", paths: analysis.files.map((file) => file.path) }]);
     requestGroups();
