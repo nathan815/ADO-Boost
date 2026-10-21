@@ -136,6 +136,8 @@ describe("extension popup", () => {
     expect(root.textContent).not.toContain("ado-boost login");
     button(root, "Needs login").click();
     expect(root.textContent).toContain("ado-boost login");
+    expect(root.textContent).not.toContain("Checks connection and sign-in only");
+    expect(root.textContent).not.toContain("No PR content is sent");
     expect(root.querySelector(".bolt-status")).not.toBeNull();
     button(root, "Refresh").click();
     await vi.waitFor(() => expect(root.textContent).toContain("reviewer"));

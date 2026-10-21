@@ -8,6 +8,34 @@ export interface CopilotHealth {
   detail?: string;
 }
 
+const tokenCountSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable();
+const sessionSchema = z.object({
+  sessionId: z.string().min(1).max(200),
+  models: z.array(z.string().min(1).max(200)).max(100),
+  inputTokens: tokenCountSchema,
+  outputTokens: tokenCountSchema,
+  cacheReadTokens: tokenCountSchema,
+  cacheWriteTokens: tokenCountSchema
+});
+const groupResultSchema = z.object({
+  groups: z.array(z.object({ title: z.string(), rationale: z.string(), paths: z.array(z.string()) })),
+  session: sessionSchema.nullish(),
+  generation: z.object({ iterationId: z.number().int().positive(), generatedAt: z.iso.datetime({ offset: true }) }).nullish(),
+  cached: z.boolean().optional()
+});
+
+export interface CopilotGroupResult {
+  groups: SemanticGroupProposal[];
+  session: z.infer<typeof sessionSchema> | null;
+  generation?: { iterationId: number; generatedAt: string } | null;
+  cached: boolean;
+}
+
+export function parseCopilotGroupResult(value: unknown): CopilotGroupResult {
+  const data = groupResultSchema.parse(value);
+  return { groups: data.groups, session: data.session ?? null, generation: data.generation ?? null, cached: data.cached ?? false };
+}
+
 export function parseCopilotHealth(value: unknown): CopilotHealth {
   const data = z.object({
     auth: z.object({
@@ -25,7 +53,8 @@ export function parseCopilotHealth(value: unknown): CopilotHealth {
 }
 export interface CopilotGateway {
   health(context: PullRequestContext): Promise<CopilotHealth>;
-  semanticGroups(context: PullRequestContext, files: FileStat[], excerpts: CopilotExcerpt[], regenerate?: boolean): Promise<SemanticGroupProposal[]>;
+  cachedSemanticGroups(context: PullRequestContext, files: FileStat[]): Promise<CopilotGroupResult | null>;
+  semanticGroups(context: PullRequestContext, files: FileStat[], excerpts: CopilotExcerpt[], regenerate?: boolean): Promise<CopilotGroupResult>;
   chat(context: PullRequestContext, files: FileStat[], excerpts: CopilotExcerpt[], question: string): Promise<string>;
 }
 
@@ -41,8 +70,13 @@ export class RuntimeCopilotGateway implements CopilotGateway {
     return this.send("health", { context });
   }
 
-  semanticGroups(context: PullRequestContext, files: FileStat[], excerpts: CopilotExcerpt[], regenerate = false): Promise<SemanticGroupProposal[]> {
-    return this.send("semantic-groups", { context, files: summarize(files), excerpts, regenerate });
+  async cachedSemanticGroups(context: PullRequestContext, files: FileStat[]): Promise<CopilotGroupResult | null> {
+    const data: unknown = await this.send("cached-semantic-groups", { context, files: summarize(files) });
+    return data === null ? null : parseCopilotGroupResult(data);
+  }
+
+  async semanticGroups(context: PullRequestContext, files: FileStat[], excerpts: CopilotExcerpt[], regenerate = false): Promise<CopilotGroupResult> {
+    return parseCopilotGroupResult(await this.send("semantic-groups", { context, files: summarize(files), excerpts, regenerate }));
   }
 
   chat(context: PullRequestContext, files: FileStat[], excerpts: CopilotExcerpt[], question: string): Promise<string> {

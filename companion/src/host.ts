@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { CopilotClient, type CopilotSession, type PermissionHandler } from "@github/copilot-sdk";
 import { z } from "zod";
 import { CancellationRegistry, createCancellableResource } from "./lifecycle.js";
+import { SessionUsage } from "./session-usage.js";
 import { FrameDecoder, PROTOCOL_VERSION, encodeFrame, requestSchema, type NativeRequest, type NativeResponse } from "./protocol.js";
 
 const hostConfigSchema = z.object({
@@ -111,6 +112,7 @@ async function askCopilot(request: Extract<NativeRequest, { type: "semantic-grou
   if (activeInference >= 2) throw coded("busy", "The Copilot companion is already processing two requests");
   activeInference += 1;
   let session: CopilotSession | null = null;
+  const usage = new SessionUsage();
   try {
     const sdk = await getClient();
     cancellations.throwIfCancelled(request.id);
@@ -119,6 +121,7 @@ async function askCopilot(request: Extract<NativeRequest, { type: "semantic-grou
       cancellations,
       () => sdk.createSession({
         clientName: "ADO Boost",
+        onEvent: usage.record,
         tools: [],
         availableTools: [],
         excludedTools: ["*"],
@@ -140,7 +143,7 @@ async function askCopilot(request: Extract<NativeRequest, { type: "semantic-grou
     if (!content) throw coded("empty-response", "Copilot returned no answer");
     if (request.type === "chat") return { answer: content };
     const parsed = groupResponseSchema.parse(JSON.parse(extractJson(content)));
-    return validateGroups(parsed, request.files.map((file) => file.path));
+    return { ...validateGroups(parsed, request.files.map((file) => file.path)), session: usage.summary(session.sessionId) };
   } finally {
     sessions.delete(request.id);
     await session?.disconnect();

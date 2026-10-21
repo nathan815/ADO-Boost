@@ -66,7 +66,6 @@ h2 { font-size: 14px; font-weight: 600; }
 .connection-status { margin: 8px 0; flex-wrap: wrap; }
 .connection-status strong { font-weight: 600; }
 .login { overflow-wrap: anywhere; }
-.privacy-note { font-size: 11px; }
 .connection-detail { margin-bottom: 8px; }
 .connection-detail p + p { margin-top: 5px; }
 .muted { color: var(--text-secondary-color); }
@@ -100,7 +99,7 @@ h2 { font-size: 14px; font-weight: 600; }
 .confirmation-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .disabled-note, .action-error { padding: 0 16px 12px; }
 a:focus-visible, button:focus-visible { outline: 2px solid var(--focus-border-color); outline-offset: -2px; }
+.bolt-spinner-circle { animation: spinner-anim 1.3s cubic-bezier(0.53, 0.21, 0.29, 0.67) infinite !important; }
 @media (prefers-reduced-motion: reduce) {
   .bolt-button { transition: none; }
-  .bolt-spinner-circle { animation: none; }
 }

@@ -225,7 +225,7 @@ describe("Native announcement dialog", () => {
       settings,
       reviewKey: "review",
       writes: { postAnnouncement: vi.fn(), finishReview: vi.fn().mockResolvedValue(null), submitReview: vi.fn(), retryDecision: vi.fn(), setThreadStatus: vi.fn() },
-      copilot: { health: vi.fn(), semanticGroups: vi.fn(), chat: vi.fn() },
+      copilot: { health: vi.fn(), cachedSemanticGroups: vi.fn(), semanticGroups: vi.fn(), chat: vi.fn() },
       openSettings: vi.fn()
     });
     panel.startReviewing();
@@ -263,7 +263,7 @@ describe("Native announcement dialog", () => {
       settings,
       reviewKey: "review",
       writes: { postAnnouncement, finishReview: vi.fn().mockResolvedValue(null), submitReview: vi.fn(), retryDecision: vi.fn(), setThreadStatus: vi.fn() },
-      copilot: { health: vi.fn(), semanticGroups: vi.fn(), chat: vi.fn() },
+      copilot: { health: vi.fn(), cachedSemanticGroups: vi.fn(), semanticGroups: vi.fn(), chat: vi.fn() },
       openSettings: vi.fn()
     });
     document.body.innerHTML = '<div class="actions"><div class="bolt-split-button"><button class="bolt-button enabled"><span class="bolt-button-text">Approve</span></button></div></div>';

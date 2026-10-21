@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NativeCopilotClient } from "../src/background/native-copilot";
-import { parseCopilotHealth } from "../src/core/copilot-gateway";
+import { parseCopilotGroupResult, parseCopilotHealth } from "../src/core/copilot-gateway";
 
 type Request = { id: string; type: string };
 
@@ -139,6 +139,19 @@ describe("native companion client", () => {
   it("rejects malformed health responses rather than treating them as signed out", () => {
     expect(() => parseCopilotHealth({})).toThrow();
     expect(() => parseCopilotHealth({ auth: { isAuthenticated: "yes" } })).toThrow();
+  });
+
+  it("validates grouping session usage while preserving zero and unknown counters", () => {
+    const session = { sessionId: "session-1", models: ["actual-model"], inputTokens: 0, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: 0 };
+    expect(parseCopilotGroupResult({ groups: [], session, cached: true })).toEqual({ groups: [], session, generation: null, cached: true });
+    expect(parseCopilotGroupResult({ groups: [] })).toEqual({ groups: [], session: null, generation: null, cached: false });
+    for (const inputTokens of [-1, 0.5, NaN, Infinity, "100"]) {
+      expect(() => parseCopilotGroupResult({ groups: [], session: { ...session, inputTokens } })).toThrow();
+    }
+    const generation = { iterationId: 3, generatedAt: "2026-10-21T20:00:00.000Z" };
+    expect(parseCopilotGroupResult({ groups: [], generation }).generation).toEqual(generation);
+    expect(() => parseCopilotGroupResult({ groups: [], generation: { ...generation, generatedAt: "yesterday" } })).toThrow();
+    expect(() => parseCopilotGroupResult({ groups: [], generation: { ...generation, iterationId: 0 } })).toThrow();
   });
 
   it("tracks inference waiting for the handshake so disabling features can cancel it", async () => {

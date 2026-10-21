@@ -20,6 +20,7 @@ interface PanelHeaderOptions {
   announced: boolean;
   finished?: boolean;
   subtitle: string;
+  companionEnabled?: boolean;
   onSettings: () => void;
   onLayoutChange: (overlay: boolean) => void;
   onClose: () => void;
@@ -70,7 +71,10 @@ export class AdoPanelHeader {
           h(Button, { className: "close", subtle: true, ariaLabel: "Close ADO Boost" }, icon("close"))
         )
       ),
-      h("p", { className: "subtitle" }, options.subtitle),
+      h("div", { className: "header-meta" },
+        h("p", { className: "subtitle" }, options.subtitle),
+        options.companionEnabled ? h("div", { className: "companion-status-slot" }) : null
+      ),
       options.announcementEnabled ? h("div", { className: "review-start" },
         options.announced
           ? h("p", { className: "review-start-status", role: "status", tabIndex: -1 }, options.finished ? "You've finished reviewing" : "You've started reviewing")

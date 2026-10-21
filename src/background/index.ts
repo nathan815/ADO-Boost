@@ -11,7 +11,7 @@ import { ChromeSettingsStorage, SETTINGS_KEY, SettingsService } from "../feature
 import { NativeCopilotClient } from "./native-copilot";
 import { ChromeRecentPrStorage } from "../adapters/recent-pr-storage";
 import { RecentPrService } from "../core/recent-prs";
-import { parseCopilotHealth } from "../core/copilot-gateway";
+import { parseCopilotGroupResult, parseCopilotHealth, type CopilotGroupResult } from "../core/copilot-gateway";
 import { isPopupMessage, PopupService } from "./popup-service";
 import { writeFailure } from "../core/write-gateway";
 
@@ -94,18 +94,28 @@ async function handleCopilot(kind: string, payload: Record<string, unknown>, sen
     return parseCopilotHealth(await copilot.request("health"));
   }
   const files = Array.isArray(payload.files) ? payload.files : null;
+  if (kind === "cached-semantic-groups") {
+    requireFeature(currentSettings, "copilotSemanticGroups");
+    if (!files) throw new Error("Missing changed-file context");
+    return loadCachedCopilotGroups(current.identity, files);
+  }
   const excerpts = Array.isArray(payload.excerpts) ? payload.excerpts : null;
   if (!files || !excerpts) throw new Error("Missing bounded changed-file context");
   if (kind === "semantic-groups") {
     requireFeature(currentSettings, "copilotSemanticGroups");
     const cacheKey = `copilot-groups:${current.identity}`;
-    const cached = await chrome.storage.local.get(cacheKey);
-    if (payload.regenerate !== true && Array.isArray(cached[cacheKey])) return cached[cacheKey];
-    const data = await copilot.request("semantic-groups", { title: current.title, comparisonIdentity: current.identity, files, excerpts }) as { groups?: unknown };
-    const proposals = parseGroupProposals(data.groups);
-    validateProposalPaths(proposals, files);
-    await chrome.storage.local.set({ [cacheKey]: proposals });
-    return proposals;
+    if (payload.regenerate !== true) {
+      const cached = await loadCachedCopilotGroups(current.identity, files);
+      if (cached) return cached;
+    }
+    const result = {
+      ...parseCopilotGroupResult(await copilot.request("semantic-groups", { title: current.title, comparisonIdentity: current.identity, files, excerpts })),
+      generation: { iterationId: current.iterationId, generatedAt: new Date().toISOString() },
+      cached: false
+    };
+    validateProposalPaths(result.groups, files);
+    await chrome.storage.local.set({ [cacheKey]: result });
+    return { ...result, cached: false };
   }
   if (kind === "chat") {
     requireFeature(currentSettings, "copilotChat");
@@ -115,6 +125,15 @@ async function handleCopilot(kind: string, payload: Record<string, unknown>, sen
     return data.answer;
   }
   throw new Error("Unsupported Copilot request");
+}
+
+async function loadCachedCopilotGroups(identity: string, files: unknown[]): Promise<CopilotGroupResult | null> {
+  const key = `copilot-groups:${identity}`;
+  const value: unknown = (await chrome.storage.local.get(key))[key];
+  if (value === undefined) return null;
+  const result = parseCopilotGroupResult(Array.isArray(value) ? { groups: value } : value);
+  validateProposalPaths(result.groups, files);
+  return { ...result, cached: true };
 }
 
 async function handleWrite(kind: string, payload: Record<string, unknown>, sender: chrome.runtime.MessageSender): Promise<unknown> {
@@ -257,19 +276,6 @@ function isCopilotMessage(value: unknown): value is { channel: "adopp-copilot"; 
   if (!value || typeof value !== "object") return false;
   const message = value as Record<string, unknown>;
   return message.channel === "adopp-copilot" && typeof message.kind === "string" && !!message.payload && typeof message.payload === "object";
-}
-
-function parseGroupProposals(value: unknown): Array<{ title: string; rationale: string; paths: string[] }> {
-  if (!Array.isArray(value)) throw new Error("Copilot returned invalid groups");
-  return value.map((group) => {
-    if (!group || typeof group !== "object") throw new Error("Copilot returned an invalid group");
-    const candidate = group as Record<string, unknown>;
-    if (typeof candidate.title !== "string" || typeof candidate.rationale !== "string" || !Array.isArray(candidate.paths) || !candidate.paths.every((path) => typeof path === "string")) {
-      throw new Error("Copilot returned an invalid group");
-    }
-
-    return { title: candidate.title, rationale: candidate.rationale, paths: candidate.paths as string[] };
-  });
 }
 
 function validateProposalPaths(proposals: Array<{ paths: string[] }>, files: unknown[]): void {

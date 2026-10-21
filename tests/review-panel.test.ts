@@ -11,7 +11,7 @@ import { RuntimeWriteGateway, type WriteGateway } from "../src/core/write-gatewa
 import { defaultSettings } from "../src/features/registry";
 import { MemorySettingsStorage, SettingsService } from "../src/features/settings-service";
 import { ReviewPanel } from "../src/ui/review-panel";
-import type { CopilotGateway } from "../src/core/copilot-gateway";
+import type { CopilotGateway, CopilotGroupResult } from "../src/core/copilot-gateway";
 import type { SemanticGroupProposal } from "../src/core/types";
 import * as adoNavigation from "../src/ui/ado-navigation";
 import { SemanticGroupState } from "../src/core/semantic-groups";
@@ -392,6 +392,10 @@ describe("ReviewPanel unresolved changes", () => {
 });
 
 describe("ReviewPanel semantic groups", () => {
+  function groupResult(groups: SemanticGroupProposal[] = [], session: CopilotGroupResult["session"] = null, cached = false, generation: CopilotGroupResult["generation"] = null): CopilotGroupResult {
+    return { groups, session, cached, generation };
+  }
+
   const dialogMethods = ["showModal", "close"] as const;
   const originalDialogMethods = dialogMethods.map((name) => Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, name));
   beforeAll(() => {
@@ -409,7 +413,7 @@ describe("ReviewPanel semantic groups", () => {
     });
   });
 
-  async function fixture(autoGenerate = false, confirm = true, generate = vi.fn<CopilotGateway["semanticGroups"]>()) {
+  async function fixture(autoGenerate = false, confirm = true, generate = vi.fn<CopilotGateway["semanticGroups"]>(), cachedSemanticGroups = vi.fn<CopilotGateway["cachedSemanticGroups"]>().mockResolvedValue(null)) {
     document.body.innerHTML = '<div class="region-content"><main class="repos-pr-details-page">Native PR content</main></div>';
     const settings = defaultSettings();
     settings.features.startReviewing = false;
@@ -439,7 +443,7 @@ describe("ReviewPanel semantic groups", () => {
       analysis, api, settings, store: new MemoryBrowserStore(),
       settingsService, reviewKey: "org/project/repo-id/7",
       writes: new RuntimeWriteGateway(),
-      copilot: { semanticGroups, health: vi.fn(), chat }, openSettings: vi.fn(), semanticGroups: state
+      copilot: { semanticGroups, cachedSemanticGroups, health: vi.fn().mockResolvedValue({ connected: true, authenticated: true }), chat }, openSettings: vi.fn(), semanticGroups: state
     });
     const initiallyOpen = document.querySelector<HTMLElement>("[data-adopp-review-panel]")!.dataset.open;
     panel.openDiscussions();
@@ -452,26 +456,124 @@ describe("ReviewPanel semantic groups", () => {
       root.querySelector<HTMLButtonElement>(".confirm-context")?.click();
       await Promise.resolve();
     };
-    return { root, analysis, semanticGroups, settings, requestGroups, state, settingsService, api, initiallyOpen, chat };
+    return { root, analysis, semanticGroups, cachedSemanticGroups, settings, requestGroups, state, settingsService, api, initiallyOpen, chat };
   }
+
+  it.each([
+    { automatic: false, confirm: true }, { automatic: false, confirm: false },
+    { automatic: true, confirm: true }, { automatic: true, confirm: false }
+  ])("restores cached groups automatically with settings %j without inference or confirmation", async ({ automatic, confirm }) => {
+    const cached = vi.fn<CopilotGateway["cachedSemanticGroups"]>().mockResolvedValue(groupResult(
+      [{ title: "Restored", rationale: "Already analyzed", paths: ["/src/first.ts"] }],
+      { sessionId: "cached-session", models: ["cached-model"], inputTokens: 100, outputTokens: 20, cacheReadTokens: null, cacheWriteTokens: null },
+      true
+    ));
+    const { root, semanticGroups, state, api, initiallyOpen, settings } = await fixture(automatic, confirm, vi.fn(), cached);
+    await vi.waitFor(() => expect(state.groups?.[0]?.title).toBe("Restored"));
+    expect(initiallyOpen).toBe("false");
+    expect(root.querySelector(".copilot-result summary")?.textContent).toContain("Restored");
+    expect(root.querySelector(".copilot-session")?.textContent).toContain("cached-model");
+    expect(root.querySelector(".copilot-session .status")?.textContent).toBe("Cached");
+    expect(root.querySelector(".copilot-groups")?.textContent).toBe("Regenerate");
+    expect(root.querySelector(".copilot-groups")?.classList.contains("secondary")).toBe(true);
+    expect(root.querySelector(".copilot-groups")?.classList.contains("primary")).toBe(false);
+    expect(root.querySelector(".confirm-context")).toBeNull();
+    expect(state.view.mode).toBe("inline");
+    expect(state.busy).toBe(false);
+    expect(api.getFileContent).not.toHaveBeenCalled();
+    expect(semanticGroups).not.toHaveBeenCalled();
+    panel!.updateSettings(settings);
+    expect(cached).toHaveBeenCalledOnce();
+  });
+
+  it("restores cached groups when the feature or supported comparison is re-enabled", async () => {
+    const cached = vi.fn<CopilotGateway["cachedSemanticGroups"]>().mockResolvedValue(groupResult(
+      [{ title: "Restored", rationale: "Cached", paths: ["/src/first.ts"] }], null, true
+    ));
+    const { state, settings, root, semanticGroups } = await fixture(false, true, vi.fn(), cached);
+    await vi.waitFor(() => expect(state.groups).not.toBeNull());
+    state.setAvailable(false);
+    expect(state.groups).toBeNull();
+    state.setAvailable(true);
+    await vi.waitFor(() => expect(cached).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(state.groups).not.toBeNull());
+    panel!.updateSettings({ ...settings, features: { ...settings.features, copilotSemanticGroups: false } });
+    expect(state.groups).toBeNull();
+    expect(root.querySelector(".copilot-results")).toBeNull();
+    expect(cached).toHaveBeenCalledTimes(2);
+    panel!.updateSettings(settings);
+    await vi.waitFor(() => expect(cached).toHaveBeenCalledTimes(3));
+    await vi.waitFor(() => expect(state.groups).not.toBeNull());
+    expect(semanticGroups).not.toHaveBeenCalled();
+  });
+
+  it("uses primary styling for Generate and regular styling for Regenerate", async () => {
+    const { root, semanticGroups, requestGroups, state } = await fixture(false, false);
+    expect(root.querySelector(".copilot-groups")?.classList.contains("primary")).toBe(true);
+    expect(root.querySelector(".copilot-groups")?.classList.contains("secondary")).toBe(false);
+    semanticGroups.mockResolvedValue(groupResult());
+    await requestGroups();
+    await vi.waitFor(() => expect(root.querySelector(".copilot-groups")?.textContent).toBe("Regenerate"));
+    expect(root.querySelector(".copilot-groups")?.classList.contains("secondary")).toBe(true);
+    expect(root.querySelector(".copilot-groups")?.classList.contains("primary")).toBe(false);
+    state.setAvailable(false);
+    expect(root.querySelector(".copilot-groups")?.textContent).toBe("Generate");
+    expect(root.querySelector(".copilot-groups")?.classList.contains("primary")).toBe(true);
+  });
+
+  it("never overwrites a newer manual generation with a delayed cached result", async () => {
+    let resolveCache!: (result: CopilotGroupResult) => void;
+    const cached = vi.fn<CopilotGateway["cachedSemanticGroups"]>().mockImplementation(() => new Promise((resolve) => { resolveCache = resolve; }));
+    const generated = vi.fn<CopilotGateway["semanticGroups"]>().mockResolvedValue(groupResult(
+      [{ title: "Fresh", rationale: "New generation", paths: ["/src/first.ts"] }]
+    ));
+    const { state, root, requestGroups } = await fixture(false, false, generated, cached);
+    await requestGroups();
+    await vi.waitFor(() => expect(state.groups?.[0]?.title).toBe("Fresh"));
+    resolveCache(groupResult([{ title: "Old cache", rationale: "Previous generation", paths: ["/src/first.ts"] }], null, true));
+    await Promise.resolve();
+    expect(root.querySelector(".copilot-result summary")?.textContent).toContain("Fresh");
+    expect(root.querySelector(".copilot-session .status")).toBeNull();
+  });
+
+  it("ignores delayed cached results after comparison invalidation", async () => {
+    let resolveCache!: (result: CopilotGroupResult) => void;
+    const cached = vi.fn<CopilotGateway["cachedSemanticGroups"]>().mockImplementation(() => new Promise((resolve) => { resolveCache = resolve; }));
+    const { state, root, semanticGroups } = await fixture(true, true, vi.fn(), cached);
+    state.setAvailable(false);
+    resolveCache(groupResult([{ title: "Stale", rationale: "Wrong comparison", paths: ["/src/first.ts"] }], null, true));
+    await Promise.resolve();
+    expect(state.groups).toBeNull();
+    expect(root.querySelector(".copilot-results")).toBeNull();
+    expect(semanticGroups).not.toHaveBeenCalled();
+  });
+
+  it("surfaces cache-read failures without silently starting inference", async () => {
+    const cached = vi.fn<CopilotGateway["cachedSemanticGroups"]>().mockRejectedValue(new Error("Cache storage unavailable"));
+    const { root, semanticGroups, api } = await fixture(true, false, vi.fn(), cached);
+    await vi.waitFor(() => expect(root.querySelector(".delivery.error")?.textContent).toBe("Cache storage unavailable"));
+    expect(semanticGroups).not.toHaveBeenCalled();
+    expect(api.getFileContent).not.toHaveBeenCalled();
+    expect(root.querySelector<HTMLButtonElement>(".copilot-groups")?.disabled).toBe(false);
+  });
 
   it("shows progress, renders safe group results including omitted files, and opens native files", async () => {
     const { root, semanticGroups, requestGroups, analysis } = await fixture();
-    let complete!: (groups: SemanticGroupProposal[]) => void;
+    let complete!: (result: CopilotGroupResult) => void;
     semanticGroups.mockImplementation(() => new Promise((resolve) => { complete = resolve; }));
     await requestGroups();
     expect(root.querySelector(".copilot-groups")?.textContent).toBe("Grouping changes...");
     expect(root.querySelector<HTMLButtonElement>(".copilot-groups")?.disabled).toBe(true);
     await vi.waitFor(() => expect(semanticGroups).toHaveBeenCalledOnce());
-    complete([{ title: "<img src=x>", rationale: "<script>explanation</script>", paths: ["/src/first.ts"] }]);
+    complete(groupResult([{ title: "<img src=x>", rationale: "<script>explanation</script>", paths: ["/src/first.ts"] }]));
     await vi.waitFor(() => expect(root.querySelector(".copilot-results")).not.toBeNull());
-    expect(root.querySelector(".copilot-results [role=status]")?.textContent).toContain("2 groups covering 2 changed files");
+    expect(root.querySelector(".copilot-results [role=status]")?.textContent).toBe("2 groups, 2 files");
     expect(root.querySelectorAll(".copilot-result")).toHaveLength(2);
     expect(root.querySelector(".copilot-result summary")?.textContent).toContain("<img src=x>");
     expect(root.querySelector(".group-note")?.textContent).toBe("<script>explanation</script>");
     expect(root.querySelectorAll(".copilot-results script,.copilot-results img")).toHaveLength(0);
     expect(root.querySelector(".copilot-results")?.textContent).toContain("Unassigned changes");
-    expect(root.querySelector(".copilot-groups")?.textContent).toBe("Regenerate semantic groups");
+    expect(root.querySelector(".copilot-groups")?.textContent).toBe("Regenerate");
     expect(semanticGroups.mock.calls[0]?.[3]).toBe(false);
     expect(analysis.groups).toEqual([]);
 
@@ -485,7 +587,7 @@ describe("ReviewPanel semantic groups", () => {
       navigate.mockRestore();
     }
 
-    semanticGroups.mockResolvedValue([{ title: "Updated", rationale: "New grouping", paths: analysis.files.map((file) => file.path) }]);
+    semanticGroups.mockResolvedValue(groupResult([{ title: "Updated", rationale: "New grouping", paths: analysis.files.map((file) => file.path) }]));
     await requestGroups();
     await vi.waitFor(() => expect(root.querySelector(".copilot-result summary")?.textContent).toContain("Updated"));
     expect(semanticGroups.mock.calls[1]?.[3]).toBe(true);
@@ -493,7 +595,7 @@ describe("ReviewPanel semantic groups", () => {
 
   it("shows regeneration errors without losing previous results and hides groups when disabled", async () => {
     const { root, semanticGroups, requestGroups, settings } = await fixture();
-    semanticGroups.mockResolvedValue([{ title: "Changes", rationale: "Related", paths: ["/src/first.ts"] }]);
+    semanticGroups.mockResolvedValue(groupResult([{ title: "Changes", rationale: "Related", paths: ["/src/first.ts"] }]));
     await requestGroups();
     await vi.waitFor(() => expect(root.querySelector(".copilot-results")).not.toBeNull());
     semanticGroups.mockRejectedValue(new Error("Companion disconnected"));
@@ -554,13 +656,13 @@ describe("ReviewPanel semantic groups", () => {
 
   it("discards pending generation when the comparison changes", async () => {
     const { root, semanticGroups, requestGroups, state } = await fixture();
-    let complete!: (groups: SemanticGroupProposal[]) => void;
+    let complete!: (result: CopilotGroupResult) => void;
     semanticGroups.mockImplementation(() => new Promise((resolve) => { complete = resolve; }));
     await requestGroups();
     await vi.waitFor(() => expect(semanticGroups).toHaveBeenCalledOnce());
     state.setAvailable(false);
-    complete([{ title: "Stale", rationale: "Old comparison", paths: ["/src/first.ts"] }]);
-    await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>(".copilot-health")?.disabled).toBe(false));
+    complete(groupResult([{ title: "Stale", rationale: "Old comparison", paths: ["/src/first.ts"] }]));
+    await Promise.resolve();
     expect(state.groups).toBeNull();
     expect(root.querySelector(".copilot-results")).toBeNull();
     expect(root.querySelector(".copilot-panel")?.textContent).toContain("comparison changed");
@@ -585,12 +687,13 @@ describe("ReviewPanel semantic groups", () => {
 
   it("remembers confirmation choices and sends all files without a file picker on subsequent requests", async () => {
     const { root, semanticGroups, requestGroups, analysis, settingsService, state } = await fixture();
-    semanticGroups.mockResolvedValue([]);
+    semanticGroups.mockResolvedValue(groupResult());
     panel!.requestSemanticGroups();
     expect(root.querySelector(".dialog")?.textContent).toContain("All PR files and context will be sent to Copilot running locally.");
     expect(root.querySelector("[data-context-path]")).toBeNull();
     expect(root.querySelector<HTMLInputElement>(".auto-generate-groups")!.checked).toBe(false);
-    expect(root.querySelector<HTMLInputElement>(".skip-group-confirmation")!.checked).toBe(true);
+    expect(root.querySelector<HTMLInputElement>(".skip-group-confirmation")!.checked).toBe(false);
+    root.querySelector<HTMLInputElement>(".skip-group-confirmation")!.checked = true;
     root.querySelector<HTMLInputElement>(".auto-generate-groups")!.checked = true;
     root.querySelector<HTMLButtonElement>(".confirm-context")!.click();
     await vi.waitFor(() => expect(semanticGroups).toHaveBeenCalledOnce());
@@ -606,7 +709,7 @@ describe("ReviewPanel semantic groups", () => {
     expect(root.querySelector(".dialog")).toBeNull();
   });
 
-  it("keeps confirmation enabled when unchecked, and cancellation does not save or send", async () => {
+  it("keeps confirmation enabled by default, and cancellation does not save or send", async () => {
     const { root, semanticGroups, settingsService } = await fixture();
     const save = vi.spyOn(settingsService, "save");
     panel!.requestSemanticGroups();
@@ -614,11 +717,13 @@ describe("ReviewPanel semantic groups", () => {
     expect(save).not.toHaveBeenCalled();
     expect(semanticGroups).not.toHaveBeenCalled();
     panel!.requestSemanticGroups();
-    root.querySelector<HTMLInputElement>(".skip-group-confirmation")!.checked = false;
-    semanticGroups.mockResolvedValue([]);
+    expect(root.querySelector<HTMLInputElement>(".skip-group-confirmation")!.checked).toBe(false);
+    semanticGroups.mockResolvedValue(groupResult());
     root.querySelector<HTMLButtonElement>(".confirm-context")!.click();
     await vi.waitFor(() => expect(semanticGroups).toHaveBeenCalledOnce());
     expect((await settingsService.load()).features.confirmCopilotGroups).toBe(true);
+    panel!.requestSemanticGroups();
+    expect(root.querySelector<HTMLInputElement>(".skip-group-confirmation")!.checked).toBe(false);
   });
 
   it("automatically generates once on load without opening the sidebar or showing confirmation", async () => {
@@ -637,7 +742,7 @@ describe("ReviewPanel semantic groups", () => {
   it("does not send on load by default and can bypass confirmation explicitly", async () => {
     const { root, semanticGroups, requestGroups } = await fixture(false, false);
     expect(semanticGroups).not.toHaveBeenCalled();
-    semanticGroups.mockResolvedValue([]);
+    semanticGroups.mockResolvedValue(groupResult());
     await requestGroups();
     await vi.waitFor(() => expect(semanticGroups).toHaveBeenCalledOnce());
     expect(root.querySelector(".confirm-context")).toBeNull();
@@ -646,7 +751,7 @@ describe("ReviewPanel semantic groups", () => {
   it("keeps manual generation unobtrusive after confirmation has been disabled", async () => {
     const { root, semanticGroups } = await fixture(false, false);
     root.querySelector<HTMLButtonElement>(".close")!.click();
-    semanticGroups.mockResolvedValue([]);
+    semanticGroups.mockResolvedValue(groupResult());
     panel!.requestSemanticGroups();
     expect(root.querySelector(".rail")!.getAttribute("data-open")).toBe("false");
     await vi.waitFor(() => expect(semanticGroups).toHaveBeenCalledOnce());
@@ -656,21 +761,96 @@ describe("ReviewPanel semantic groups", () => {
   it("preserves questions across tabs and switches to Discussions when drafting a Copilot answer", async () => {
     const { root, settings, chat } = await fixture();
     panel!.updateSettings({ ...settings, features: { ...settings.features, copilotChat: true } });
+    expect(root.querySelector("#groups-panel .copilot-question")).toBeNull();
+    root.querySelector<HTMLButtonElement>("#chat-tab")!.click();
+    expect(root.querySelector<HTMLElement>("#chat-panel")!.hidden).toBe(false);
+    expect(root.querySelector<HTMLElement>("#groups-panel")!.hidden).toBe(true);
     const question = root.querySelector<HTMLTextAreaElement>(".copilot-question")!;
     question.value = "What should reviewers focus on?";
     question.dispatchEvent(new Event("input"));
     root.querySelector<HTMLButtonElement>("#discussions-tab")!.click();
     root.querySelector<HTMLButtonElement>("#groups-tab")!.click();
+    root.querySelector<HTMLButtonElement>("#chat-tab")!.click();
     expect(root.querySelector<HTMLTextAreaElement>(".copilot-question")!.value).toBe(question.value);
     chat.mockResolvedValue("Review the comparison lifecycle");
     root.querySelector<HTMLButtonElement>(".copilot-ask")!.click();
     expect(root.querySelectorAll("[data-context-path]")).toHaveLength(2);
     root.querySelector<HTMLButtonElement>(".confirm-context")!.click();
     await vi.waitFor(() => expect(root.querySelector(".copilot-draft")).not.toBeNull());
+    expect(root.querySelector("#groups-panel .copilot-answer")).toBeNull();
+    expect(root.querySelector("#chat-panel .copilot-answer")?.textContent).toBe("Review the comparison lifecycle");
     root.querySelector<HTMLButtonElement>(".copilot-draft")!.click();
     expect(root.querySelector<HTMLElement>("#discussions-panel")!.hidden).toBe(false);
     expect(root.querySelector("#discussions-tab")!.getAttribute("aria-selected")).toBe("true");
     expect(root.querySelector<HTMLTextAreaElement>(".draft-body")!.value).toBe("Review the comparison lifecycle");
+  });
+
+  it("navigates all three tabs in both directions and restores each scroll position", async () => {
+    const { root, settings } = await fixture();
+    panel!.updateSettings({ ...settings, features: { ...settings.features, copilotChat: true } });
+    expect([...root.querySelectorAll("[role=tab]")].map((tab) => tab.textContent)).toEqual(["Discussions", "Copilot Groups", "Chat"]);
+    const positions = { discussions: 35, groups: 250, chat: 125 };
+    for (const [tab, scrollTop] of Object.entries(positions)) {
+      root.querySelector<HTMLButtonElement>(`#${tab}-tab`)!.click();
+      const workspace = root.querySelector<HTMLElement>(".workspace")!;
+      workspace.scrollTop = scrollTop;
+      workspace.dispatchEvent(new Event("scroll"));
+    }
+    for (const [key, tab] of [
+      ["ArrowLeft", "groups"], ["ArrowLeft", "discussions"], ["ArrowLeft", "chat"],
+      ["ArrowRight", "discussions"], ["End", "chat"], ["Home", "discussions"],
+      ["ArrowRight", "groups"], ["ArrowRight", "chat"]
+    ] as const) {
+      root.querySelector<HTMLButtonElement>('[role=tab][aria-selected="true"]')!.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+      expect(root.activeElement?.id).toBe(`${tab}-tab`);
+      expect(root.querySelector(`#${tab}-panel`)?.hasAttribute("hidden")).toBe(false);
+      expect(root.querySelectorAll('[role=tabpanel]:not([hidden])')).toHaveLength(1);
+      expect(root.querySelector(".workspace")!.scrollTop).toBe(positions[tab]);
+    }
+  });
+
+  it("shows Chat only when enabled and returns to Discussions if the active tab is disabled", async () => {
+    const { root, settings } = await fixture();
+    expect(root.querySelector("#chat-tab")).toBeNull();
+    expect(root.querySelector("#chat-panel")).toBeNull();
+    const enabled = { ...settings, features: { ...settings.features, copilotChat: true } };
+    panel!.updateSettings(enabled);
+    root.querySelector<HTMLButtonElement>("#chat-tab")!.click();
+    panel!.updateSettings(settings);
+    expect(root.querySelector("#chat-tab")).toBeNull();
+    expect(root.querySelector("#chat-panel")).toBeNull();
+    expect(root.querySelector("#discussions-tab")?.getAttribute("aria-selected")).toBe("true");
+    panel!.updateSettings(enabled);
+    root.querySelector<HTMLButtonElement>("#chat-tab")!.click();
+    panel!.updateSettings({ ...enabled, features: { ...enabled.features, copilotSemanticGroups: false } });
+    expect(root.querySelector("#chat-tab")).toBeNull();
+    expect(root.querySelector("#groups-tab")).toBeNull();
+    expect(root.querySelector("#discussions-panel")?.hasAttribute("hidden")).toBe(false);
+  });
+
+  it("keeps chat and grouping errors in their own tabs and preserves request serialization", async () => {
+    const { root, settings, chat, semanticGroups, requestGroups } = await fixture();
+    panel!.updateSettings({ ...settings, features: { ...settings.features, copilotChat: true } });
+    root.querySelector<HTMLButtonElement>("#chat-tab")!.click();
+    const question = root.querySelector<HTMLTextAreaElement>(".copilot-question")!;
+    question.value = "What changed?";
+    question.dispatchEvent(new Event("input"));
+    let rejectChat!: (error: Error) => void;
+    chat.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectChat = reject; }));
+    root.querySelector<HTMLButtonElement>(".copilot-ask")!.click();
+    root.querySelector<HTMLButtonElement>(".confirm-context")!.click();
+    await vi.waitFor(() => expect(chat).toHaveBeenCalledOnce());
+    expect(root.querySelector(".copilot-chat")?.getAttribute("aria-busy")).toBe("true");
+    expect(root.querySelector<HTMLButtonElement>(".copilot-groups")!.disabled).toBe(true);
+    root.querySelector<HTMLButtonElement>("#groups-tab")!.click();
+    rejectChat(new Error("Question failed"));
+    await vi.waitFor(() => expect(root.querySelector("#chat-panel [role=alert]")?.textContent).toBe("Question failed"));
+    expect(root.querySelector("#groups-panel [role=alert]")).toBeNull();
+    semanticGroups.mockRejectedValueOnce(new Error("Grouping failed"));
+    await requestGroups();
+    await vi.waitFor(() => expect(root.querySelector("#groups-panel [role=alert]")?.textContent).toBe("Grouping failed"));
+    expect(root.querySelector("#chat-panel [role=alert]")?.textContent).toBe("Question failed");
+    expect(root.querySelector<HTMLButtonElement>(".copilot-ask")!.disabled).toBe(false);
   });
 
   it("surfaces preference-save failures without sending context", async () => {
@@ -681,5 +861,98 @@ describe("ReviewPanel semantic groups", () => {
     await vi.waitFor(() => expect(root.querySelector(".confirmation-error")?.textContent).toBe("Storage unavailable"));
     expect(semanticGroups).not.toHaveBeenCalled();
     expect(root.querySelector<HTMLButtonElement>(".confirm-context")!.disabled).toBe(false);
+  });
+
+  it("shows actual model and per-session tokens, preserves them on failure, and clears them for stale comparisons", async () => {
+    const { root, semanticGroups, requestGroups, state } = await fixture();
+    expect(root.querySelector(".copilot-session")).toBeNull();
+    const session = { sessionId: "session-1", models: ["actual-model", "<img src=x>"], inputTokens: 1200, outputTokens: 300, cacheReadTokens: 400, cacheWriteTokens: 0 };
+    semanticGroups.mockResolvedValue(groupResult([], session));
+    await requestGroups();
+    await vi.waitFor(() => expect(root.querySelector(".copilot-session")?.textContent).toContain("actual-model"));
+    const metrics = () => Object.fromEntries([...root.querySelectorAll(".copilot-session dl>div")].map((row) => [row.querySelector("dt")!.textContent, row.querySelector("dd")!.textContent]));
+    expect(metrics()).toMatchObject({
+      "Session ID": "session-1", Model: "actual-model, <img src=x>", "Input tokens": (1200).toLocaleString(), "Output tokens": "300",
+      "Total tokens": (1500).toLocaleString(), "Cache read tokens": "400", "Cache write tokens": "0"
+    });
+    expect(root.querySelector(".copilot-session img")).toBeNull();
+    expect(root.querySelector(".copilot-session h3")?.getAttribute("title")).toContain("Each generation uses a separate session");
+    expect(root.querySelector(".copilot-generation")?.textContent).toBe("Iteration 3 / Time not recorded");
+    semanticGroups.mockRejectedValue(new Error("Host disconnected"));
+    await requestGroups();
+    await vi.waitFor(() => expect(root.querySelector(".delivery.error")?.textContent).toBe("Host disconnected"));
+    expect(metrics()["Total tokens"]).toBe((1500).toLocaleString());
+    state.setAvailable(false);
+    expect(root.querySelector(".copilot-session")).toBeNull();
+  });
+
+  it("labels cached session usage and replaces it with the next generation without accumulating", async () => {
+    const { root, semanticGroups, requestGroups } = await fixture();
+    semanticGroups.mockResolvedValue(groupResult([], {
+      sessionId: "old-session", models: ["cached-model"], inputTokens: 100, outputTokens: 20, cacheReadTokens: null, cacheWriteTokens: null
+    }, true));
+    await requestGroups();
+    await vi.waitFor(() => expect(root.querySelector(".copilot-session .status")?.textContent).toBe("Cached"));
+    expect(root.querySelector(".copilot-session .status")?.getAttribute("title")).toContain("No new model request");
+    expect(root.querySelector(".copilot-session code")?.textContent).toBe("old-session");
+    semanticGroups.mockResolvedValue(groupResult([], {
+      sessionId: "new-session", models: ["new-model"], inputTokens: 0, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null
+    }));
+    await requestGroups();
+    await vi.waitFor(() => expect(root.querySelector(".copilot-session")?.textContent).toContain("new-model"));
+    expect(root.querySelector(".copilot-session .status")).toBeNull();
+    expect(root.querySelector(".copilot-session")?.textContent).not.toContain("cached-model");
+    expect([...root.querySelectorAll(".copilot-session dd")].map((value) => value.textContent)).toEqual(["new-session", "new-model", "0", "Not reported", "Not reported"]);
+  });
+
+  it("explains missing telemetry from legacy companions and cached results", async () => {
+    const { root, semanticGroups, requestGroups } = await fixture();
+    semanticGroups.mockResolvedValue(groupResult([], null, true));
+    await requestGroups();
+    await vi.waitFor(() => expect(root.querySelector(".copilot-session-unavailable")?.textContent).toBe("Session info unavailable."));
+    expect(root.querySelector(".copilot-session .status")?.textContent).toBe("Cached");
+    expect(root.querySelector(".copilot-session dl")).toBeNull();
+    expect(root.querySelectorAll(".copilot-session-unavailable")).toHaveLength(1);
+  });
+
+  it("renders the full session ID as selectable text without interpreting HTML", async () => {
+    const { root, semanticGroups, requestGroups } = await fixture();
+    const sessionId = 'session-12345678-1234-1234-1234-123456789012"><img src=x>';
+    semanticGroups.mockResolvedValue(groupResult([], {
+      sessionId, models: [], inputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null
+    }));
+    await requestGroups();
+    await vi.waitFor(() => expect(root.querySelector(".copilot-session code")?.textContent).toBe(sessionId));
+    expect(root.querySelector(".copilot-session img")).toBeNull();
+  });
+
+  it("shows original generation iteration and timestamp in a top session card", async () => {
+    const generation = { iterationId: 3, generatedAt: "2026-10-21T20:15:00.000Z" };
+    const cached = vi.fn<CopilotGateway["cachedSemanticGroups"]>().mockResolvedValue(groupResult([], null, true, generation));
+    const { root } = await fixture(false, true, vi.fn(), cached);
+    await vi.waitFor(() => expect(root.querySelector("time")?.getAttribute("datetime")).toBe(generation.generatedAt));
+    expect(root.querySelector(".copilot-generation")?.textContent).toContain("Iteration 3");
+    expect(root.querySelector(".copilot-generation time")?.textContent).toBe(new Date(generation.generatedAt).toLocaleString());
+    const groups = root.querySelector(".copilot-panel")!;
+    expect(groups.firstElementChild?.className).toBe("copilot-session");
+    expect(groups.querySelector(".copilot-health")).toBeNull();
+    expect(groups.textContent).not.toContain("Local Copilot companion");
+    const rail = root.querySelector(".rail")!;
+    expect([...rail.children].map((element) => element.className)).toEqual(["header", "summary", "panel-tabs", "workspace"]);
+    const metadata = root.querySelector(".header-meta")!;
+    expect(metadata.querySelector(".subtitle")?.textContent).toBe("Iteration 3");
+    expect(metadata.querySelector(".companion-toggle")).not.toBeNull();
+  });
+
+  it("keeps the connection status in the header while switching sidebar tabs", async () => {
+    const { root } = await fixture(false, true);
+    for (const tab of ["discussions", "groups", "discussions"]) {
+      root.querySelector<HTMLButtonElement>(`[data-panel-tab="${tab}"]`)!.click();
+      expect(root.querySelector(`[data-panel-tab="${tab}"]`)?.getAttribute("aria-selected")).toBe("true");
+      expect(root.querySelector(`#${tab}-panel`)?.hasAttribute("hidden")).toBe(false);
+      expect(root.querySelectorAll(".companion-toggle")).toHaveLength(1);
+      expect(root.querySelector(".header-meta .companion-toggle")).not.toBeNull();
+      expect(root.querySelector(".rail")?.children).toHaveLength(4);
+    }
   });
 });

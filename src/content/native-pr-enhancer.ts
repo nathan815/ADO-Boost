@@ -1294,9 +1294,8 @@ function capitalize(value: string): string {
 const nativeStyles = `
 .adopp-action-menu{position:fixed!important}
 .adopp-start-button{position:relative}
-.adopp-grouping-spinner{position:absolute;right:2px;bottom:2px;width:10px;height:10px;border:2px solid var(--background-color,#fff);border-top-color:var(--communication-foreground,#0078d4);border-radius:50%;animation:adopp-grouping-spin 1s linear infinite}
+.adopp-grouping-spinner{position:absolute;right:2px;bottom:2px;width:10px;height:10px;border:2px solid var(--background-color,#fff);border-top-color:var(--communication-foreground,#0078d4);border-radius:50%;animation:adopp-grouping-spin 1s linear infinite!important}
 @keyframes adopp-grouping-spin{to{transform:rotate(360deg)}}
-@media(prefers-reduced-motion:reduce){.adopp-grouping-spinner{animation:none}}
 .adopp-copy-pr-id{appearance:none;border:0;padding:0;background:transparent;color:inherit;font:inherit;cursor:pointer}.adopp-copy-pr-id:hover{text-decoration:underline}.adopp-copy-pr-id:focus-visible{outline:2px solid var(--communication-background,#0078d4);outline-offset:2px}
 [data-adopp-copy-pr-control]{position:relative;display:inline-block}
 [data-adopp-copy-pr-feedback]{position:absolute;top:100%;left:50%;transform:translate(-50%,0);white-space:nowrap;pointer-events:none;font:11px/1.4 "Segoe UI",sans-serif;opacity:0}

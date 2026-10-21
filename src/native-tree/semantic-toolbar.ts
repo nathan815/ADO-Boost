@@ -38,6 +38,8 @@ export class SemanticToolbar {
       .adopp-semantic-heading strong { font-size: 12px; font-weight: 600; }
       .adopp-semantic-regenerate { color: var(--communication-foreground, var(--text-link-color)); background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
       .adopp-semantic-regenerate:disabled { color: var(--text-disabled-color); cursor: default; }
+      .adopp-semantic-spinner { display:inline-block; width:10px; height:10px; margin-right:6px; border:2px solid var(--text-disabled-color); border-top-color:var(--communication-foreground); border-radius:50%; animation:adopp-semantic-spin 1s linear infinite!important; }
+      @keyframes adopp-semantic-spin { to { transform:rotate(360deg); } }
       .adopp-semantic-dropdown { width: 100%; height: 24px; min-height: 24px; font-size: 12px; }
       .adopp-semantic-dropdown > button { width: 100%; min-height: 24px; padding: 0 8px; font-size: 12px; }
       .adopp-semantic-options .bolt-table-cell-content { min-width: 0; }
@@ -128,7 +130,8 @@ export class SemanticToolbar {
       dropdown,
       semantic.view.mode === "group" && selected
         ? react.createElement("p", { className: "adopp-semantic-description" }, selected.rationale) : null,
-      semantic.busy ? react.createElement("p", { className: "adopp-semantic-message", role: "status" }, "Generating Copilot groups...") : null,
+      semantic.busy ? react.createElement("p", { className: "adopp-semantic-message", role: "status" },
+        react.createElement("span", { className: "adopp-semantic-spinner", "aria-hidden": true }), "Generating Copilot groups...") : null,
       notice ? react.createElement("p", { className: "adopp-semantic-message", role: semantic.error ? "alert" : "status" }, notice) : null);
     // The public portal factory only creates the portal descriptor; ADO's renderer owns all host elements.
     const portal: unknown = Reflect.apply(createPortal, undefined, [content, this.element, "adopp-semantic-toolbar"]);

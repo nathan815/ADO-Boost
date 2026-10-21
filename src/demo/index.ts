@@ -86,6 +86,7 @@ const panel = new ReviewPanel({
   } satisfies WriteGateway,
   copilot: {
     health: async () => ({ connected: false, authenticated: false, detail: "Synthetic fixture" }),
+    cachedSemanticGroups: async () => null,
     semanticGroups: async () => { throw new Error("Synthetic fixture does not transmit PR context"); },
     chat: async () => { throw new Error("Synthetic fixture does not transmit PR context"); }
   } satisfies CopilotGateway,

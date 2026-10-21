@@ -298,8 +298,7 @@ export class ExtensionPopup {
       this.healthError ? h("div", { className: "connection-detail" },
         h("p", { className: "error", role: "alert" }, this.healthError),
         h("p", { className: "muted" }, "Run ado-boost doctor to check the host and CLI, then refresh.")) : null,
-      !this.checking && this.health?.connected && !this.health.authenticated ? h("p", { className: "muted" }, this.health.detail ?? "Run ado-boost login, then refresh.") : null,
-      h("p", { className: "privacy-note muted" }, "Checks connection and sign-in only. No PR content is sent.")));
+      !this.checking && this.health?.connected && !this.health.authenticated ? h("p", { className: "muted" }, this.health.detail ?? "Run ado-boost login, then refresh.") : null));
   }
 
   private closeConnectionDetails(): void {
