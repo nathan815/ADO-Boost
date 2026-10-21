@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 describe("ReviewPanel completion lifecycle", () => {
-  async function fixture(announcementsEnabled = true) {
+  async function fixture(announcementsEnabled = true, completionError?: Error) {
     vi.useFakeTimers();
     document.body.innerHTML = '<div class="region-content"><main class="repos-pr-details-page">Native PR content</main></div>';
     const analysis: PullRequestAnalysis = {
@@ -45,6 +45,7 @@ describe("ReviewPanel completion lifecycle", () => {
     };
     await store.saveAnnouncement(record);
     const finishReview = vi.fn<WriteGateway["finishReview"]>().mockResolvedValue(record);
+    if (completionError) finishReview.mockRejectedValue(completionError);
     panel = new ReviewPanel({
       analysis, api, store, settings,
       settingsService: new SettingsService(new MemorySettingsStorage()), reviewKey: "org/project/repo-id/7",
@@ -56,6 +57,20 @@ describe("ReviewPanel completion lifecycle", () => {
     const root = document.querySelector("[data-adopp-review-panel]")!.shadowRoot!;
     return { root, record, finishReview, settings };
   }
+
+  it("labels a failed completion check on page load without changing the announced review status", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { root, finishReview } = await fixture(true, new Error("Reviewer lookup failed (400)"));
+      expect(finishReview).toHaveBeenCalledOnce();
+      expect(root.querySelector(".panel-toast span")?.textContent).toBe("Couldn't check review completion: Reviewer lookup failed (400)");
+      expect(error).toHaveBeenCalledWith("ADO Boost review completion check failed:", "Reviewer lookup failed (400)");
+      expect(panel!.isReviewAnnounced()).toBe(true);
+      expect(panel!.isReviewFinished()).toBe(false);
+    } finally {
+      error.mockRestore();
+    }
+  });
 
   it("checks on focus after a submission closed the thread and preserves unsaved draft text", async () => {
     const { root, record, finishReview } = await fixture();

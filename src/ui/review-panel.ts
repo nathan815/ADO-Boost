@@ -65,8 +65,8 @@ export class ReviewPanel {
     this.completionMonitor = new ReviewCompletionMonitor(
       () => this.checkReviewCompletion(),
       (message) => {
-        console.error("ADO Boost could not finish the review announcement:", message);
-        this.toast.show(`Couldn't finish the review-start announcement: ${message}`);
+        console.error("ADO Boost review completion check failed:", message);
+        this.toast.show(`Couldn't check review completion: ${message}`);
       }
     );
     this.announcement = new AnnouncementService(dependencies.api, dependencies.store);

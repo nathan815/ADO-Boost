@@ -40,7 +40,7 @@ export class ReviewCompletionMonitor {
       if (finished) this.stop();
     } catch (error) {
       if (!this.active || generation !== this.generation) return;
-      const message = error instanceof Error ? error.message : "Review announcement could not be completed";
+      const message = error instanceof Error ? error.message : "Review completion check failed";
       if (message !== this.lastError) {
         this.lastError = message;
         this.onError(message);

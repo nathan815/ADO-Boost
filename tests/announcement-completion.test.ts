@@ -110,11 +110,24 @@ describe("Review announcement completion", () => {
   });
 
   it("does nothing while the authenticated reviewer has not voted", async () => {
-    const { service, post, read, vote } = await fixture();
-    await service.finish(context, { kind: "vote" });
+    const { service, post, read, vote, close } = await fixture();
+    const record = await service.finish(context, { kind: "vote" });
     expect(vote).toHaveBeenCalledOnce();
     expect(read).not.toHaveBeenCalled();
     expect(post).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+    expect(record?.completions ?? []).toEqual([]);
+  });
+
+  it("leaves the announcement unchanged when the reviewer lookup fails", async () => {
+    const { service, store, vote, read, post, close } = await fixture();
+    const before = await service.status(context);
+    vote.mockRejectedValue(new Error("Reviewer lookup failed (400)"));
+    await expect(service.finish(context, { kind: "vote" })).rejects.toThrow("Reviewer lookup failed (400)");
+    expect(read).not.toHaveBeenCalled();
+    expect(post).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+    expect(await store.getAnnouncement(service.key(context))).toEqual(before);
   });
 
   it("does not create an announcement just because the user voted", async () => {

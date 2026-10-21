@@ -55,7 +55,7 @@ Run `npm run build` again after changing the source, then reload the extension f
 
 Core review features are enabled by default. Generated-file hiding, lockfile hiding, review-start announcements, and Copilot features can be configured in settings.
 
-ADO Boost previews user-visible writes before posting them. It does not automatically comment, vote, resolve threads, merge pull requests, or run pull request code.
+ADO Boost previews review announcements and submissions before posting them. After you announce a review, it checks for your recorded vote when the PR loads or the tab becomes active. A recorded review decision or an explicit comment-only review submission can add a completion reply and close the announcement thread; simply loading the PR or a failed vote lookup does not complete the review. Completion-check errors leave the announcement unchanged. ADO Boost does not automatically vote, resolve other discussion threads, merge pull requests, or run pull request code.
 
 ## Privacy and limits
 
