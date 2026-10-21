@@ -55,6 +55,8 @@ Run `npm run build` again after changing the source, then reload the extension f
 
 Core review features are enabled by default. Generated-file hiding, lockfile hiding, review-start announcements, and Copilot features can be configured in settings.
 
+Panel error notifications are labeled **ADO Boost** and do not time out. Use the **X** button on the right to dismiss them.
+
 ADO Boost previews review announcements and submissions before posting them. After you announce a review, it checks for your recorded vote when the PR loads or the tab becomes active. A recorded review decision or an explicit comment-only review submission can add a completion reply and close the announcement thread; simply loading the PR or a failed vote lookup does not complete the review. Completion-check errors leave the announcement unchanged. ADO Boost does not automatically vote, resolve other discussion threads, merge pull requests, or run pull request code.
 
 ## Privacy and limits
@@ -70,7 +72,7 @@ ADO Boost previews review announcements and submissions before posting them. Aft
 
 The Windows-only companion enables the default-off Copilot features through an installed GitHub Copilot CLI. Core extension features work without it.
 
-Enable **Copilot semantic groups** in settings, then select **Group changes with Copilot** in the Assistant panel and confirm the context to send. Results appear in the panel as expandable groups with explanations and links to the native ADO file views; they do not rearrange the native file tree. **Regenerate semantic groups** requests a fresh grouping after another context confirmation.
+Enable **Copilot semantic groups** in settings, then select **Group changes with Copilot** in the Assistant panel and confirm the context to send. Results appear in the panel as expandable groups with explanations and links that select files in ADO's native Files view within the current PR tab, without reloading the page; they do not rearrange the native file tree. **Regenerate semantic groups** requests a fresh grouping after another context confirmation.
 
 The toolbar popup checks the companion automatically, even when optional Copilot features are disabled or no PR is open. This may start the native host and Copilot CLI on demand; it checks connectivity and sign-in without sending PR content or running an AI request. The host disconnects after it becomes idle; the popup is not a persistent process monitor. A connected host can still require `ado-boost login`. If unavailable, run `ado-boost doctor` and refresh the connection check.
 

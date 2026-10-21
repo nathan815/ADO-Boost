@@ -31,28 +31,30 @@ describe("PanelToast", () => {
     expect(alert.querySelector("b")).toBeNull();
     expect(root.activeElement).toBe(input);
     expect(alert.getAttribute("aria-atomic")).toBe("true");
+    expect(alert.querySelector("strong")?.textContent).toBe("ADO Boost");
+    expect(alert.lastElementChild?.tagName).toBe("BUTTON");
+    expect(alert.lastElementChild?.textContent).toBe("X");
   });
 
-  it("can be dismissed immediately and clears its timer", () => {
+  it("can be dismissed immediately and does not reappear on remount", () => {
     toast.show("Couldn't jump.");
     root.querySelector<HTMLButtonElement>('[aria-label="Dismiss notification"]')!.click();
+    toast.mount();
     expect(root.querySelector('[role="alert"]')).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("expires after ten seconds and restarts the timeout for a replacement", () => {
+  it("stays visible until dismissed and replaces the previous message without adding another toast", () => {
     toast.show("First failure");
-    vi.advanceTimersByTime(9000);
+    vi.advanceTimersByTime(3600000);
     toast.show("Second failure");
-    vi.advanceTimersByTime(9000);
+    vi.advanceTimersByTime(3600000);
     expect(root.querySelector('[role="alert"]')!.textContent).toContain("Second failure");
     expect(root.querySelectorAll('[role="alert"]')).toHaveLength(1);
-    vi.advanceTimersByTime(1000);
-    expect(root.querySelector('[role="alert"]')).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("pauses dismissal while hovered", () => {
+  it("does not schedule dismissal after the pointer leaves", () => {
     toast.show("Couldn't jump.");
     const alert = root.querySelector('[role="alert"]')!;
     alert.dispatchEvent(new Event("pointerenter"));
@@ -60,10 +62,11 @@ describe("PanelToast", () => {
     expect(alert.isConnected).toBe(true);
     alert.dispatchEvent(new Event("pointerleave"));
     vi.advanceTimersByTime(10000);
-    expect(alert.isConnected).toBe(false);
+    expect(alert.isConnected).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("pauses dismissal while keyboard focus is inside the toast", () => {
+  it("does not schedule dismissal after keyboard focus leaves the toast", () => {
     const input = document.createElement("textarea");
     root.append(input);
     toast.show("Couldn't jump.");
@@ -72,17 +75,19 @@ describe("PanelToast", () => {
     expect(root.querySelector('[role="alert"]')).not.toBeNull();
     input.focus();
     vi.advanceTimersByTime(10000);
-    expect(root.querySelector('[role="alert"]')).toBeNull();
+    expect(root.querySelector('[role="alert"]')).not.toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("can remount after a panel render without resetting the timeout", () => {
+  it("stays visible after a panel render", () => {
     toast.show("Couldn't jump.");
     vi.advanceTimersByTime(5000);
     root.innerHTML = "<main>Discussion panel</main>";
     toast.mount();
     expect(root.querySelector('[role="alert"]')!.textContent).toContain("Couldn't jump.");
     vi.advanceTimersByTime(5000);
-    expect(root.querySelector('[role="alert"]')).toBeNull();
+    expect(root.querySelector('[role="alert"]')).not.toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("cleans up and ignores late errors after destruction", () => {
