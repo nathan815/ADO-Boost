@@ -17,7 +17,10 @@ function createReadSchemas(warn: ResponseWarning) {
   const pullRequestSchema = z.object({
     pullRequestId: z.number().int().positive(),
     title: optional(z.string(), "title").transform((title) => title ?? "Untitled pull request"),
-    repository: z.object({ id: z.string().min(1) }).passthrough(),
+    repository: z.object({
+      id: z.string().min(1),
+      name: optional(z.string().min(1).max(256), "repository.name")
+    }).passthrough(),
     createdBy: optional(identitySchema.extend({
       displayName: optional(z.string().min(1), "createdBy.displayName")
     }), "createdBy")
@@ -120,7 +123,7 @@ export class AdoApi {
     const { connectionDataSchema } = this.schemas;
     const pr = await this.getPrSummary(route, signal);
     const [comparison, reviewer] = await Promise.all([
-      this.getLatestComparisonForRepository(route, pr.repositoryId, signal),
+      this.getLatestComparisonForRepository(pr, pr.repositoryId, signal),
       this.json(`${this.organizationApiBase(route)}/connectionData?connectOptions=1&lastChangeId=-1&lastChangeId64=-1`, connectionDataSchema, signal)
     ]);
     return {
@@ -137,7 +140,7 @@ export class AdoApi {
       signal
     );
     if (pr.pullRequestId !== route.pullRequestId) throw new Error("Azure DevOps returned a different pull request");
-    return { ...route, repositoryId: pr.repository.id, title: pr.title, author: pr.createdBy?.displayName ?? undefined };
+    return { ...route, repository: pr.repository.name ?? route.repository, repositoryId: pr.repository.id, title: pr.title, author: pr.createdBy?.displayName ?? undefined };
   }
 
   async getLatestComparison(route: PrRoute, signal?: AbortSignal): Promise<PullRequestComparison> {

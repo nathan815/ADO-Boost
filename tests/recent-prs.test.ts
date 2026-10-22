@@ -78,6 +78,18 @@ describe("recent PR history", () => {
     expect(await history.list()).toHaveLength(3);
   });
 
+  it("replaces a saved GUID repository label and URL with its resolved name on revisit", async () => {
+    const history = new RecentPrService(new MemoryStorage());
+    const repositoryId = "28363435-ab90-4b5a-878d-c637c15c66f1";
+    await history.record({ ...summary, repository: repositoryId, repositoryId }, 1);
+    await history.record({ ...summary, repositoryId }, 2);
+    expect(await history.list()).toEqual([{
+      organization: summary.organization, project: summary.project, repository: summary.repository,
+      repositoryId, pullRequestId: summary.pullRequestId, title: summary.title, author: summary.author,
+      viewedAt: 2, url: recentPrUrl(summary)
+    }]);
+  });
+
   it("does not let late older visits overwrite a newer title or timestamp", async () => {
     const history = new RecentPrService(new MemoryStorage());
     await history.record({ ...summary, title: "Latest title" }, 50);

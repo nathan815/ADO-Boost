@@ -3,6 +3,7 @@ import { AdoApi, type HttpClient } from "../src/adapters/ado-api";
 import type { PullRequestContext } from "../src/core/types";
 import type { ReviewDraft } from "../src/core/types";
 import { announcementBody, legacyAnnouncementBody } from "../src/core/announcement-content";
+import { recentPrUrl } from "../src/core/recent-prs";
 
 class QueueHttp implements HttpClient {
   readonly urls: string[] = [];
@@ -41,6 +42,38 @@ describe("AdoApi", () => {
     const result = await new AdoApi(http).getPrSummary(context);
     expect(result).toMatchObject({ pullRequestId: 7, repositoryId: "repo-id", title: "PR", author: "PR Author" });
     expect(http.urls).toEqual(["https://dev.azure.com/org/project/_apis/git/repositories/repo/pullRequests/7?api-version=7.1"]);
+  });
+
+  it.each(["https://dev.azure.com", "https://org.visualstudio.com"])("resolves GUID repository routes from PR metadata on %s", async (origin) => {
+    const repositoryId = "28363435-ab90-4b5a-878d-c637c15c66f1";
+    const http = new QueueHttp([json({ pullRequestId: 7, title: "PR", repository: { id: repositoryId, name: "Repo One" } })]);
+    const route = { ...context, origin, repository: repositoryId };
+    const result = await new AdoApi(http).getPrSummary(route);
+    expect(result).toMatchObject({ repository: "Repo One", repositoryId });
+    expect(recentPrUrl(result)).toBe("https://dev.azure.com/org/project/_git/Repo%20One/pullrequest/7");
+    expect(http.urls).toHaveLength(1);
+    expect(http.urls[0]).toContain(`/git/repositories/${repositoryId}/pullRequests/7`);
+    expect(route.repository).toBe(repositoryId);
+  });
+
+  it.each([undefined, null, "", 123])("preserves the route when the repository name is unavailable (%j)", async (name) => {
+    const warn = vi.fn();
+    const http = new QueueHttp([json({ pullRequestId: 7, title: "PR", repository: { id: "repo-id", name } })]);
+    const result = await new AdoApi(http, warn).getPrSummary(context);
+    expect(result.repository).toBe("repo");
+    expect(warn).toHaveBeenCalledTimes(name === "" || name === 123 ? 1 : 0);
+  });
+
+  it("propagates the resolved repository name to review context while requesting iterations by ID", async () => {
+    const repositoryId = "28363435-ab90-4b5a-878d-c637c15c66f1";
+    const http = new QueueHttp([
+      json({ pullRequestId: 7, title: "PR", repository: { id: repositoryId, name: "Repo One" } }),
+      json({ value: [{ id: 3, sourceRefCommit: { commitId: "source" }, targetRefCommit: { commitId: "target" }, commonRefCommit: { commitId: "base" } }] }),
+      json({ authenticatedUser: { id: "me", displayName: "Me" } })
+    ]);
+    const result = await new AdoApi(http).getContext({ ...context, repository: repositoryId });
+    expect(result).toMatchObject({ repository: "Repo One", repositoryId, iterationId: 3 });
+    expect(http.urls[1]).toContain(`/git/repositories/${repositoryId}/pullRequests/7/iterations`);
   });
 
   it.each([undefined, null, { id: "author-id" }, { id: "author-id", displayName: null }])("omits unavailable author names without confusing them with reviewers (%j)", async (createdBy) => {
