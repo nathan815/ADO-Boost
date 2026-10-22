@@ -36,18 +36,28 @@ describe("companion account selection", () => {
     await expect(availableAccounts(home)).rejects.toThrow();
   });
 
+  it("reads account metadata from CLI config files with comments and trailing commas", async () => {
+    const home = await temporary();
+    await writeFile(join(home, "config.json"), `// User settings belong in settings.json.\n{
+      "logged_in_users": [${JSON.stringify(work)},],
+      "last_logged_in_user": ${JSON.stringify(work)},
+    }`);
+    expect(await availableAccounts(home)).toEqual([work]);
+  });
+
   it("selects the pinned stored account in an isolated profile without changing global state or copying tokens", async () => {
     const home = await temporary();
     const sourceHome = join(home, "source");
     await mkdir(sourceHome);
     const source = JSON.stringify({ last_logged_in_user: personal, logged_in_users: [personal, work], copilot_tokens: { fake: "never-copy" } });
     await writeFile(join(sourceHome, "config.json"), source);
-    await writeFile(join(sourceHome, "settings.json"), `// Copilot user settings\n{ "model": "preferred-model", "hooks": {}, }`);
+    await writeFile(join(sourceHome, "settings.json"), "Deliberately invalid: account selection must not read model settings");
     const env = await accountEnvironment(join(home, "profiles"), work, {
       COPILOT_HOME: sourceHome, GH_TOKEN: "wrong-token", COPILOT_PROVIDER_BASE_URL: "https://unrelated.invalid", PATH: "path"
     });
     expect(env.COPILOT_HOME).not.toBe(sourceHome);
-    expect(env).toMatchObject({ COPILOT_GH_HOST: "github.com", PATH: "path", COPILOT_MODEL: "preferred-model" });
+    expect(env).toMatchObject({ COPILOT_GH_HOST: "github.com", PATH: "path" });
+    expect(env.COPILOT_MODEL).toBeUndefined();
     expect(env.GH_TOKEN).toBeUndefined();
     expect(env.COPILOT_PROVIDER_BASE_URL).toBeUndefined();
     expect(JSON.parse(await readFile(join(env.COPILOT_HOME!, "config.json"), "utf8"))).toEqual({
@@ -57,6 +67,13 @@ describe("companion account selection", () => {
     const personalEnv = await accountEnvironment(join(home, "profiles"), personal, { COPILOT_HOME: sourceHome, COPILOT_MODEL: "environment-model" });
     expect(personalEnv.COPILOT_HOME).not.toBe(env.COPILOT_HOME);
     expect(personalEnv.COPILOT_MODEL).toBe("environment-model");
+  });
+
+  it("does not use model preferences from the CLI account configuration", async () => {
+    const home = await temporary();
+    await writeFile(join(home, "config.json"), JSON.stringify({ logged_in_users: [work], model: "configured-model" }));
+    const env = await accountEnvironment(join(home, "profiles"), work, { COPILOT_HOME: home });
+    expect(env.COPILOT_MODEL).toBeUndefined();
   });
 
   it("strips auth overrides case-insensitively while retaining runtime environment", () => {

@@ -83,14 +83,8 @@ export async function accountEnvironment(profileRoot: string, account: CopilotAc
     last_logged_in_user: account,
     logged_in_users: [account]
   });
-  const sourceHome = source.COPILOT_HOME ?? join(homedir(), ".copilot");
-  const modelSettings = z.object({ model: z.string().optional() });
-  const settings = modelSettings.parse(await readJsonIfPresent(join(sourceHome, "settings.json")) ?? {});
-  const legacy = modelSettings.parse(await readJsonIfPresent(join(sourceHome, "config.json")) ?? {});
-  const model = source.COPILOT_MODEL ?? settings.model ?? legacy.model;
   return {
     ...companionEnvironment(source),
-    ...(model ? { COPILOT_MODEL: model } : {}),
     COPILOT_HOME: home,
     COPILOT_GH_HOST: new URL(account.host).hostname
   };
