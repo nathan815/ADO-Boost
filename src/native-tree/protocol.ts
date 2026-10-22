@@ -40,6 +40,8 @@ export const semanticSchema = z.object({
   view: semanticViewSchema,
   busy: z.boolean(),
   stale: z.boolean().optional(),
+  autoGenerate: z.boolean().optional(),
+  showConfirmation: z.boolean().optional(),
   error: z.string().max(1000)
 }).strict();
 
@@ -80,7 +82,7 @@ export const semanticActionSchema = z.object({
   channel: z.literal(CHANNEL),
   kind: z.literal("semantic-action"),
   session: z.string().uuid(),
-  action: z.enum(["regenerate", "select", "view-session"]),
+  action: z.enum(["regenerate", "select", "view-session", "toggle-auto-generate", "toggle-confirmation"]),
   view: semanticViewSchema
 }).strict();
 

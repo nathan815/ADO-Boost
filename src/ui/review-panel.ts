@@ -72,6 +72,7 @@ export class ReviewPanel {
   private copilotGroupResult: CopilotGroupResult | null = null;
   private cachedGroupsRequest = 0;
   private groupConfirmation: HTMLDialogElement | null = null;
+  private savingGroupingPreference = false;
 
   constructor(private readonly dependencies: ReviewPanelDependencies) {
     this.companionStatus = new CompanionStatus(() => dependencies.copilot.health(dependencies.analysis.context), document);
@@ -163,6 +164,21 @@ export class ReviewPanel {
     this.open = true;
     this.render();
     this.root.querySelector<HTMLButtonElement>("#groups-tab")?.focus();
+  }
+
+  async toggleGroupingPreference(feature: "autoGenerateCopilotGroups" | "confirmCopilotGroups"): Promise<void> {
+    if (this.destroyed || this.savingGroupingPreference) return;
+    this.savingGroupingPreference = true;
+    const next = { ...this.settings, features: { ...this.settings.features, [feature]: !this.settings.features[feature] } };
+    try {
+      await this.dependencies.settingsService.save(next);
+      if (!this.destroyed) this.updateSettings(next);
+    } catch (error) {
+      console.error("ADO Boost could not save grouping preference", error);
+      this.toast.show(error instanceof Error ? error.message : "Could not save grouping preference");
+    } finally {
+      this.savingGroupingPreference = false;
+    }
   }
 
   updateComparison(analysis: PullRequestAnalysis): void {
@@ -505,7 +521,7 @@ export class ReviewPanel {
     backdrop.className = "dialog-backdrop";
     backdrop.setAttribute("aria-labelledby", "group-confirm-title");
     let saving = false;
-    backdrop.innerHTML = `    <section class="dialog"><h3 id="group-confirm-title">Generate Copilot groups?</h3><p>All PR files and context will be sent to Copilot running locally.</p><p>All changed-file paths and counts are included. Changed-line excerpts are bounded to ${MAX_COPILOT_FILES} files, 200 changed lines per file, 32 KB per file, and 128 KB total; binary, unavailable, and truncated content is marked omitted. Copilot may use your configured model provider.</p><label class="confirmation-option"><input class="auto-generate-groups" type="checkbox"> Automatically generate on PR page load</label><label class="confirmation-option"><input class="skip-group-confirmation" type="checkbox"> Don't show this confirmation next time</label><p class="confirmation-error delivery error" role="alert" hidden></p><div class="dialog-actions"><button class="secondary cancel" type="button">Cancel</button><button class="primary confirm-context" type="button">Send and generate</button></div></section>`;
+    backdrop.innerHTML = `    <section class="dialog"><h3 id="group-confirm-title">Generate Copilot groups?</h3><p>All PR files and context will be sent to Copilot running locally.</p><p>All changed-file paths and counts are included. Changed-line excerpts are bounded to ${MAX_COPILOT_FILES} files, 200 changed lines per file, 32 KB per file, and 128 KB total; binary, unavailable, and truncated content is marked omitted. Copilot may use your configured model provider.</p><label class="confirmation-option"><input class="auto-generate-groups" type="checkbox"> Automatically generate on PR page load</label><label class="confirmation-option"><input class="show-group-confirmation" type="checkbox"> Always show this confirmation dialog</label><p class="confirmation-error delivery error" role="alert" hidden></p><div class="dialog-actions"><button class="secondary cancel" type="button">Cancel</button><button class="primary confirm-context" type="button">Send and generate</button></div></section>`;
     const close = () => {
       if (saving) return;
       this.groupConfirmation = null;
@@ -522,8 +538,8 @@ export class ReviewPanel {
       if (saving) return;
       saving = true;
       const auto = backdrop.querySelector<HTMLInputElement>(".auto-generate-groups")!.checked;
-      const skip = backdrop.querySelector<HTMLInputElement>(".skip-group-confirmation")!.checked;
-      const next = { ...this.settings, features: { ...this.settings.features, autoGenerateCopilotGroups: auto, confirmCopilotGroups: !skip } };
+      const confirm = backdrop.querySelector<HTMLInputElement>(".show-group-confirmation")!.checked;
+      const next = { ...this.settings, features: { ...this.settings.features, autoGenerateCopilotGroups: auto, confirmCopilotGroups: confirm } };
       for (const button of backdrop.querySelectorAll<HTMLButtonElement>("button")) button.disabled = true;
       void this.dependencies.settingsService.save(next).then(() => {
         if (this.destroyed) return;
@@ -544,6 +560,7 @@ export class ReviewPanel {
       });
     });
     backdrop.querySelector<HTMLInputElement>(".auto-generate-groups")!.checked = this.settings.features.autoGenerateCopilotGroups;
+    backdrop.querySelector<HTMLInputElement>(".show-group-confirmation")!.checked = this.settings.features.confirmCopilotGroups;
     this.groupConfirmation = backdrop;
     this.root.append(backdrop);
     backdrop.showModal();

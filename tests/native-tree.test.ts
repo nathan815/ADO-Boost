@@ -584,6 +584,53 @@ describe("native tree bridge client", () => {
     expect(regenerate).toHaveBeenCalledOnce();
   });
 
+  it("syncs grouping preferences and routes their toggles only for valid live actions, including while busy", () => {
+    const state = new SemanticGroupState();
+    state.setEnabled(true);
+    let enabled = false;
+    const toggle = vi.fn();
+    const toggleConfirmation = vi.fn();
+    let showConfirmation = true;
+    const regenerate = vi.fn();
+    client = new NativeTreeClient(analysis, window, state, regenerate, undefined, undefined, {
+      autoGenerate: () => enabled, toggleAutoGenerate: toggle, showConfirmation: () => showConfirmation, toggleConfirmation
+    });
+    const command = configured();
+    expect(command.semantic?.autoGenerate).toBe(false);
+    expect(command.semantic?.showConfirmation).toBe(true);
+    const action = { channel: CHANNEL, kind: "semantic-action", session: command.session, action: "toggle-auto-generate", view: state.view };
+    send(action);
+    expect(toggle).not.toHaveBeenCalled();
+    send({ ...action, action: "toggle-confirmation" });
+    expect(toggleConfirmation).not.toHaveBeenCalled();
+    send({ channel: CHANNEL, kind: "status", session: command.session, state: "active", detail: "Ready", fileCount: 2 });
+    send({ ...action, session: configuration().session });
+    send(action, null);
+    send(action, window, "https://other.example");
+    expect(toggle).not.toHaveBeenCalled();
+    send({ ...action, action: "toggle-confirmation", session: configuration().session });
+    send({ ...action, action: "toggle-confirmation" }, null);
+    send({ ...action, action: "toggle-confirmation" }, window, "https://other.example");
+    expect(toggleConfirmation).not.toHaveBeenCalled();
+    state.begin();
+    send(action);
+    expect(toggle).toHaveBeenCalledOnce();
+    send({ ...action, action: "toggle-confirmation" });
+    expect(toggleConfirmation).toHaveBeenCalledOnce();
+    expect(regenerate).not.toHaveBeenCalled();
+    enabled = true;
+    showConfirmation = false;
+    client.configure(configuration().filters, true);
+    expect(window.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+      semantic: expect.objectContaining({ autoGenerate: true, showConfirmation: false })
+    }), location.origin);
+    state.setEnabled(false);
+    send(action);
+    expect(toggle).toHaveBeenCalledOnce();
+    send({ ...action, action: "toggle-confirmation" });
+    expect(toggleConfirmation).toHaveBeenCalledOnce();
+  });
+
   it("refreshes only for a newer merge-base comparison, not historical or custom comparisons", () => {
     const state = new SemanticGroupState();
     state.setEnabled(true);

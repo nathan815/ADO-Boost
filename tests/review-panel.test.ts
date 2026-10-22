@@ -460,6 +460,43 @@ describe("ReviewPanel semantic groups", () => {
     return { root, analysis, semanticGroups, cachedSemanticGroups, settings, requestGroups, state, settingsService, api, initiallyOpen, chat, store };
   }
 
+  it("persists the automatic-generation toggle without starting inference or changing confirmation", async () => {
+    const { settingsService, semanticGroups, root } = await fixture();
+    await panel!.toggleGroupingPreference("autoGenerateCopilotGroups");
+    expect((await settingsService.load()).features).toMatchObject({ autoGenerateCopilotGroups: true, confirmCopilotGroups: true });
+    await panel!.toggleGroupingPreference("autoGenerateCopilotGroups");
+    expect((await settingsService.load()).features).toMatchObject({ autoGenerateCopilotGroups: false, confirmCopilotGroups: true });
+    expect(semanticGroups).not.toHaveBeenCalled();
+    expect(root.querySelector(".confirm-context")).toBeNull();
+  });
+
+  it("reports automatic-generation save failures and leaves the preference unchanged", async () => {
+    const { settingsService, root } = await fixture();
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const save = vi.spyOn(settingsService, "save").mockRejectedValueOnce(new Error("Storage unavailable"));
+    try {
+      await panel!.toggleGroupingPreference("autoGenerateCopilotGroups");
+      expect(root.querySelector(".panel-toast span")?.textContent).toBe("Storage unavailable");
+      expect(log).toHaveBeenCalledWith("ADO Boost could not save grouping preference", expect.any(Error));
+      await panel!.toggleGroupingPreference("autoGenerateCopilotGroups");
+      expect(save.mock.calls[1]![0].features.autoGenerateCopilotGroups).toBe(true);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it.each([true, false])("toggles confirmation from %s without starting generation or changing auto-generation", async (confirm) => {
+    const { settingsService, semanticGroups, root } = await fixture(false, confirm);
+    await panel!.toggleGroupingPreference("confirmCopilotGroups");
+    expect((await settingsService.load()).features).toMatchObject({
+      confirmCopilotGroups: !confirm, autoGenerateCopilotGroups: false
+    });
+    await panel!.toggleGroupingPreference("confirmCopilotGroups");
+    expect((await settingsService.load()).features.confirmCopilotGroups).toBe(confirm);
+    expect(semanticGroups).not.toHaveBeenCalled();
+    expect(root.querySelector(".confirm-context")).toBeNull();
+  });
+
   it.each([
     { automatic: false, confirm: true }, { automatic: false, confirm: false },
     { automatic: true, confirm: true }, { automatic: true, confirm: false }
@@ -696,8 +733,9 @@ describe("ReviewPanel semantic groups", () => {
     expect(root.querySelector(".dialog")?.textContent).toContain("All PR files and context will be sent to Copilot running locally.");
     expect(root.querySelector("[data-context-path]")).toBeNull();
     expect(root.querySelector<HTMLInputElement>(".auto-generate-groups")!.checked).toBe(false);
-    expect(root.querySelector<HTMLInputElement>(".skip-group-confirmation")!.checked).toBe(false);
-    root.querySelector<HTMLInputElement>(".skip-group-confirmation")!.checked = true;
+    expect(root.querySelector<HTMLInputElement>(".show-group-confirmation")!.checked).toBe(true);
+    expect(root.querySelector(".show-group-confirmation")!.parentElement!.textContent).toContain("Always show this confirmation dialog");
+    root.querySelector<HTMLInputElement>(".show-group-confirmation")!.checked = false;
     root.querySelector<HTMLInputElement>(".auto-generate-groups")!.checked = true;
     root.querySelector<HTMLButtonElement>(".confirm-context")!.click();
     await vi.waitFor(() => expect(semanticGroups).toHaveBeenCalledOnce());
@@ -721,13 +759,13 @@ describe("ReviewPanel semantic groups", () => {
     expect(save).not.toHaveBeenCalled();
     expect(semanticGroups).not.toHaveBeenCalled();
     panel!.requestSemanticGroups();
-    expect(root.querySelector<HTMLInputElement>(".skip-group-confirmation")!.checked).toBe(false);
+    expect(root.querySelector<HTMLInputElement>(".show-group-confirmation")!.checked).toBe(true);
     semanticGroups.mockResolvedValue(groupResult());
     root.querySelector<HTMLButtonElement>(".confirm-context")!.click();
     await vi.waitFor(() => expect(semanticGroups).toHaveBeenCalledOnce());
     expect((await settingsService.load()).features.confirmCopilotGroups).toBe(true);
     panel!.requestSemanticGroups();
-    expect(root.querySelector<HTMLInputElement>(".skip-group-confirmation")!.checked).toBe(false);
+    expect(root.querySelector<HTMLInputElement>(".show-group-confirmation")!.checked).toBe(true);
   });
 
   it("automatically generates once on load without opening the sidebar or showing confirmation", async () => {
