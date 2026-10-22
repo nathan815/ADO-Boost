@@ -114,6 +114,16 @@ npm test
 npm run build
 ```
 
+`npm test` scans only the extension's root `tests` directory. The Windows companion has its own dependencies and test working directory; run its checks separately on Windows:
+
+```powershell
+npm --prefix companion ci
+npm --prefix companion run typecheck
+npm --prefix companion test
+```
+
+CI runs both suites in their respective Extension and Windows companion jobs.
+
 To run the synthetic offline fixture:
 
 ```powershell
