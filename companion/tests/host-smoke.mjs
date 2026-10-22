@@ -1,16 +1,23 @@
 import { spawn } from "node:child_process";
-import { rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const origin = "chrome-extension://oldakfajnbllipnfdaghapeiofnciopo/";
 const dist = join(import.meta.dirname, "..", "dist");
-const configPath = join(dist, "host-config.json");
+const login = process.argv[2];
+if (!login) throw new Error("Usage: node tests/host-smoke.mjs <pinned-github-username> [github-host]");
+const temporary = await mkdtemp(join(tmpdir(), "ado-boost-smoke-"));
+const hostDirectory = join(temporary, "host");
+await mkdir(hostDirectory);
+const configPath = join(hostDirectory, "host-config.json");
+const account = { login, host: process.argv[3] ?? "https://github.com" };
 const { stdout } = await promisify(execFile)("where.exe", ["copilot.exe"]);
 const cliPath = stdout.split(/\r?\n/).find(Boolean)?.trim();
 if (!cliPath) throw new Error("copilot.exe not found");
-await writeFile(configPath, JSON.stringify({ allowedOrigins: [origin], cliPath }));
+await writeFile(configPath, JSON.stringify({ allowedOrigins: [origin], cliPath, account }));
 
 const child = spawn(process.execPath, [join(dist, "host.js"), "--config", configPath, origin], { stdio: ["pipe", "pipe", "pipe"] });
 let buffer = Buffer.alloc(0);
@@ -46,9 +53,10 @@ try {
   if (!hello.ok) throw new Error(JSON.stringify(hello));
   const health = await request({ id: "health", type: "health" });
   if (!health.ok) throw new Error(JSON.stringify(health));
+  if (!health.data.auth.isAuthenticated || health.data.auth.login?.toLowerCase() !== login.toLowerCase()) throw new Error(JSON.stringify(health.data));
   console.log(JSON.stringify(health.data));
 } finally {
   child.stdin.end();
   await new Promise((resolve) => child.once("exit", resolve));
-  await rm(configPath, { force: true });
+  await rm(temporary, { recursive: true, force: true });
 }

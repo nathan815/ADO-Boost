@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { accountSchema } from "./accounts.js";
 
 export const PROTOCOL_VERSION = 1;
 export const MAX_MESSAGE_BYTES = 1024 * 1024;
@@ -20,6 +21,8 @@ const excerptSchema = z.object({
 export const requestSchema = z.discriminatedUnion("type", [
   z.object({ id: z.string().min(1).max(100), type: z.literal("hello"), version: z.number().int(), origin: z.string().url() }),
   z.object({ id: z.string().min(1).max(100), type: z.literal("health") }),
+  z.object({ id: z.string().min(1).max(100), type: z.literal("accounts") }),
+  z.object({ id: z.string().min(1).max(100), type: z.literal("select-account"), account: accountSchema }),
   z.object({
     id: z.string().min(1).max(100),
     type: z.literal("semantic-groups"),

@@ -29,6 +29,7 @@ await build({
 await exec("go", ["build", "-trimpath", "-ldflags=-s -w", "-o", fileURLToPath(new URL("ado-boost-native-host.exe", dist)), fileURLToPath(new URL("../launcher/main.go", import.meta.url))]);
 const { stdout: goRoot } = await exec("go", ["env", "GOROOT"]);
 await cp(join(goRoot.trim(), "LICENSE"), new URL("Go-LICENSE.txt", dist));
+await cp(new URL("../node_modules/json5/LICENSE.md", import.meta.url), new URL("JSON5-LICENSE.txt", dist));
 await cp(new URL("../../dist/", import.meta.url), extension, { recursive: true });
 await cp(new URL("../../LICENSE", import.meta.url), new URL("../LICENSE", import.meta.url));
 await writeFile(new URL("protocol-version.txt", dist), "1\n");

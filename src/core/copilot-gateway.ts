@@ -6,6 +6,10 @@ export interface CopilotHealth {
   authenticated: boolean;
   login?: string;
   detail?: string;
+  host?: string;
+  companion?: { version?: string; pid: number; uptimeSeconds: number };
+  cliVersion?: string;
+  protocolVersion?: number;
 }
 
 const tokenCountSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable();
@@ -41,9 +45,17 @@ export function parseCopilotGroupResult(value: unknown): CopilotGroupResult {
 
 export function parseCopilotHealth(value: unknown): CopilotHealth {
   const data = z.object({
+    protocolVersion: z.number().int().positive().optional(),
+    companion: z.object({
+      version: z.string().min(1).max(200).optional(),
+      pid: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+      uptimeSeconds: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
+    }).optional(),
+    sdk: z.object({ version: z.string().min(1).max(200) }).optional(),
     auth: z.object({
       isAuthenticated: z.boolean(),
       login: z.string().optional(),
+      host: z.string().min(1).max(200).optional(),
       statusMessage: z.string().optional()
     })
   }).parse(value);
@@ -51,7 +63,15 @@ export function parseCopilotHealth(value: unknown): CopilotHealth {
     connected: true,
     authenticated: data.auth.isAuthenticated,
     ...(data.auth.login ? { login: data.auth.login } : {}),
-    ...(data.auth.statusMessage ? { detail: data.auth.statusMessage } : {})
+    ...(data.auth.statusMessage ? { detail: data.auth.statusMessage } : {}),
+    ...(data.auth.host ? { host: data.auth.host } : {}),
+    ...(data.companion ? { companion: {
+      pid: data.companion.pid,
+      uptimeSeconds: data.companion.uptimeSeconds,
+      ...(data.companion.version ? { version: data.companion.version } : {})
+    } } : {}),
+    ...(data.sdk ? { cliVersion: data.sdk.version } : {}),
+    ...(data.protocolVersion !== undefined ? { protocolVersion: data.protocolVersion } : {})
   };
 }
 export interface CopilotGateway {
