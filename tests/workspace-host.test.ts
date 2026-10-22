@@ -65,9 +65,9 @@ describe("workspace host lifecycle", () => {
   });
 
   it.each([
-    ["https://dev.azure.com/org/Project%20Space/_git/repo/pullrequest/42?_a=files&path=old#diff", "https://dev.azure.com/org/Project%20Space?adoBoost=dashboard"],
-    ["https://dev.azure.com/org/project/_workitems/edit/42?query=old", "https://dev.azure.com/org/project?adoBoost=dashboard"],
-    ["https://org.visualstudio.com/Project%20Space/_git/repo/pullrequests?_a=mine", "https://org.visualstudio.com/Project%20Space?adoBoost=dashboard"]
+    ["https://dev.azure.com/org/Project%20Space/_git/repo/pullrequest/42?_a=files&path=old#diff", "https://dev.azure.com/org/Project%20Space?adoBoostPrHub=dashboard"],
+    ["https://dev.azure.com/org/project/_workitems/edit/42?query=old", "https://dev.azure.com/org/project?adoBoostPrHub=dashboard"],
+    ["https://org.visualstudio.com/Project%20Space/_git/repo/pullrequests?_a=mine", "https://org.visualstudio.com/Project%20Space?adoBoostPrHub=dashboard"]
   ])("opens PR Hub at project Overview from %s", (source, destination) => {
     vi.stubGlobal("location", new URL(source));
     host.update(true);
@@ -141,7 +141,7 @@ describe("workspace host lifecycle", () => {
     entry.addEventListener("click", (event) => { prevented = event.defaultPrevented; event.preventDefault(); });
     entry.dispatchEvent(new MouseEvent("click", { ctrlKey: true, bubbles: true, cancelable: true }));
     expect(prevented).toBe(false);
-    expect(entry.href).toBe("https://dev.azure.com/org/project?adoBoost=dashboard");
+    expect(entry.href).toBe("https://dev.azure.com/org/project?adoBoostPrHub=dashboard");
     expect(document.querySelector("iframe")).toBeNull();
   });
 
@@ -174,17 +174,17 @@ describe("workspace host lifecycle", () => {
     host.update(true);
     const entry = document.querySelector<HTMLAnchorElement>("[data-ado-boost-workspace=entry]")!;
     entry.click();
-    expect(location.href).toBe("https://dev.azure.com/org/project?adoBoost=dashboard");
+    expect(location.href).toBe("https://dev.azure.com/org/project?adoBoostPrHub=dashboard");
     const frame = document.querySelector("iframe");
     messages[0]!({ kind: "navigate", view: "people" });
     entry.click();
-    expect(location.href).toBe("https://dev.azure.com/org/project?adoBoost=dashboard");
+    expect(location.href).toBe("https://dev.azure.com/org/project?adoBoostPrHub=dashboard");
     expect(document.querySelector("iframe")).toBe(frame);
     expect(disconnect).not.toHaveBeenCalled();
   });
 
   it("preserves native URL parameters on existing deep workspace links through tab changes and closing", () => {
-    history.replaceState(null, "", "/org/project/_git/repo/pullrequests?_a=mine&keep=1&adoBoost=dashboard");
+    history.replaceState(null, "", "/org/project/_git/repo/pullrequests?_a=mine&keep=1&adoBoostPrHub=dashboard");
     host.update(true);
     const frame = document.querySelector("iframe");
     messages[0]!({ kind: "navigate", view: "people" });
@@ -242,7 +242,7 @@ describe("workspace host lifecycle", () => {
     expect(document.querySelectorAll("iframe")).toHaveLength(1);
     expect(document.querySelector(".region-content")?.classList.contains("ado-boost-workspace-hidden")).toBe(true);
     expect(document.getElementById("native")).toBe(native);
-    expect(location.href).toBe("https://dev.azure.com/org/project?adoBoost=dashboard");
+    expect(location.href).toBe("https://dev.azure.com/org/project?adoBoostPrHub=dashboard");
     host.update(true);
     expect(document.querySelectorAll("iframe")).toHaveLength(1);
     messages[0]!({ kind: "close" });
@@ -271,7 +271,7 @@ describe("workspace host lifecycle", () => {
   it("handles extension route Back/Forward without reusing the wrong view", async () => {
     document.querySelector<HTMLAnchorElement>("[data-ado-boost-workspace=entry]")!.click();
     const first = document.querySelector("iframe");
-    history.replaceState(null, "", `${location.pathname}?adoBoost=feed&_a=mine`);
+    history.replaceState(null, "", `${location.pathname}?adoBoostPrHub=feed&_a=mine`);
     dispatchEvent(new PopStateEvent("popstate"));
     await vi.waitFor(() => expect(document.querySelector<HTMLIFrameElement>("iframe")?.dataset.route).toBe("feed|"));
     expect(document.querySelector("iframe")).toBe(first);

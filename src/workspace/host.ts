@@ -102,7 +102,7 @@ export class WorkspaceHost {
       nav.prepend(this.entry);
     }
     if (this.entry) this.entry.href = this.workspaceUrl("dashboard");
-    const view = new URL(location.href).searchParams.get("adoBoost");
+    const view = new URL(location.href).searchParams.get("adoBoostPrHub");
     if (this.entry) {
       if (view) this.entry.setAttribute("aria-current", "page");
       else this.entry.removeAttribute("aria-current");
@@ -268,14 +268,14 @@ export class WorkspaceHost {
     const project = current.pathname.split("/").filter(Boolean)[current.hostname === "dev.azure.com" ? 1 : 0];
     const url = new URL(context.base);
     if (project && !project.startsWith("_")) url.pathname = `${url.pathname.replace(/\/$/, "")}/${project}`;
-    url.searchParams.set("adoBoost", view);
+    url.searchParams.set("adoBoostPrHub", view);
     return url.href;
   }
 
   private navigate(view: string | null, person?: string): void {
     const url = new URL(location.href);
-    if (view) url.searchParams.set("adoBoost", view);
-    else url.searchParams.delete("adoBoost");
+    if (view) url.searchParams.set("adoBoostPrHub", view);
+    else url.searchParams.delete("adoBoostPrHub");
     if (person) url.searchParams.set("adoBoostPerson", person);
     else url.searchParams.delete("adoBoostPerson");
     if (url.href !== location.href) history.pushState(null, "", url);
