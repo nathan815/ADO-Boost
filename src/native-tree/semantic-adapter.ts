@@ -335,7 +335,10 @@ export class SemanticTreeAdapter {
           if (!this.host.react.isValidElement(body)) throw new Error("Native semantic checkbox cell changed.");
           return this.host.react.cloneElement(body, {}, null);
         }
-        return transformElements(this.host, original, (element) => {
+        if (!this.host.react.isValidElement(original)) throw new Error("Native semantic name cell changed.");
+        const className = typeof original.props.className === "string" ? `${original.props.className} adopp-semantic-root-cell` : "adopp-semantic-root-cell";
+        const rootCell = this.host.react.cloneElement(original, { className });
+        return transformElements(this.host, rootCell, (element) => {
           if (element.props.menuPropsProvider) return null;
           if (element.props.text !== node.data.path) return element;
           const label = element.props.children;

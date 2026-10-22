@@ -80,7 +80,10 @@ describe("native companion client", () => {
     expect(runtime.connectNative).toHaveBeenCalledOnce();
     expect(messages).toHaveLength(1);
     port.postMessage.mockImplementationOnce(() => { throw new Error("Port is closed"); });
-    const failure = expect(first).rejects.toThrow("Port is closed");
+    const failure = expect(first).rejects.toMatchObject({
+      message: "Can't connect to the ADO Boost companion. Run ado-boost doctor to check the installation, then try again.",
+      cause: new Error("Port is closed")
+    });
     respond("hello", { version: 1 });
     await failure;
     await vi.waitFor(() => expect(messages).toHaveLength(2));
@@ -89,15 +92,44 @@ describe("native companion client", () => {
     client.disconnect();
   });
 
-  it("surfaces missing native host errors and clears pending timers", async () => {
+  it.each(["Specified native messaging host not found.", "Native host not found", "Native application not found"])("explains how to install or register a missing companion for %s", async (message) => {
     vi.useFakeTimers();
     const { client, runtime, disconnected } = setup();
     const request = client.request("health");
-    const failure = expect(request).rejects.toThrow("not found");
-    runtime.lastError = { message: "Native host not found" };
+    const failure = expect(request).rejects.toMatchObject({
+      message: "ADO Boost companion not found. Install the companion or run ado-boost setup to register it with your browser, then refresh this page.",
+      cause: message
+    });
+    runtime.lastError = { message };
     disconnected();
     await failure;
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(["Native host has exited.", "Access to the specified native messaging host is forbidden.", undefined])("gives troubleshooting guidance when the companion disconnects: %s", async (message) => {
+    vi.useFakeTimers();
+    const { client, runtime, disconnected } = setup();
+    const request = client.request("health");
+    const failure = expect(request).rejects.toMatchObject({
+      message: "Can't connect to the ADO Boost companion. Run ado-boost doctor to check the installation, then try again.",
+      cause: message
+    });
+    runtime.lastError = message ? { message } : undefined;
+    disconnected();
+    await failure;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("explains synchronous connection failures and allows retrying", async () => {
+    const { client, runtime, messages, respond } = setup();
+    runtime.connectNative.mockImplementationOnce(() => { throw new Error("Specified native messaging host not found."); });
+    await expect(client.request("health")).rejects.toThrow("Install the companion or run ado-boost setup");
+    const retry = client.request("health");
+    respond("hello", { version: 1 });
+    await vi.waitFor(() => expect(messages).toHaveLength(2));
+    respond("health", { auth: { isAuthenticated: true } });
+    await expect(retry).resolves.toMatchObject({ auth: { isAuthenticated: true } });
+    client.disconnect();
   });
 
   it("times out a stalled handshake and allows a later reconnect", async () => {
@@ -205,6 +237,17 @@ describe("native companion client", () => {
     expect(parseCopilotGroupResult({ groups: [], generation }).generation).toEqual(generation);
     expect(() => parseCopilotGroupResult({ groups: [], generation: { ...generation, generatedAt: "yesterday" } })).toThrow();
     expect(() => parseCopilotGroupResult({ groups: [], generation: { ...generation, iterationId: 0 } })).toThrow();
+  });
+
+  it("preserves optional AI credit telemetry and rejects invalid billing totals", () => {
+    const session = { sessionId: "session-1", models: ["model"], inputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null };
+    for (const totalNanoAiu of [0, 1, 1_250_000_000, null]) {
+      expect(parseCopilotGroupResult({ groups: [], session: { ...session, totalNanoAiu } }).session?.totalNanoAiu).toBe(totalNanoAiu);
+    }
+    expect(parseCopilotGroupResult({ groups: [], session }).session?.totalNanoAiu).toBeUndefined();
+    for (const totalNanoAiu of [-1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, "100"]) {
+      expect(() => parseCopilotGroupResult({ groups: [], session: { ...session, totalNanoAiu } })).toThrow();
+    }
   });
 
   it("tracks inference waiting for the handshake so disabling features can cancel it", async () => {

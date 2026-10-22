@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { MenuItemType } from "azure-devops-ui/Components/Menu/Menu.Props";
 import { SemanticTreeAdapter } from "../src/native-tree/semantic-adapter";
 import type { NativeExplorer, NativeNavigation, NativeProvider } from "../src/native-tree/semantic-host";
 import type { HostReact, NativeElement, NativeHost } from "../src/native-tree/host";
@@ -195,8 +196,8 @@ describe("semantic native projection", () => {
 describe("semantic native adapter", () => {
   it.each([
     [false, false, "Generate"],
-    [true, false, "Options"],
-    [true, true, "Options"],
+    [true, false, null],
+    [true, true, null],
     [false, true, "Grouping..."]
   ])("shows the generation action for existing groups=%s, busy=%s", (generated, busy, label) => {
     const configuration = config();
@@ -211,29 +212,59 @@ describe("semantic native adapter", () => {
     if (!record(portal) || !react.isValidElement(portal.children) || !Array.isArray(portal.children.props.children)) throw new Error("Missing toolbar");
     const heading: unknown = portal.children.props.children[0];
     if (!react.isValidElement(heading) || !Array.isArray(heading.props.children)) throw new Error("Missing heading");
-    const button: unknown = heading.props.children[1];
-    if (!react.isValidElement(button)) throw new Error("Missing generate button");
-    expect(generated ? button.props.text : button.props.children).toBe(label);
+    const actions: unknown = heading.props.children[1];
+    if (!react.isValidElement(actions) || !Array.isArray(actions.props.children)) throw new Error("Missing header actions");
+    const sidebar: unknown = heading.props.children[0];
+    const settings: unknown = actions.props.children[2];
+    if (!react.isValidElement(sidebar) || !react.isValidElement(settings)) throw new Error("Missing sidebar and settings controls");
+    expect(sidebar.type).toBe("button");
+    expect(sidebar.props.children).toBe("Copilot Groups");
+    expect(sidebar.props.title).toBe("View details in sidebar");
+    expect(sidebar.props.className).toContain("adopp-semantic-title");
+    (sidebar.props.onClick as () => void)();
+    expect(f.action).toHaveBeenLastCalledWith("view-session", configuration.semantic!.view);
+    expect(settings.type).toBe("MenuButton");
+    expect(settings.props.disabled).not.toBe(true);
+    expect(settings.props.ariaLabel).toBe("Copilot Groups settings");
+    expect(settings.props.iconProps).toEqual({ iconName: "Settings" });
+    expect(settings.props.hideDropdownIcon).toBe(true);
+    const options = settings.props.contextualMenuProps;
+    if (!record(options) || !record(options.menuProps) || typeof options.onActivate !== "function") throw new Error("Missing settings popover");
+    expect(options.menuProps.items).toEqual([
+      { id: "adopp-semantic-session", text: "View details in sidebar", className: "adopp-semantic-menu-action" },
+      ...(generated ? [{ id: "adopp-semantic-regenerate", text: "Regenerate", className: "adopp-semantic-menu-action", disabled: busy }] : []),
+      { id: "adopp-semantic-settings-divider", itemType: MenuItemType.Divider },
+      { id: "adopp-semantic-settings-heading", text: "Settings", itemType: MenuItemType.Header },
+      { id: "adopp-semantic-auto-generate", text: "Auto generate on each PR", checked: false, readonly: true },
+      { id: "adopp-semantic-confirmation", text: "Show confirmation dialog", checked: true, readonly: true }
+    ]);
+    const collapse = vi.fn();
+    if (typeof settings.props.ref !== "function") throw new Error("Missing menu reference");
+    settings.props.ref({ collapse });
+    options.onActivate({ id: "adopp-semantic-auto-generate" });
+    expect(collapse).toHaveBeenCalledOnce();
+    expect(f.action).toHaveBeenLastCalledWith("toggle-auto-generate", configuration.semantic!.view);
+    options.onActivate({ id: "adopp-semantic-session" });
+    expect(f.action).toHaveBeenLastCalledWith("view-session", configuration.semantic!.view);
+    expect(collapse).toHaveBeenCalledTimes(2);
+    options.onActivate({ id: "adopp-semantic-confirmation" });
+    expect(f.action).toHaveBeenLastCalledWith("toggle-confirmation", configuration.semantic!.view);
+    f.action.mockClear();
+    options.onActivate({ id: "adopp-semantic-regenerate" });
+    if (generated && !busy) expect(f.action).toHaveBeenCalledExactlyOnceWith("regenerate", configuration.semantic!.view);
+    else expect(f.action).not.toHaveBeenCalled();
+    expect(actions.props.children[0]).toBeNull();
+    const generation: unknown = actions.props.children[1];
     if (generated) {
-      expect(button.type).toBe("MenuButton");
-      expect(button.props.disabled).not.toBe(true);
-      const options = button.props.contextualMenuProps;
-      if (!record(options) || !record(options.menuProps) || typeof options.onActivate !== "function") throw new Error("Missing options menu");
-      expect(options.menuProps.items).toMatchObject([
-        { id: "adopp-semantic-session", text: "View Details on Sidebar" },
-        { id: "adopp-semantic-regenerate", text: "Regenerate Groups", disabled: busy }
-      ]);
-      const collapse = vi.fn();
-      if (typeof button.props.ref !== "function") throw new Error("Missing menu reference");
-      button.props.ref({ collapse });
-      options.onActivate({ id: "adopp-semantic-session" });
-      expect(collapse).toHaveBeenCalledOnce();
-      expect(f.action).toHaveBeenCalledWith("view-session", configuration.semantic!.view);
-      options.onActivate({ id: "adopp-semantic-regenerate" });
-      expect(f.action).toHaveBeenCalledTimes(busy ? 1 : 2);
-      if (!busy) expect(f.action).toHaveBeenLastCalledWith("regenerate", configuration.semantic!.view);
+      expect(generation).toBeNull();
     } else {
-      expect(button.props.disabled).toBe(busy);
+      if (!react.isValidElement(generation)) throw new Error("Missing generate button");
+      expect(generation.props.children).toBe(label);
+      expect(generation.props.disabled).toBe(busy);
+      if (!busy) {
+        (generation.props.onClick as () => void)();
+        expect(f.action).toHaveBeenLastCalledWith("regenerate", configuration.semantic!.view);
+      }
     }
     expect(heading.props["aria-busy"]).toBe(busy);
     const dropdown: unknown = portal.children.props.children[1];
@@ -246,10 +277,28 @@ describe("semantic native adapter", () => {
     if (!react.isValidElement(expandable) || !react.isValidElement(expandable.props.children)) throw new Error("Missing dropdown label");
     expect(expandable.props.disabled).toBe(!generated);
     expect(expandable.props.children.props.children).toBe(generated ? "All files (2)" : "Groups not yet generated for this PR");
-    if (!generated && !busy) {
-      (button.props.onClick as () => void)();
-      expect(f.action).toHaveBeenCalledWith("regenerate", configuration.semantic!.view);
-    }
+  });
+  it("checks the automatic-generation menu item when enabled", () => {
+    const configuration = config();
+    configuration.semantic!.autoGenerate = true;
+    configuration.semantic!.showConfirmation = false;
+    const f = fixture(configuration);
+    const deferred = f.explorer.render();
+    if (!react.isValidElement(deferred) || typeof deferred.props.children !== "function") throw new Error("Missing native tree callback");
+    const container: unknown = deferred.props.children();
+    if (!react.isValidElement(container) || !Array.isArray(container.props.children)) throw new Error("Missing native tree container");
+    const portal: unknown = container.props.children[1];
+    if (!record(portal) || !react.isValidElement(portal.children) || !Array.isArray(portal.children.props.children)) throw new Error("Missing toolbar");
+    const heading: unknown = portal.children.props.children[0];
+    if (!react.isValidElement(heading) || !Array.isArray(heading.props.children)) throw new Error("Missing heading");
+    const actions: unknown = heading.props.children[1];
+    if (!react.isValidElement(actions) || !Array.isArray(actions.props.children)) throw new Error("Missing header actions");
+    const button: unknown = actions.props.children[2];
+    if (!react.isValidElement(button)) throw new Error("Missing settings menu");
+    const options = button.props.contextualMenuProps;
+    if (!record(options) || !record(options.menuProps)) throw new Error("Missing menu items");
+    expect(options.menuProps.items).toContainEqual(expect.objectContaining({ id: "adopp-semantic-auto-generate", checked: true }));
+    expect(options.menuProps.items).toContainEqual(expect.objectContaining({ id: "adopp-semantic-confirmation", checked: false }));
   });
   it.each([false, true])("keeps stale groups selectable and exposes direct regeneration with busy=%s", (busy) => {
     const configuration = config();
@@ -262,13 +311,17 @@ describe("semantic native adapter", () => {
     const portal: unknown = container.props.children[1];
     if (!record(portal) || !react.isValidElement(portal.children) || !Array.isArray(portal.children.props.children)) throw new Error("Missing toolbar");
     const dropdown: unknown = portal.children.props.children[1];
-    const notice: unknown = portal.children.props.children[2];
-    if (!react.isValidElement(dropdown) || !react.isValidElement(notice) || !Array.isArray(notice.props.children)) throw new Error("Missing stale controls");
+    const heading: unknown = portal.children.props.children[0];
+    if (!react.isValidElement(dropdown) || !react.isValidElement(heading) || !Array.isArray(heading.props.children)) throw new Error("Missing heading");
+    const actions: unknown = heading.props.children[1];
+    if (!react.isValidElement(actions) || !Array.isArray(actions.props.children)) throw new Error("Missing stale controls");
     expect(dropdown.props.disabled).toBe(false);
-    const label: unknown = notice.props.children[0];
-    const regenerate: unknown = notice.props.children[1];
+    const label: unknown = actions.props.children[0];
+    const regenerate: unknown = actions.props.children[1];
     if (!react.isValidElement(label) || !react.isValidElement(regenerate)) throw new Error("Missing regenerate action");
-    expect(label.props.children).toBe("Groups are stale");
+    expect(label.props.children).toBe("Stale");
+    expect(label.props.className).toBe("adopp-semantic-stale");
+    expect(label.props.role).toBe("status");
     expect(regenerate.props.disabled).toBe(busy);
     expect(regenerate.props.children).toBe(busy ? "Grouping..." : "Regenerate");
     if (!busy) {
@@ -276,6 +329,39 @@ describe("semantic native adapter", () => {
       expect(f.action).toHaveBeenCalledWith("regenerate", configuration.semantic.view);
     }
     expect(nativeFiles(f.provider.roots).map((file) => file.data.path)).toEqual(["/src/a.ts", "/src/b.ts"]);
+  });
+
+  it("keeps the header compact despite native icon-button padding", () => {
+    const nativeStyle = document.createElement("style");
+    nativeStyle.textContent = ".bolt-button.bolt-icon-button { padding: 8px; }";
+    document.head.append(nativeStyle);
+    try {
+      fixture();
+      const toolbar = document.querySelector<HTMLElement>("[data-adopp-semantic-toolbar]")!;
+      toolbar.innerHTML = '<div class="adopp-semantic-heading"><button class="bolt-button bolt-icon-button adopp-semantic-settings-button"></button></div>';
+      const button = getComputedStyle(toolbar.querySelector("button")!);
+      expect(button.height).toBe("20px");
+      expect(button.minHeight).toBe("20px");
+      expect(button.padding).toBe("0px");
+      expect(getComputedStyle(toolbar).paddingTop).toBe("4px");
+      expect(getComputedStyle(toolbar.firstElementChild!).marginBottom).toBe("6px");
+    } finally {
+      nativeStyle.remove();
+    }
+  });
+
+  it("lets the action label extend into the unused checkmark gutter without clipping toggle rows", () => {
+    fixture();
+    const menu = document.createElement("table");
+    menu.className = "adopp-semantic-settings";
+    menu.innerHTML = '<tbody><tr class="adopp-semantic-menu-action"><td class="bolt-menuitem-cell"><div class="bolt-menuitem-cell-text">View details in sidebar</div></td></tr><tr class="adopp-semantic-menu-action"><td class="bolt-menuitem-cell"><div class="bolt-menuitem-cell-text">Regenerate</div></td></tr><tr role="menuitemcheckbox"><td class="bolt-menuitem-cell"><div class="bolt-menuitem-cell-text">Show confirmation dialog</div></td></tr></tbody>';
+    document.body.append(menu);
+    for (const action of menu.querySelectorAll<HTMLElement>(".adopp-semantic-menu-action .bolt-menuitem-cell-text")) {
+      expect(getComputedStyle(action).marginInlineStart).toBe("-26px");
+      expect(getComputedStyle(action.parentElement!).overflow).toBe("visible");
+    }
+    const toggle = menu.querySelector<HTMLElement>('[role="menuitemcheckbox"] .bolt-menuitem-cell-text')!;
+    expect(getComputedStyle(toggle).marginInlineStart).not.toBe("-26px");
   });
 
   it("keeps the toolbar sticky and extends its background under the scrollbar through resizing, scrolling, and disposal", () => {
@@ -466,6 +552,7 @@ describe("semantic native adapter", () => {
     if (!record(column) || typeof column.renderCell !== "function") throw new Error("Missing native name renderer");
     const cell: unknown = column.renderCell(0, 0, column, { underlyingItem: f.provider.roots[0] });
     if (!react.isValidElement(cell) || !Array.isArray(cell.props.children)) throw new Error("Missing native name cell");
+    expect(cell.props.className).toBe("adopp-semantic-root-cell");
     const tooltip: unknown = cell.props.children[0];
     if (!react.isValidElement(tooltip) || typeof tooltip.props.renderContent !== "function") throw new Error("Missing rich tooltip");
     const content: unknown = tooltip.props.renderContent();
@@ -481,7 +568,33 @@ describe("semantic native adapter", () => {
     const checkbox = tree.props.columns[1];
     if (!record(checkbox) || typeof checkbox.renderCell !== "function") throw new Error("Missing checkbox renderer");
     expect(JSON.stringify(checkbox.renderCell(0, 1, checkbox, { underlyingItem: f.provider.roots[0] }))).not.toContain("checkbox");
+    const folder = f.provider.roots[0]!.childItems![0]!;
+    const file = nativeFiles([folder])[0]!;
+    for (const node of [folder, file]) {
+      const name: unknown = column.renderCell(0, 0, column, { underlyingItem: node });
+      if (!react.isValidElement(name)) throw new Error("Missing native name cell");
+      expect(name.props.className ?? "").not.toContain("adopp-semantic-root-cell");
+      const reviewed: unknown = checkbox.renderCell(0, 1, checkbox, { underlyingItem: node });
+      if (!react.isValidElement(reviewed) || typeof reviewed.props.children !== "function") throw new Error("Missing native checkbox observer");
+      const body: unknown = reviewed.props.children({ checked: false });
+      if (!react.isValidElement(body)) throw new Error("Missing native checkbox");
+      expect(body.props.children).toBe("checkbox");
+    }
     expect(f.failed).not.toHaveBeenCalled();
+  });
+
+  it("clips compact file and folder name cells away from reviewed checkboxes but leaves synthetic expanders visible", () => {
+    const f = fixture();
+    f.host.element.innerHTML = '<tbody><tr><td class="bolt-tree-cell adopp-semantic-root-cell"><div class="bolt-table-cell-content">Group</div></td></tr><tr><td><button role="checkbox"></button></td><td class="bolt-tree-cell"><div class="bolt-table-cell-content">Folder</div></td></tr><tr><td><button role="checkbox"></button></td><td class="bolt-tree-cell"><div class="bolt-table-cell-content">File</div></td></tr></tbody>';
+    const cells = f.host.element.querySelectorAll(".bolt-tree-cell");
+    expect(getComputedStyle(cells[0]!).overflow).toBe("visible");
+    for (const cell of [cells[1]!, cells[2]!]) {
+      expect(getComputedStyle(cell).overflow).toBe("hidden");
+      expect(getComputedStyle(cell.firstElementChild!).marginInlineStart).toBe("-16px");
+    }
+    adapter!.update({ ...f.configuration, semantic: { ...f.configuration.semantic!, view: { mode: "all", groupId: null } } });
+    expect(f.host.element.hasAttribute("data-adopp-compact-groups")).toBe(false);
+    expect(getComputedStyle(cells[1]!).overflow).not.toBe("hidden");
   });
 });
 

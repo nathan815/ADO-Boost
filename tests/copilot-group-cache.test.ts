@@ -15,7 +15,7 @@ describe("background Copilot grouping results", () => {
   const cacheKey = `copilot-groups:${context.identity}`;
   const values = new Map<string, unknown>();
   const groups = [{ title: "Code", rationale: "Related changes", paths: ["/file.ts"] }];
-  const session = { sessionId: "session-1", models: ["reported-model"], inputTokens: 100, outputTokens: 20, cacheReadTokens: null, cacheWriteTokens: 0 };
+  const session = { sessionId: "session-1", models: ["reported-model"], totalNanoAiu: 1_250_000_000, inputTokens: 100, outputTokens: 20, cacheReadTokens: null, cacheWriteTokens: 0 };
   let listener!: (message: unknown, sender: chrome.runtime.MessageSender, respond: (value: unknown) => void) => unknown;
   const native = vi.spyOn(NativeCopilotClient.prototype, "request");
   const getContext = vi.spyOn(AdoApi.prototype, "getContext");

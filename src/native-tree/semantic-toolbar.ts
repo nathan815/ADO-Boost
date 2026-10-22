@@ -1,4 +1,5 @@
 import { createPortal } from "react-dom";
+import { MenuItemType } from "azure-devops-ui/Components/Menu/Menu.Props";
 import type { NativeHost } from "./host";
 import type { BoltComponents, NativeSelection } from "./semantic-host";
 import { record } from "./protocol";
@@ -11,7 +12,7 @@ interface GroupOption {
   view: { mode: "all" | "inline" | "group"; groupId: string | null };
 }
 
-export type SemanticAction = (action: "select" | "regenerate" | "view-session", view: GroupOption["view"]) => void;
+export type SemanticAction = (action: "select" | "regenerate" | "view-session" | "toggle-auto-generate" | "toggle-confirmation", view: GroupOption["view"]) => void;
 
 export class SemanticToolbar {
   readonly element: HTMLDivElement;
@@ -19,7 +20,7 @@ export class SemanticToolbar {
   private readonly selection: NativeSelection;
   private selectedIndex = -1;
   private dropdown: { collapse(): void } | null = null;
-  private optionsMenu: { collapse(): void } | null = null;
+  private settingsMenu: { collapse(): void } | null = null;
   private scroll: HTMLElement | null = null;
   private readonly resizeObserver: ResizeObserver | null;
 
@@ -33,14 +34,18 @@ export class SemanticToolbar {
     this.element.dataset.adoppSemanticToolbar = "";
     this.style = document.createElement("style");
     this.style.textContent = `
-      [data-adopp-semantic-toolbar] { position: sticky; top: 0; z-index: 1; padding: 8px 12px; flex-shrink: 0; min-width: 0; background: var(--background-color); font: 12px "Segoe UI",sans-serif; }
+      [data-adopp-semantic-toolbar] { position: sticky; top: 0; z-index: 1; padding: 4px 12px 6px; flex-shrink: 0; min-width: 0; background: var(--background-color); font: 12px "Segoe UI",sans-serif; }
       [data-adopp-semantic-scroll] { background-image: linear-gradient(to bottom, transparent var(--adopp-semantic-background-start), var(--background-color) var(--adopp-semantic-background-start), var(--background-color) var(--adopp-semantic-background-end), transparent var(--adopp-semantic-background-end)); background-origin: border-box; background-repeat: no-repeat; }
-      .adopp-semantic-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; color: var(--text-primary-color); }
-      .adopp-semantic-heading strong { font-size: 12px; font-weight: 600; }
+      .adopp-semantic-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; color: var(--text-primary-color); }
+      .adopp-semantic-title { color: inherit; background: none; border: 0; padding: 0; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; text-align: left; }
+      .adopp-semantic-header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
       .adopp-semantic-regenerate { color: var(--communication-foreground, var(--text-link-color)); background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
       .adopp-semantic-regenerate:disabled { color: var(--text-disabled-color); cursor: default; }
-      .adopp-semantic-options-button { min-height:24px; padding:0 4px; font-size:12px; color:var(--communication-foreground, var(--text-link-color)); }
-      .adopp-semantic-options-button .bolt-button-text { font-size:inherit; line-height:inherit; }
+      .adopp-semantic-stale { color: #9c4a00; background: #fff0dc; border: 1px solid #e5a44b; border-radius: 3px; padding: 0 4px; font-size: 10px; line-height: 16px; }
+      [data-adopp-semantic-toolbar] .bolt-button.adopp-semantic-settings-button { width:20px; height:20px; min-height:20px; padding:0; font-size:12px; }
+      .adopp-semantic-settings .bolt-menuitem-header { font-size: 10px; }
+      .adopp-semantic-settings .adopp-semantic-menu-action > .bolt-menuitem-cell { overflow: visible; }
+      .adopp-semantic-settings .adopp-semantic-menu-action .bolt-menuitem-cell-text { margin-inline-start: -26px; }
       .adopp-semantic-spinner { display:inline-block; width:10px; height:10px; margin-right:6px; border:2px solid var(--text-disabled-color); border-top-color:var(--communication-foreground); border-radius:50%; animation:adopp-semantic-spin 1s linear infinite!important; }
       @keyframes adopp-semantic-spin { to { transform:rotate(360deg); } }
       .adopp-semantic-dropdown { width: 100%; height: 24px; min-height: 24px; font-size: 12px; }
@@ -51,7 +56,8 @@ export class SemanticToolbar {
       .adopp-semantic-option-description { margin-top: 3px; font-size: 12px; line-height: 17px; color: var(--text-secondary-color); white-space: normal; overflow-wrap: anywhere; }
       .adopp-semantic-description, .adopp-semantic-message { margin: 6px 0 0; line-height: 1.5; color: var(--text-secondary-color); overflow-wrap: anywhere; }
       .adopp-semantic-message[role="alert"] { color: var(--status-error-foreground); }
-      .repos-file-explorer-tree[data-adopp-compact-groups] .bolt-tree-cell { overflow: visible; }
+      .repos-file-explorer-tree[data-adopp-compact-groups] .bolt-tree-cell { overflow: hidden; }
+      .repos-file-explorer-tree[data-adopp-compact-groups] .adopp-semantic-root-cell { overflow: visible; }
       .repos-file-explorer-tree[data-adopp-compact-groups] .bolt-tree-cell > .bolt-table-cell-content { margin-inline-start: -16px; }
     `;
     document.head.append(this.style);
@@ -126,34 +132,46 @@ export class SemanticToolbar {
     });
     const content = react.createElement("div", {},
       react.createElement("div", { className: "adopp-semantic-heading", "aria-busy": semantic.busy },
-        react.createElement("strong", {}, "Copilot Groups"),
-        hasGroups ? react.createElement(this.components.MenuButton, {
-          ref: this.setOptionsMenu, text: "Options", subtle: true,
-          buttonClassName: "adopp-semantic-options-button", ariaLabel: "Copilot Groups options",
-          contextualMenuProps: {
-            className: "adopp-semantic-actions",
-            menuProps: {
-              id: "adopp-semantic-actions", ariaLabel: "Copilot Groups options",
-              items: [
-                { id: "adopp-semantic-session", text: "View Details on Sidebar", className: "adopp-semantic-session" },
-                { id: "adopp-semantic-regenerate", text: "Regenerate Groups", className: "adopp-semantic-regenerate-item", disabled: semantic.busy }
-              ]
-            },
-            onActivate: (item: { id: string }) => {
-              this.optionsMenu?.collapse();
-              if (item.id === "adopp-semantic-session") this.action("view-session", semantic.view);
-              else if (item.id === "adopp-semantic-regenerate" && !semantic.busy) this.action("regenerate", semantic.view);
+        react.createElement("button", {
+          type: "button", className: "adopp-semantic-title bolt-focus-treatment",
+          onClick: () => this.action("view-session", semantic.view),
+          title: "View details in sidebar"
+        }, "Copilot Groups"),
+        react.createElement("div", { className: "adopp-semantic-header-actions" },
+          hasGroups && semantic.stale ? react.createElement("span", {
+            className: "adopp-semantic-stale", role: "status", title: "Groups are stale"
+          }, "Stale") : null,
+          !hasGroups || semantic.stale ? react.createElement("button", {
+            type: "button", className: "adopp-semantic-regenerate bolt-focus-treatment",
+            disabled: semantic.busy, onClick: () => this.action("regenerate", semantic.view),
+            title: hasGroups ? "Regenerate groups for the latest iteration" : "Generate semantic groups"
+          }, semantic.busy ? "Grouping..." : hasGroups ? "Regenerate" : "Generate") : null,
+          react.createElement(this.components.MenuButton, {
+            ref: this.setSettingsMenu, subtle: true, hideDropdownIcon: true, iconProps: { iconName: "Settings" },
+            buttonClassName: "adopp-semantic-settings-button", ariaLabel: "Copilot Groups settings",
+            contextualMenuProps: {
+              className: "adopp-semantic-settings",
+              menuProps: {
+                id: "adopp-semantic-settings", ariaLabel: "Copilot Groups settings",
+                items: [
+                  { id: "adopp-semantic-session", text: "View details in sidebar", className: "adopp-semantic-menu-action" },
+                  ...(hasGroups ? [{ id: "adopp-semantic-regenerate", text: "Regenerate", className: "adopp-semantic-menu-action", disabled: semantic.busy }] : []),
+                  { id: "adopp-semantic-settings-divider", itemType: MenuItemType.Divider },
+                  { id: "adopp-semantic-settings-heading", text: "Settings", itemType: MenuItemType.Header },
+                  { id: "adopp-semantic-auto-generate", text: "Auto generate on each PR", checked: semantic.autoGenerate === true, readonly: true },
+                  { id: "adopp-semantic-confirmation", text: "Show confirmation dialog", checked: semantic.showConfirmation !== false, readonly: true }
+                ]
+              },
+              onActivate: (item: { id: string }) => {
+                this.settingsMenu?.collapse();
+                if (item.id === "adopp-semantic-session") this.action("view-session", semantic.view);
+                else if (item.id === "adopp-semantic-regenerate" && hasGroups && !semantic.busy) this.action("regenerate", semantic.view);
+                else if (item.id === "adopp-semantic-auto-generate") this.action("toggle-auto-generate", semantic.view);
+                else if (item.id === "adopp-semantic-confirmation") this.action("toggle-confirmation", semantic.view);
+              }
             }
-          }
-        }) : react.createElement("button", { type: "button", className: "adopp-semantic-regenerate bolt-focus-treatment",
-          disabled: semantic.busy, onClick: () => this.action("regenerate", semantic.view),
-          title: "Generate semantic groups" }, semantic.busy ? "Grouping..." : "Generate")),
+          }))),
       dropdown,
-      semantic.stale ? react.createElement("div", { className: "adopp-semantic-heading adopp-semantic-message", role: "status" },
-        react.createElement("span", {}, "Groups are stale"),
-        react.createElement("button", { type: "button", className: "adopp-semantic-regenerate bolt-focus-treatment",
-          disabled: semantic.busy, onClick: () => this.action("regenerate", semantic.view),
-          title: "Regenerate groups for the latest iteration" }, semantic.busy ? "Grouping..." : "Regenerate")) : null,
       semantic.view.mode === "group" && selected
         ? react.createElement("p", { className: "adopp-semantic-description" }, selected.rationale) : null,
       semantic.busy ? react.createElement("p", { className: "adopp-semantic-message", role: "status" },
@@ -166,7 +184,7 @@ export class SemanticToolbar {
 
   dispose(): void {
     this.dropdown?.collapse();
-    this.optionsMenu?.collapse();
+    this.settingsMenu?.collapse();
     this.releaseBackground();
     this.element.remove();
     this.style.remove();
@@ -200,8 +218,8 @@ export class SemanticToolbar {
     this.dropdown = typeof collapse === "function" ? { collapse: () => collapse.call(value) } : null;
   };
 
-  private readonly setOptionsMenu = (value: unknown): void => {
+  private readonly setSettingsMenu = (value: unknown): void => {
     const collapse = record(value) ? value.collapse : null;
-    this.optionsMenu = typeof collapse === "function" ? { collapse: () => collapse.call(value) } : null;
+    this.settingsMenu = typeof collapse === "function" ? { collapse: () => collapse.call(value) } : null;
   };
 }

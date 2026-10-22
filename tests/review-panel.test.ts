@@ -460,6 +460,43 @@ describe("ReviewPanel semantic groups", () => {
     return { root, analysis, semanticGroups, cachedSemanticGroups, settings, requestGroups, state, settingsService, api, initiallyOpen, chat, store };
   }
 
+  it("persists the automatic-generation toggle without starting inference or changing confirmation", async () => {
+    const { settingsService, semanticGroups, root } = await fixture();
+    await panel!.toggleGroupingPreference("autoGenerateCopilotGroups");
+    expect((await settingsService.load()).features).toMatchObject({ autoGenerateCopilotGroups: true, confirmCopilotGroups: true });
+    await panel!.toggleGroupingPreference("autoGenerateCopilotGroups");
+    expect((await settingsService.load()).features).toMatchObject({ autoGenerateCopilotGroups: false, confirmCopilotGroups: true });
+    expect(semanticGroups).not.toHaveBeenCalled();
+    expect(root.querySelector(".confirm-context")).toBeNull();
+  });
+
+  it("reports automatic-generation save failures and leaves the preference unchanged", async () => {
+    const { settingsService, root } = await fixture();
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const save = vi.spyOn(settingsService, "save").mockRejectedValueOnce(new Error("Storage unavailable"));
+    try {
+      await panel!.toggleGroupingPreference("autoGenerateCopilotGroups");
+      expect(root.querySelector(".panel-toast span")?.textContent).toBe("Storage unavailable");
+      expect(log).toHaveBeenCalledWith("ADO Boost could not save grouping preference", expect.any(Error));
+      await panel!.toggleGroupingPreference("autoGenerateCopilotGroups");
+      expect(save.mock.calls[1]![0].features.autoGenerateCopilotGroups).toBe(true);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it.each([true, false])("toggles confirmation from %s without starting generation or changing auto-generation", async (confirm) => {
+    const { settingsService, semanticGroups, root } = await fixture(false, confirm);
+    await panel!.toggleGroupingPreference("confirmCopilotGroups");
+    expect((await settingsService.load()).features).toMatchObject({
+      confirmCopilotGroups: !confirm, autoGenerateCopilotGroups: false
+    });
+    await panel!.toggleGroupingPreference("confirmCopilotGroups");
+    expect((await settingsService.load()).features.confirmCopilotGroups).toBe(confirm);
+    expect(semanticGroups).not.toHaveBeenCalled();
+    expect(root.querySelector(".confirm-context")).toBeNull();
+  });
+
   it.each([
     { automatic: false, confirm: true }, { automatic: false, confirm: false },
     { automatic: true, confirm: true }, { automatic: true, confirm: false }
@@ -696,8 +733,9 @@ describe("ReviewPanel semantic groups", () => {
     expect(root.querySelector(".dialog")?.textContent).toContain("All PR files and context will be sent to Copilot running locally.");
     expect(root.querySelector("[data-context-path]")).toBeNull();
     expect(root.querySelector<HTMLInputElement>(".auto-generate-groups")!.checked).toBe(false);
-    expect(root.querySelector<HTMLInputElement>(".skip-group-confirmation")!.checked).toBe(false);
-    root.querySelector<HTMLInputElement>(".skip-group-confirmation")!.checked = true;
+    expect(root.querySelector<HTMLInputElement>(".show-group-confirmation")!.checked).toBe(true);
+    expect(root.querySelector(".show-group-confirmation")!.parentElement!.textContent).toContain("Always show this confirmation dialog");
+    root.querySelector<HTMLInputElement>(".show-group-confirmation")!.checked = false;
     root.querySelector<HTMLInputElement>(".auto-generate-groups")!.checked = true;
     root.querySelector<HTMLButtonElement>(".confirm-context")!.click();
     await vi.waitFor(() => expect(semanticGroups).toHaveBeenCalledOnce());
@@ -721,13 +759,13 @@ describe("ReviewPanel semantic groups", () => {
     expect(save).not.toHaveBeenCalled();
     expect(semanticGroups).not.toHaveBeenCalled();
     panel!.requestSemanticGroups();
-    expect(root.querySelector<HTMLInputElement>(".skip-group-confirmation")!.checked).toBe(false);
+    expect(root.querySelector<HTMLInputElement>(".show-group-confirmation")!.checked).toBe(true);
     semanticGroups.mockResolvedValue(groupResult());
     root.querySelector<HTMLButtonElement>(".confirm-context")!.click();
     await vi.waitFor(() => expect(semanticGroups).toHaveBeenCalledOnce());
     expect((await settingsService.load()).features.confirmCopilotGroups).toBe(true);
     panel!.requestSemanticGroups();
-    expect(root.querySelector<HTMLInputElement>(".skip-group-confirmation")!.checked).toBe(false);
+    expect(root.querySelector<HTMLInputElement>(".show-group-confirmation")!.checked).toBe(true);
   });
 
   it("automatically generates once on load without opening the sidebar or showing confirmation", async () => {
@@ -760,6 +798,34 @@ describe("ReviewPanel semantic groups", () => {
     expect(root.querySelector(".rail")!.getAttribute("data-open")).toBe("false");
     await vi.waitFor(() => expect(semanticGroups).toHaveBeenCalledOnce());
     expect(root.querySelector(".dialog")).toBeNull();
+  });
+
+  it.each([false, true])("preserves the sidebar state through confirmed tree generation with sidebar open=%s", async (open) => {
+    const { root, semanticGroups, state } = await fixture();
+    panel!.openDiscussions();
+    if (!open) root.querySelector<HTMLButtonElement>(".close")!.click();
+    const expectUnchanged = () => {
+      expect(root.querySelector(".rail")!.getAttribute("data-open")).toBe(String(open));
+      expect(root.querySelector("#discussions-tab")!.getAttribute("aria-selected")).toBe("true");
+      expect(root.querySelector("#groups-tab")!.getAttribute("aria-selected")).toBe("false");
+    };
+    panel!.requestSemanticGroups();
+    expect(root.querySelector<HTMLDialogElement>("dialog")!.open).toBe(true);
+    expectUnchanged();
+    root.querySelector<HTMLButtonElement>(".cancel")!.click();
+    expectUnchanged();
+    expect(semanticGroups).not.toHaveBeenCalled();
+
+    let complete!: (result: CopilotGroupResult) => void;
+    semanticGroups.mockImplementation(() => new Promise((resolve) => { complete = resolve; }));
+    panel!.requestSemanticGroups();
+    root.querySelector<HTMLButtonElement>(".confirm-context")!.click();
+    await vi.waitFor(() => expect(semanticGroups).toHaveBeenCalledOnce());
+    expect(state.processing).toBe(true);
+    expectUnchanged();
+    complete(groupResult());
+    await vi.waitFor(() => expect(state.processing).toBe(false));
+    expectUnchanged();
   });
 
   it("preserves questions across tabs and switches to Discussions when drafting a Copilot answer", async () => {
@@ -870,14 +936,15 @@ describe("ReviewPanel semantic groups", () => {
   it("shows actual model and per-session tokens and preserves them on failure or unsupported comparisons", async () => {
     const { root, semanticGroups, requestGroups, state } = await fixture();
     expect(root.querySelector(".copilot-session")).toBeNull();
-    const session = { sessionId: "session-1", models: ["actual-model", "<img src=x>"], inputTokens: 1200, outputTokens: 300, cacheReadTokens: 400, cacheWriteTokens: 0 };
+    const session = { sessionId: "session-1", models: ["actual-model", "<img src=x>"], totalNanoAiu: 1_250_000_001, inputTokens: 1200, outputTokens: 300, cacheReadTokens: 400, cacheWriteTokens: 0 };
     semanticGroups.mockResolvedValue(groupResult([], session));
     await requestGroups();
     await vi.waitFor(() => expect(root.querySelector(".copilot-session")?.textContent).toContain("actual-model"));
     const metrics = () => Object.fromEntries([...root.querySelectorAll(".copilot-session dl>div")].map((row) => [row.querySelector("dt")!.textContent, row.querySelector("dd")!.textContent]));
     expect(metrics()).toMatchObject({
       "Session ID": "session-1", Model: "actual-model, <img src=x>", "Input tokens": (1200).toLocaleString(), "Output tokens": "300",
-      "Total tokens": (1500).toLocaleString(), "Cache read tokens": "400", "Cache write tokens": "0"
+      "Total tokens": (1500).toLocaleString(), "Cache read tokens": "400", "Cache write tokens": "0",
+      "AI credits used": (1.250000001).toLocaleString(undefined, { maximumFractionDigits: 9 })
     });
     expect(root.querySelector(".copilot-session img")).toBeNull();
     expect(root.querySelector(".copilot-session h3")?.getAttribute("title")).toContain("Each generation uses a separate session");
@@ -886,6 +953,7 @@ describe("ReviewPanel semantic groups", () => {
     await requestGroups();
     await vi.waitFor(() => expect(root.querySelector(".delivery.error")?.textContent).toBe("Host disconnected"));
     expect(metrics()["Total tokens"]).toBe((1500).toLocaleString());
+    expect(metrics()["AI credits used"]).toBe((1.250000001).toLocaleString(undefined, { maximumFractionDigits: 9 }));
     state.setAvailable(false);
     expect(metrics()["Session ID"]).toBe("session-1");
   });
@@ -983,20 +1051,33 @@ describe("ReviewPanel semantic groups", () => {
   it("labels cached session usage and replaces it with the next generation without accumulating", async () => {
     const { root, semanticGroups, requestGroups } = await fixture();
     semanticGroups.mockResolvedValue(groupResult([], {
-      sessionId: "old-session", models: ["cached-model"], inputTokens: 100, outputTokens: 20, cacheReadTokens: null, cacheWriteTokens: null
+      sessionId: "old-session", models: ["cached-model"], totalNanoAiu: 3_000_000_000, inputTokens: 100, outputTokens: 20, cacheReadTokens: null, cacheWriteTokens: null
     }, true));
     await requestGroups();
     await vi.waitFor(() => expect(root.querySelector(".copilot-session .status")?.textContent).toBe("Cached"));
     expect(root.querySelector(".copilot-session .status")?.getAttribute("title")).toContain("No new model request");
     expect(root.querySelector(".copilot-session code")?.textContent).toBe("old-session");
+    expect(root.querySelectorAll(".copilot-session dd")[2]?.textContent).toBe("3");
     semanticGroups.mockResolvedValue(groupResult([], {
-      sessionId: "new-session", models: ["new-model"], inputTokens: 0, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null
+      sessionId: "new-session", models: ["new-model"], totalNanoAiu: 0, inputTokens: 0, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null
     }));
     await requestGroups();
     await vi.waitFor(() => expect(root.querySelector(".copilot-session")?.textContent).toContain("new-model"));
     expect(root.querySelector(".copilot-session .status")).toBeNull();
     expect(root.querySelector(".copilot-session")?.textContent).not.toContain("cached-model");
-    expect([...root.querySelectorAll(".copilot-session dd")].map((value) => value.textContent)).toEqual(["new-session", "new-model", "0", "Not reported", "Not reported"]);
+    expect([...root.querySelectorAll(".copilot-session dd")].map((value) => value.textContent)).toEqual(["new-session", "new-model", "0", "0", "Not reported", "Not reported"]);
+  });
+
+  it.each([0, 1, 1_250_000_000, null, undefined])("shows per-session AI credits without inventing unreported usage: %s", async (totalNanoAiu) => {
+    const { root, semanticGroups, requestGroups } = await fixture();
+    semanticGroups.mockResolvedValue(groupResult([], {
+      sessionId: "credit-session", models: ["model"], inputTokens: 10, outputTokens: 2, cacheReadTokens: null, cacheWriteTokens: null,
+      ...(totalNanoAiu !== undefined ? { totalNanoAiu } : {})
+    }));
+    await requestGroups();
+    await vi.waitFor(() => expect(root.querySelector(".copilot-session code")?.textContent).toBe("credit-session"));
+    const row = [...root.querySelectorAll(".copilot-session dl>div")].find((row) => row.querySelector("dt")?.textContent === "AI credits used");
+    expect(row?.querySelector("dd")?.textContent).toBe(totalNanoAiu == null ? "Not reported" : (totalNanoAiu / 1e9).toLocaleString(undefined, { maximumFractionDigits: 9 }));
   });
 
   it("explains missing telemetry from legacy companions and cached results", async () => {

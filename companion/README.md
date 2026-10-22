@@ -4,6 +4,8 @@ This Windows-only npm companion installs the prebuilt ADO Boost Edge extension i
 
 It requires Node.js 20.19 or newer, or Node.js 22.12 or newer, and an installed GitHub Copilot CLI. The host uses `@github/copilot-sdk` 0.2.2 with the installed CLI path, logged-in user authentication, stdio transport, an isolated empty working directory, no available tools, deny-all permission handling, and configuration discovery disabled.
 
+Grouping session telemetry includes AI credit usage from `assistant.usage.copilotUsage.totalNanoAiu`, summed once per event across model calls. The extension converts nano-AI units to credits by dividing by 1,000,000,000. This is separate from the premium-request multiplier in `assistant.usage.cost`. Missing, incomplete, or invalid billing totals are reported as unavailable rather than estimated from tokens.
+
 ## Commands
 
 ```powershell

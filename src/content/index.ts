@@ -185,6 +185,11 @@ class ContentApp {
               console.error("ADO Boost could not refresh the PR comparison", error);
               this.panel?.reportComparisonError(error);
             });
+          }, {
+            autoGenerate: () => this.settings?.features.autoGenerateCopilotGroups ?? false,
+            toggleAutoGenerate: () => { void this.panel?.toggleGroupingPreference("autoGenerateCopilotGroups"); },
+            showConfirmation: () => this.settings?.features.confirmCopilotGroups ?? true,
+            toggleConfirmation: () => { void this.panel?.toggleGroupingPreference("confirmCopilotGroups"); }
           }), undefined, semanticGroups);
         this.enhancer.start();
         this.counts.setAnalysis(analysis);
