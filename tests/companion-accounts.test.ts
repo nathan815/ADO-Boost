@@ -73,11 +73,26 @@ describe("companion account selector", () => {
         await import("../src/options/index");
         await vi.waitFor(() => expect(document.querySelector<HTMLSelectElement>("#companion-account")?.disabled).toBe(false));
         expect(list).toHaveBeenCalledOnce();
+        expect(document.querySelector("main")?.firstElementChild?.id).toBe("companion-account-settings");
         const search = document.querySelector<HTMLInputElement>("#search")!;
         search.value = "account";
+        search.setSelectionRange(7, 7);
         search.dispatchEvent(new Event("input"));
         expect(document.querySelector("#companion-account")).not.toBeNull();
         expect(list).toHaveBeenCalledOnce();
+        const currentSearch = () => document.querySelector<HTMLInputElement>("#search")!;
+        expect(document.activeElement).toBe(currentSearch());
+        expect(currentSearch().selectionStart).toBe(7);
+        expect(currentSearch().selectionEnd).toBe(7);
+        for (const [start, end, direction] of [[3, 3, "none"], [1, 5, "backward"], [0, 0, "none"]] as const) {
+          currentSearch().setSelectionRange(start, end, direction);
+          currentSearch().dispatchEvent(new Event("input"));
+          expect(document.activeElement).toBe(currentSearch());
+          expect(currentSearch().selectionStart).toBe(start);
+          expect(currentSearch().selectionEnd).toBe(end);
+          expect(currentSearch().selectionDirection).toBe(direction);
+          expect(currentSearch().value).toBe("account");
+        }
       } finally {
         list.mockRestore();
         vi.unstubAllGlobals();

@@ -61,6 +61,7 @@ h2 { font-size: 14px; font-weight: 600; }
 .header-actions .bolt-button { padding: 6px 8px; }
 .companion-toggle { gap: 6px; white-space: nowrap; font-size: 12px; }
 .companion-icon { display: flex; align-items: center; }
+.companion-summary { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .companion-popover-content { width: 300px; max-width: calc(100vw - 32px); max-height: calc(100vh - 80px); overflow-y: auto; color: var(--text-primary-color); background: var(--background-color); border: 1px solid var(--popup-border); border-radius: 4px; }
 .connection { padding: 10px 12px 14px; }
 .connection-status { margin: 8px 0; flex-wrap: wrap; }

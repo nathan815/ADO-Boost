@@ -133,6 +133,7 @@ describe("extension popup", () => {
     const health = vi.fn<PopupDependencies["health"]>().mockResolvedValueOnce({ connected: true, authenticated: false }).mockResolvedValue({ connected: true, authenticated: true, login: "reviewer" });
     const { root } = setup({ health });
     await vi.waitFor(() => expect(root.textContent).toContain("Needs login"));
+    expect(root.querySelector(".companion-username")).toBeNull();
     expect(root.textContent).not.toContain("ado-boost login");
     button(root, "Needs login").click();
     expect(root.textContent).toContain("ado-boost login");
@@ -142,6 +143,25 @@ describe("extension popup", () => {
     button(root, "Refresh").click();
     await vi.waitFor(() => expect(root.textContent).toContain("reviewer"));
     expect(health).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not invent a username when authenticated health does not report one", async () => {
+    const { root } = setup({ health: async () => ({ connected: true, authenticated: true }) });
+    await vi.waitFor(() => expect(root.querySelector(".companion-summary")?.textContent).toBe("Local Copilot"));
+    expect(root.querySelector(".companion-username")).toBeNull();
+  });
+
+  it("clears the header username when a later health check fails", async () => {
+    const health = vi.fn<PopupDependencies["health"]>()
+      .mockResolvedValueOnce({ connected: true, authenticated: true, login: "reviewer" })
+      .mockRejectedValue(new Error("Disconnected"));
+    const { root } = setup({ health });
+    await vi.waitFor(() => expect(root.querySelector(".companion-username")?.textContent).toBe("reviewer"));
+    root.querySelector<HTMLButtonElement>(".companion-toggle")!.click();
+    button(root, "Refresh").click();
+    expect(root.querySelector(".companion-username")).toBeNull();
+    await vi.waitFor(() => expect(root.querySelector(".companion-summary")?.textContent).toBe("Unavailable"));
+    expect(root.querySelector(".companion-username")).toBeNull();
   });
 
   it("shows companion errors without hiding history and exposes retry", async () => {
@@ -160,11 +180,11 @@ describe("extension popup", () => {
 
   it("opens a portaled ADO popover from the compact header and restores focus on Escape", async () => {
     const { root, container, deps } = setup();
-    await vi.waitFor(() => expect(root.textContent).toContain("Connected"));
-    const toggle = button(root, "Connected");
+    await vi.waitFor(() => expect(root.querySelector(".companion-username")?.textContent).toBe("reviewer"));
+    const toggle = root.querySelector<HTMLButtonElement>(".companion-toggle")!;
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(toggle.getAttribute("aria-label")).toBe("Copilot companion: Connected");
-    expect(root.textContent).not.toContain("reviewer");
+    expect(toggle.getAttribute("aria-label")).toBe("Local Copilot: Connected, signed in as reviewer");
+    expect(toggle.textContent).toBe("reviewer");
     toggle.click();
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(root.querySelector(`#${toggle.getAttribute("aria-controls")}`)).not.toBeNull();
@@ -174,6 +194,7 @@ describe("extension popup", () => {
     expect(root.querySelector(".popup .connection")).toBeNull();
     expect(root.querySelector('[role="dialog"]')?.getAttribute("aria-labelledby")).toBe(root.querySelector(".connection h2")?.id);
     expect(root.textContent).toContain("Signed in as reviewer");
+    expect(root.querySelector(".connection h2")?.textContent).toBe("Local Copilot");
     expect(deps.health).toHaveBeenCalledOnce();
     button(root, "Refresh").focus();
     document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
@@ -188,8 +209,8 @@ describe("extension popup", () => {
 
   it("dismisses the companion popover on an outside click", async () => {
     const { root } = setup();
-    await vi.waitFor(() => expect(root.textContent).toContain("Connected"));
-    const toggle = button(root, "Connected");
+    await vi.waitFor(() => expect(root.querySelector(".companion-username")?.textContent).toBe("reviewer"));
+    const toggle = root.querySelector<HTMLButtonElement>(".companion-toggle")!;
     toggle.click();
     root.querySelector<HTMLElement>(".bolt-light-dismiss")!.click();
     expect(root.querySelector(".connection")).toBeNull();
@@ -293,7 +314,10 @@ describe("extension popup", () => {
   it("opens settings and shows errors instead of silently failing", async () => {
     const openSettings = vi.fn().mockRejectedValue(new Error("Cannot open settings"));
     const { root } = setup({ openSettings });
-    button(root, "Settings").click();
+    const settingsButton = root.querySelector<HTMLButtonElement>('.popup-header button[aria-label="Open settings"]')!;
+    expect(settingsButton.querySelector("svg")).not.toBeNull();
+    expect(settingsButton.textContent?.trim()).toBe("");
+    settingsButton.click();
     await vi.waitFor(() => expect(root.textContent).toContain("Cannot open settings"));
     expect(openSettings).toHaveBeenCalledOnce();
   });

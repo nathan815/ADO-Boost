@@ -5,6 +5,7 @@ import spinnerStyles from "azure-devops-ui/Components/Spinner/Spinner.css?inline
 import statusStyles from "azure-devops-ui/Components/Status/Status.css?inline";
 import calloutStyles from "azure-devops-ui/Components/Callout/Callout.css?inline";
 import portalStyles from "azure-devops-ui/Components/Portal/Portal.css?inline";
+import tooltipStyles from "azure-devops-ui/Components/TooltipEx/Tooltip.css?inline";
 import popupStyles from "./popup.css?inline";
 import { RECENT_PRS_KEY } from "../core/recent-prs";
 import { migrateSettings } from "../features/registry";
@@ -21,7 +22,7 @@ async function send<T>(kind: Exclude<PopupMessage["kind"], "record-visit">): Pro
 }
 
 const styles = document.createElement("style");
-styles.textContent = [coreStyles, buttonStyles, linkStyles, spinnerStyles, statusStyles, calloutStyles, portalStyles, popupStyles].join("\n");
+styles.textContent = [coreStyles, buttonStyles, linkStyles, spinnerStyles, statusStyles, calloutStyles, portalStyles, tooltipStyles, popupStyles].join("\n");
 document.head.append(styles);
 const root = document.querySelector<HTMLElement>("#app");
 if (!root) throw new Error("Popup root is missing");
