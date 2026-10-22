@@ -231,7 +231,8 @@ describe("semantic native adapter", () => {
     const options = settings.props.contextualMenuProps;
     if (!record(options) || !record(options.menuProps) || typeof options.onActivate !== "function") throw new Error("Missing settings popover");
     expect(options.menuProps.items).toEqual([
-      { id: "adopp-semantic-session", text: "View details in sidebar", className: "adopp-semantic-session" },
+      { id: "adopp-semantic-session", text: "View details in sidebar", className: "adopp-semantic-menu-action" },
+      ...(generated ? [{ id: "adopp-semantic-regenerate", text: "Regenerate", className: "adopp-semantic-menu-action", disabled: busy }] : []),
       { id: "adopp-semantic-settings-divider", itemType: MenuItemType.Divider },
       { id: "adopp-semantic-settings-heading", text: "Settings", itemType: MenuItemType.Header },
       { id: "adopp-semantic-auto-generate", text: "Auto generate on each PR", checked: false, readonly: true },
@@ -248,6 +249,10 @@ describe("semantic native adapter", () => {
     expect(collapse).toHaveBeenCalledTimes(2);
     options.onActivate({ id: "adopp-semantic-confirmation" });
     expect(f.action).toHaveBeenLastCalledWith("toggle-confirmation", configuration.semantic!.view);
+    f.action.mockClear();
+    options.onActivate({ id: "adopp-semantic-regenerate" });
+    if (generated && !busy) expect(f.action).toHaveBeenCalledExactlyOnceWith("regenerate", configuration.semantic!.view);
+    else expect(f.action).not.toHaveBeenCalled();
     expect(actions.props.children[0]).toBeNull();
     const generation: unknown = actions.props.children[1];
     if (generated) {
@@ -339,7 +344,7 @@ describe("semantic native adapter", () => {
       expect(button.minHeight).toBe("20px");
       expect(button.padding).toBe("0px");
       expect(getComputedStyle(toolbar).paddingTop).toBe("4px");
-      expect(getComputedStyle(toolbar.firstElementChild!).marginBottom).toBe("2px");
+      expect(getComputedStyle(toolbar.firstElementChild!).marginBottom).toBe("6px");
     } finally {
       nativeStyle.remove();
     }
@@ -349,11 +354,12 @@ describe("semantic native adapter", () => {
     fixture();
     const menu = document.createElement("table");
     menu.className = "adopp-semantic-settings";
-    menu.innerHTML = '<tbody><tr class="adopp-semantic-session"><td class="bolt-menuitem-cell"><div class="bolt-menuitem-cell-text">View details in sidebar</div></td></tr><tr role="menuitemcheckbox"><td class="bolt-menuitem-cell"><div class="bolt-menuitem-cell-text">Show confirmation dialog</div></td></tr></tbody>';
+    menu.innerHTML = '<tbody><tr class="adopp-semantic-menu-action"><td class="bolt-menuitem-cell"><div class="bolt-menuitem-cell-text">View details in sidebar</div></td></tr><tr class="adopp-semantic-menu-action"><td class="bolt-menuitem-cell"><div class="bolt-menuitem-cell-text">Regenerate</div></td></tr><tr role="menuitemcheckbox"><td class="bolt-menuitem-cell"><div class="bolt-menuitem-cell-text">Show confirmation dialog</div></td></tr></tbody>';
     document.body.append(menu);
-    const action = menu.querySelector<HTMLElement>(".adopp-semantic-session .bolt-menuitem-cell-text")!;
-    expect(getComputedStyle(action).marginInlineStart).toBe("-26px");
-    expect(getComputedStyle(action.parentElement!).overflow).toBe("visible");
+    for (const action of menu.querySelectorAll<HTMLElement>(".adopp-semantic-menu-action .bolt-menuitem-cell-text")) {
+      expect(getComputedStyle(action).marginInlineStart).toBe("-26px");
+      expect(getComputedStyle(action.parentElement!).overflow).toBe("visible");
+    }
     const toggle = menu.querySelector<HTMLElement>('[role="menuitemcheckbox"] .bolt-menuitem-cell-text')!;
     expect(getComputedStyle(toggle).marginInlineStart).not.toBe("-26px");
   });
@@ -546,6 +552,7 @@ describe("semantic native adapter", () => {
     if (!record(column) || typeof column.renderCell !== "function") throw new Error("Missing native name renderer");
     const cell: unknown = column.renderCell(0, 0, column, { underlyingItem: f.provider.roots[0] });
     if (!react.isValidElement(cell) || !Array.isArray(cell.props.children)) throw new Error("Missing native name cell");
+    expect(cell.props.className).toBe("adopp-semantic-root-cell");
     const tooltip: unknown = cell.props.children[0];
     if (!react.isValidElement(tooltip) || typeof tooltip.props.renderContent !== "function") throw new Error("Missing rich tooltip");
     const content: unknown = tooltip.props.renderContent();
@@ -561,7 +568,33 @@ describe("semantic native adapter", () => {
     const checkbox = tree.props.columns[1];
     if (!record(checkbox) || typeof checkbox.renderCell !== "function") throw new Error("Missing checkbox renderer");
     expect(JSON.stringify(checkbox.renderCell(0, 1, checkbox, { underlyingItem: f.provider.roots[0] }))).not.toContain("checkbox");
+    const folder = f.provider.roots[0]!.childItems![0]!;
+    const file = nativeFiles([folder])[0]!;
+    for (const node of [folder, file]) {
+      const name: unknown = column.renderCell(0, 0, column, { underlyingItem: node });
+      if (!react.isValidElement(name)) throw new Error("Missing native name cell");
+      expect(name.props.className ?? "").not.toContain("adopp-semantic-root-cell");
+      const reviewed: unknown = checkbox.renderCell(0, 1, checkbox, { underlyingItem: node });
+      if (!react.isValidElement(reviewed) || typeof reviewed.props.children !== "function") throw new Error("Missing native checkbox observer");
+      const body: unknown = reviewed.props.children({ checked: false });
+      if (!react.isValidElement(body)) throw new Error("Missing native checkbox");
+      expect(body.props.children).toBe("checkbox");
+    }
     expect(f.failed).not.toHaveBeenCalled();
+  });
+
+  it("clips compact file and folder name cells away from reviewed checkboxes but leaves synthetic expanders visible", () => {
+    const f = fixture();
+    f.host.element.innerHTML = '<tbody><tr><td class="bolt-tree-cell adopp-semantic-root-cell"><div class="bolt-table-cell-content">Group</div></td></tr><tr><td><button role="checkbox"></button></td><td class="bolt-tree-cell"><div class="bolt-table-cell-content">Folder</div></td></tr><tr><td><button role="checkbox"></button></td><td class="bolt-tree-cell"><div class="bolt-table-cell-content">File</div></td></tr></tbody>';
+    const cells = f.host.element.querySelectorAll(".bolt-tree-cell");
+    expect(getComputedStyle(cells[0]!).overflow).toBe("visible");
+    for (const cell of [cells[1]!, cells[2]!]) {
+      expect(getComputedStyle(cell).overflow).toBe("hidden");
+      expect(getComputedStyle(cell.firstElementChild!).marginInlineStart).toBe("-16px");
+    }
+    adapter!.update({ ...f.configuration, semantic: { ...f.configuration.semantic!, view: { mode: "all", groupId: null } } });
+    expect(f.host.element.hasAttribute("data-adopp-compact-groups")).toBe(false);
+    expect(getComputedStyle(cells[1]!).overflow).not.toBe("hidden");
   });
 });
 

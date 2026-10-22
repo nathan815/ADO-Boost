@@ -800,6 +800,34 @@ describe("ReviewPanel semantic groups", () => {
     expect(root.querySelector(".dialog")).toBeNull();
   });
 
+  it.each([false, true])("preserves the sidebar state through confirmed tree generation with sidebar open=%s", async (open) => {
+    const { root, semanticGroups, state } = await fixture();
+    panel!.openDiscussions();
+    if (!open) root.querySelector<HTMLButtonElement>(".close")!.click();
+    const expectUnchanged = () => {
+      expect(root.querySelector(".rail")!.getAttribute("data-open")).toBe(String(open));
+      expect(root.querySelector("#discussions-tab")!.getAttribute("aria-selected")).toBe("true");
+      expect(root.querySelector("#groups-tab")!.getAttribute("aria-selected")).toBe("false");
+    };
+    panel!.requestSemanticGroups();
+    expect(root.querySelector<HTMLDialogElement>("dialog")!.open).toBe(true);
+    expectUnchanged();
+    root.querySelector<HTMLButtonElement>(".cancel")!.click();
+    expectUnchanged();
+    expect(semanticGroups).not.toHaveBeenCalled();
+
+    let complete!: (result: CopilotGroupResult) => void;
+    semanticGroups.mockImplementation(() => new Promise((resolve) => { complete = resolve; }));
+    panel!.requestSemanticGroups();
+    root.querySelector<HTMLButtonElement>(".confirm-context")!.click();
+    await vi.waitFor(() => expect(semanticGroups).toHaveBeenCalledOnce());
+    expect(state.processing).toBe(true);
+    expectUnchanged();
+    complete(groupResult());
+    await vi.waitFor(() => expect(state.processing).toBe(false));
+    expectUnchanged();
+  });
+
   it("preserves questions across tabs and switches to Discussions when drafting a Copilot answer", async () => {
     const { root, settings, chat } = await fixture();
     panel!.updateSettings({ ...settings, features: { ...settings.features, copilotChat: true } });

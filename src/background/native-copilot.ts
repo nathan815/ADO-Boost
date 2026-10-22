@@ -9,6 +9,14 @@ interface Pending {
 
 type NativeRuntime = Pick<typeof chrome.runtime, "connectNative" | "getURL" | "lastError">;
 
+function connectionError(cause?: unknown): Error {
+  const detail = cause instanceof Error ? cause.message : typeof cause === "string" ? cause : "";
+  const missing = /native (?:messaging )?host not found|native application not found/i.test(detail);
+  return new Error(missing
+    ? "ADO Boost companion not found. Install the companion or run ado-boost setup to register it with your browser, then refresh this page."
+    : "Can't connect to the ADO Boost companion. Run ado-boost doctor to check the installation, then try again.", { cause });
+}
+
 export class NativeCopilotClient {
   private port: chrome.runtime.Port | null = null;
   private readonly pending = new Map<string, Pending>();
@@ -52,16 +60,21 @@ export class NativeCopilotClient {
 
   private async connect(): Promise<void> {
     if (this.port && this.hello) return this.hello;
-    const port = this.runtime.connectNative(HOST_NAME);
+    let port: chrome.runtime.Port;
+    try {
+      port = this.runtime.connectNative(HOST_NAME);
+    } catch (error) {
+      throw connectionError(error);
+    }
     this.port = port;
     port.onMessage.addListener((message: unknown) => {
       if (this.port === port) this.onMessage(message);
     });
     port.onDisconnect.addListener(() => {
-      const detail = this.runtime.lastError?.message ?? "Native Copilot companion disconnected";
+      const detail = this.runtime.lastError?.message;
       if (this.port !== port) return;
       this.clearIdle();
-      this.rejectPending(new Error(detail));
+      this.rejectPending(connectionError(detail));
       this.port = null;
       this.hello = null;
     });
@@ -77,7 +90,7 @@ export class NativeCopilotClient {
 
   private send(type: string, payload: Record<string, unknown>, timeoutMs?: number): Promise<unknown> {
     const port = this.port;
-    if (!port) return Promise.reject(new Error("Native Copilot companion is disconnected"));
+    if (!port) return Promise.reject(connectionError());
     this.clearIdle();
     const id = crypto.randomUUID();
     return new Promise<unknown>((resolve, reject) => {
@@ -92,7 +105,7 @@ export class NativeCopilotClient {
       } catch (error) {
         if (timer) clearTimeout(timer);
         this.pending.delete(id);
-        reject(error instanceof Error ? error : new Error("Unable to send native companion request"));
+        reject(connectionError(error));
         this.scheduleIdle();
       }
     });

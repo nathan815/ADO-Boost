@@ -204,9 +204,6 @@ export class ReviewPanel {
   requestSemanticGroups(): void {
     if (this.destroyed || this.copilotBusy || this.groupConfirmation || !this.semanticGroups.enabled) return;
     if (this.settings.features.confirmCopilotGroups) {
-      this.selectTab("groups");
-      this.open = true;
-      this.render();
       this.showGroupConfirmation();
     } else void this.loadCopilotGroups(this.dependencies.analysis.files);
   }

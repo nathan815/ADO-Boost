@@ -36,7 +36,7 @@ export class SemanticToolbar {
     this.style.textContent = `
       [data-adopp-semantic-toolbar] { position: sticky; top: 0; z-index: 1; padding: 4px 12px 6px; flex-shrink: 0; min-width: 0; background: var(--background-color); font: 12px "Segoe UI",sans-serif; }
       [data-adopp-semantic-scroll] { background-image: linear-gradient(to bottom, transparent var(--adopp-semantic-background-start), var(--background-color) var(--adopp-semantic-background-start), var(--background-color) var(--adopp-semantic-background-end), transparent var(--adopp-semantic-background-end)); background-origin: border-box; background-repeat: no-repeat; }
-      .adopp-semantic-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 2px; color: var(--text-primary-color); }
+      .adopp-semantic-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; color: var(--text-primary-color); }
       .adopp-semantic-title { color: inherit; background: none; border: 0; padding: 0; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; text-align: left; }
       .adopp-semantic-header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
       .adopp-semantic-regenerate { color: var(--communication-foreground, var(--text-link-color)); background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
@@ -44,8 +44,8 @@ export class SemanticToolbar {
       .adopp-semantic-stale { color: #9c4a00; background: #fff0dc; border: 1px solid #e5a44b; border-radius: 3px; padding: 0 4px; font-size: 10px; line-height: 16px; }
       [data-adopp-semantic-toolbar] .bolt-button.adopp-semantic-settings-button { width:20px; height:20px; min-height:20px; padding:0; font-size:12px; }
       .adopp-semantic-settings .bolt-menuitem-header { font-size: 10px; }
-      .adopp-semantic-settings .adopp-semantic-session > .bolt-menuitem-cell { overflow: visible; }
-      .adopp-semantic-settings .adopp-semantic-session .bolt-menuitem-cell-text { margin-inline-start: -26px; }
+      .adopp-semantic-settings .adopp-semantic-menu-action > .bolt-menuitem-cell { overflow: visible; }
+      .adopp-semantic-settings .adopp-semantic-menu-action .bolt-menuitem-cell-text { margin-inline-start: -26px; }
       .adopp-semantic-spinner { display:inline-block; width:10px; height:10px; margin-right:6px; border:2px solid var(--text-disabled-color); border-top-color:var(--communication-foreground); border-radius:50%; animation:adopp-semantic-spin 1s linear infinite!important; }
       @keyframes adopp-semantic-spin { to { transform:rotate(360deg); } }
       .adopp-semantic-dropdown { width: 100%; height: 24px; min-height: 24px; font-size: 12px; }
@@ -56,7 +56,8 @@ export class SemanticToolbar {
       .adopp-semantic-option-description { margin-top: 3px; font-size: 12px; line-height: 17px; color: var(--text-secondary-color); white-space: normal; overflow-wrap: anywhere; }
       .adopp-semantic-description, .adopp-semantic-message { margin: 6px 0 0; line-height: 1.5; color: var(--text-secondary-color); overflow-wrap: anywhere; }
       .adopp-semantic-message[role="alert"] { color: var(--status-error-foreground); }
-      .repos-file-explorer-tree[data-adopp-compact-groups] .bolt-tree-cell { overflow: visible; }
+      .repos-file-explorer-tree[data-adopp-compact-groups] .bolt-tree-cell { overflow: hidden; }
+      .repos-file-explorer-tree[data-adopp-compact-groups] .adopp-semantic-root-cell { overflow: visible; }
       .repos-file-explorer-tree[data-adopp-compact-groups] .bolt-tree-cell > .bolt-table-cell-content { margin-inline-start: -16px; }
     `;
     document.head.append(this.style);
@@ -153,7 +154,8 @@ export class SemanticToolbar {
               menuProps: {
                 id: "adopp-semantic-settings", ariaLabel: "Copilot Groups settings",
                 items: [
-                  { id: "adopp-semantic-session", text: "View details in sidebar", className: "adopp-semantic-session" },
+                  { id: "adopp-semantic-session", text: "View details in sidebar", className: "adopp-semantic-menu-action" },
+                  ...(hasGroups ? [{ id: "adopp-semantic-regenerate", text: "Regenerate", className: "adopp-semantic-menu-action", disabled: semantic.busy }] : []),
                   { id: "adopp-semantic-settings-divider", itemType: MenuItemType.Divider },
                   { id: "adopp-semantic-settings-heading", text: "Settings", itemType: MenuItemType.Header },
                   { id: "adopp-semantic-auto-generate", text: "Auto generate on each PR", checked: semantic.autoGenerate === true, readonly: true },
@@ -163,6 +165,7 @@ export class SemanticToolbar {
               onActivate: (item: { id: string }) => {
                 this.settingsMenu?.collapse();
                 if (item.id === "adopp-semantic-session") this.action("view-session", semantic.view);
+                else if (item.id === "adopp-semantic-regenerate" && hasGroups && !semantic.busy) this.action("regenerate", semantic.view);
                 else if (item.id === "adopp-semantic-auto-generate") this.action("toggle-auto-generate", semantic.view);
                 else if (item.id === "adopp-semantic-confirmation") this.action("toggle-confirmation", semantic.view);
               }
