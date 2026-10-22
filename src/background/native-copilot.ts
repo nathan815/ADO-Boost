@@ -31,11 +31,11 @@ export class NativeCopilotClient {
   }
 
   async request(type: string, payload: Record<string, unknown> = {}): Promise<unknown> {
-    const inference = type !== "health";
+    const inference = type === "semantic-groups" || type === "chat";
     if (inference) this.inferenceRequests++;
     try {
       await this.connect();
-      return await this.send(type, payload, type === "health" ? this.timeoutMs : undefined);
+      return await this.send(type, payload, inference ? undefined : type === "select-account" ? 45_000 : this.timeoutMs);
     } finally {
       if (inference) this.inferenceRequests--;
     }
@@ -134,6 +134,6 @@ export class NativeCopilotClient {
     if (this.pending.size) return;
     this.idleTimer = setTimeout(() => {
       if (!this.pending.size) this.disconnect();
-    }, 30_000);
+    }, 120_000);
   }
 }

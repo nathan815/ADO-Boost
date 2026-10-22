@@ -15,6 +15,7 @@ import { parseCopilotGroupResult, parseCopilotHealth, type CopilotGroupResult } 
 import { isPopupMessage, PopupService } from "./popup-service";
 import { writeFailure } from "../core/write-gateway";
 import { startWorkspaceService } from "../workspace/background";
+import { CompanionAccountsService, isCompanionAccountsMessage } from "./companion-accounts";
 
 startWorkspaceService();
 
@@ -24,6 +25,7 @@ const settingsStorage = new ChromeSettingsStorage();
 const settings = new SettingsService(settingsStorage);
 const writes = new SerialExecutor();
 const copilot = new NativeCopilotClient();
+const companionAccounts = new CompanionAccountsService(copilot, chrome.runtime.id, chrome.runtime.getURL("options.html"));
 const popup = new PopupService({
   extensionId: chrome.runtime.id,
   popupUrl: chrome.runtime.getURL("popup.html"),
@@ -39,6 +41,12 @@ settings.subscribe((current) => {
 });
 
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+  if (isCompanionAccountsMessage(message)) {
+    void companionAccounts.handle(message, sender)
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Companion account request failed" }));
+    return true;
+  }
   if (isPopupMessage(message)) {
     void popup.handle(message, sender)
       .then((data) => sendResponse({ ok: true, data }))

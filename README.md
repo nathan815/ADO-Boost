@@ -89,6 +89,8 @@ The dashboard and feed retain progressive loading, starting with the last 90 day
 
 The Windows-only companion enables the default-off Copilot features through an installed GitHub Copilot CLI. Core extension features work without it.
 
+Choose a signed-in GitHub account during companion setup (`ado-boost setup --account <github-username>`) or in **Copilot account** at the top of settings. Settings loads available accounts from the companion; choosing one saves the pin and switches the live connection, cancelling old-account requests. The popup header shows the signed-in username beside the connection checkmark; its tooltip and connection details identify **Local Copilot**. The companion reuses that account's Windows credential-store sign-in without changing your globally active CLI account. It verifies the pinned username and GitHub host before sending PR context and blocks mismatches rather than using another account. The pin is independent of the Azure DevOps browser login and survives companion upgrades.
+
 Enable **Copilot semantic groups** in settings, then use **Generate** above the native file tree or in the sidebar's **Copilot Groups** tab. The separate **Discussions** tab keeps feedback and threads accessible without scrolling past groups. The first manual generation confirms that all PR files and context will be sent to Copilot running locally, without a file-selection step. All changed-file paths and counts are included; changed-line excerpts retain the existing limits of 20 files, 200 changed lines per file, 32 KB per file, and 128 KB total. **Always show this confirmation dialog** reflects the current confirmation preference and is checked by default. Uncheck it before sending to skip future manual confirmations. You can restore confirmation in settings or the file-tree gear menu.
 
 Enable **Copilot PR questions** to show a separate **Chat** tab for questions, answers, and converting an answer into a private feedback draft. Chat stays separate from group generation, remembers your question when switching tabs, and uses the existing context confirmation before sending a question. Each sidebar tab keeps its own scroll position.
@@ -109,7 +111,7 @@ When a Copilot feature is enabled, a connection indicator appears on the right o
 
 Groups are local to the analyzed comparison; cached generation results may be reused after a page reload for the same comparison. Native filters compose with group membership, and switching views never sends context to a model or changes reviewed state. If native integration is incompatible or the comparison is only partially loaded, ordinary ADO browsing remains available and results stay accessible in the sidebar's **Copilot Groups** tab. The original design, folder-scoping architecture, limits, and compatibility findings are documented in the [semantic group native file-tree specification](docs/specs/semantic-group-native-file-tree-spec.md); the generation controls and confirmation preferences above supersede its original always-confirm interaction.
 
-The toolbar popup checks the companion automatically, even when optional Copilot features are disabled or no PR is open. This may start the native host and Copilot CLI on demand; it checks connectivity and sign-in without sending PR content or running an AI request. The host disconnects after it becomes idle; the popup is not a persistent process monitor. A connected host can still require `ado-boost login`. If the browser cannot find the companion, connection errors explain that it needs to be installed or registered with `ado-boost setup`. Other connection failures direct you to run `ado-boost doctor` and try again.
+The toolbar popup checks the companion automatically, even when optional Copilot features are disabled or no PR is open. This may start the native host and Copilot CLI on demand; it checks connectivity and sign-in without sending PR content or running an AI request. The host disconnects after two minutes with no pending requests; the popup is not a persistent process monitor. A connected host can still require `ado-boost login`. If the browser cannot find the companion, connection errors explain that it needs to be installed or registered with `ado-boost setup`. Other connection failures direct you to run `ado-boost doctor` and try again.
 
 See [ADO Boost companion](companion/README.md) for requirements, setup, diagnostics, login, and removal commands.
 
@@ -123,6 +125,16 @@ npm run typecheck
 npm test
 npm run build
 ```
+
+`npm test` scans only the extension's root `tests` directory. The Windows companion has its own dependencies and test working directory; run its checks separately on Windows:
+
+```powershell
+npm --prefix companion ci
+npm --prefix companion run typecheck
+npm --prefix companion test
+```
+
+CI runs both suites in their respective Extension and Windows companion jobs.
 
 To run the synthetic offline fixture:
 

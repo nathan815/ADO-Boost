@@ -18,7 +18,7 @@
     "release:version:check": "node scripts/release-version.mjs check",
     "release:version:set": "node scripts/release-version.mjs set",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run tests",
+    "test": "vitest run --dir tests",
     "test:watch": "vitest"
   },
   "dependencies": {

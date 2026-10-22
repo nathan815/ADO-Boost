@@ -61,6 +61,7 @@ h2 { font-size: 14px; font-weight: 600; }
 .header-actions .bolt-button { padding: 6px 8px; }
 .companion-toggle { gap: 6px; white-space: nowrap; font-size: 12px; }
 .companion-icon { display: flex; align-items: center; }
+.companion-summary { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .companion-popover-content { width: 300px; max-width: calc(100vw - 32px); max-height: calc(100vh - 80px); overflow-y: auto; color: var(--text-primary-color); background: var(--background-color); border: 1px solid var(--popup-border); border-radius: 4px; }
 .connection { padding: 10px 12px 14px; }
 .connection-status { margin: 8px 0; flex-wrap: wrap; }
@@ -68,6 +69,10 @@ h2 { font-size: 14px; font-weight: 600; }
 .login { overflow-wrap: anywhere; }
 .connection-detail { margin-bottom: 8px; }
 .connection-detail p + p { margin-top: 5px; }
+.connection-diagnostics { margin: 0 0 8px; font-size: 12px; }
+.connection-diagnostics > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 8px; padding: 3px 0; }
+.connection-diagnostics dt { color: var(--text-secondary-color); }
+.connection-diagnostics dd { margin: 0; overflow-wrap: anywhere; }
 .muted { color: var(--text-secondary-color); }
 .error { color: var(--popup-error); overflow-wrap: anywhere; }
 .recent { min-height: 0; }

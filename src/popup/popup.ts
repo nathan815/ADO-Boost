@@ -12,6 +12,7 @@ import type { CopilotHealth } from "../core/copilot-gateway";
 import type { RecentPr } from "../core/recent-prs";
 import type { FeatureSettings } from "../features/registry";
 import { reviewStatusFor, reviewStatusLabels, type ReviewActivity } from "../core/review-activity";
+import settingsSvg from "../ui/icons/settings.svg?raw";
 
 export const POPUP_TAB_KEY = "popup-tab:v1";
 export const popupTabs = ["recent", "reviewing", "reviewed"] as const;
@@ -193,6 +194,7 @@ export class ExtensionPopup {
     const status = this.checking ? "Checking"
       : this.healthError || !this.health?.connected ? "Unavailable"
       : this.health.authenticated ? "Connected" : "Needs login";
+    const login = status === "Connected" ? this.health?.login : undefined;
     const entries = this.selectedTab === "recent" ? this.entries : this.reviews.filter((pr) => pr.reviewStatus === this.selectedTab);
     render(h("div", {
       className: "popup",
@@ -210,15 +212,18 @@ export class ExtensionPopup {
           h("h1", null, "ADO Boost")),
         h("div", { className: "header-actions" },
           h(Button, {
-            className: "companion-toggle", subtle: true, ariaLabel: `Copilot companion: ${status}`,
+            className: "companion-toggle", subtle: true, ariaLabel: `Local Copilot: ${status}${login ? `, signed in as ${login}` : ""}`,
+            tooltipProps: { text: login ? `Local Copilot: ${login}` : `Local Copilot: ${status}` },
             ariaExpanded: this.connectionExpanded, ariaControls: "companion-details",
             onClick: () => { this.connectionExpanded = !this.connectionExpanded; this.render(); }
           },
           h("span", { className: "companion-icon", "aria-hidden": true },
             this.checking ? h(Spinner, { size: SpinnerSize.small, ariaLive: "off" })
               : h(Status, { ...(this.healthError || !this.health?.connected ? Statuses.Failed : this.health.authenticated ? Statuses.Success : Statuses.Warning), size: StatusSize.m })),
-          h("span", { role: "status", "aria-live": "polite" }, status)),
-          h(Button, { text: "Settings", subtle: true, onClick: () => void this.openSettings() }))),
+          h("span", { className: `companion-summary${login ? " companion-username" : ""}`, role: "status", "aria-live": "polite" },
+            login || (status === "Connected" ? "Local Copilot" : status))),
+          h(Button, { subtle: true, ariaLabel: "Open settings", tooltipProps: { text: "Settings" }, onClick: () => void this.openSettings() },
+            h("span", { className: "companion-icon", "aria-hidden": true, dangerouslySetInnerHTML: { __html: settingsSvg } })))),
       this.connectionExpanded ? this.renderConnectionDetails(status) : null,
       this.renderTabs(),
       h("section", { className: "recent", id: "pr-tabpanel", role: "tabpanel", "aria-labelledby": `tab-${this.selectedTab}` },
@@ -290,15 +295,36 @@ export class ExtensionPopup {
       onDismiss: () => this.closeConnectionDetails()
     }, h("section", { className: "connection" },
       h("div", { className: "section-heading" },
-        h("h2", { id: getSafeId("companion-heading") }, "Copilot companion"),
+        h("h2", { id: getSafeId("companion-heading") }, "Local Copilot"),
         h(Button, { text: "Refresh", subtle: true, autoFocus: true, disabled: this.checking, ariaLabel: "Refresh companion connection", onClick: () => void this.refreshHealth() })),
       h("div", { className: "connection-status", role: "status", "aria-live": "polite" },
         h("strong", null, status),
         !this.checking && this.health?.connected && this.health.authenticated && this.health.login ? h("span", { className: "muted login" }, `Signed in as ${this.health.login}`) : null),
+      !this.checking && this.health?.connected ? this.renderConnectionDiagnostics(this.health) : null,
       this.healthError ? h("div", { className: "connection-detail" },
         h("p", { className: "error", role: "alert" }, this.healthError),
         h("p", { className: "muted" }, "Run ado-boost doctor to check the host and CLI, then refresh.")) : null,
       !this.checking && this.health?.connected && !this.health.authenticated ? h("p", { className: "muted" }, this.health.detail ?? "Run ado-boost login, then refresh.") : null));
+  }
+
+  private renderConnectionDiagnostics(health: CopilotHealth) {
+    const details: Array<[string, string]> = [];
+    if (health.companion) {
+      if (health.companion.version) details.push(["Companion version", health.companion.version]);
+      const seconds = health.companion.uptimeSeconds;
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor(seconds % 3600 / 60);
+      const uptime = hours ? `${hours}h ${minutes}m` : minutes ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
+      details.push(["Companion PID", String(health.companion.pid)], ["Uptime", uptime]);
+    }
+    if (health.cliVersion) details.push(["Copilot CLI", health.cliVersion]);
+    if (health.host) details.push(["GitHub host", health.host]);
+    if (health.protocolVersion !== undefined) details.push(["Host protocol", String(health.protocolVersion)]);
+    if (!details.length) return null;
+    return h("div", { className: "connection-detail" },
+      h("dl", { className: "connection-diagnostics" }, details.map(([label, value]) =>
+        h("div", { key: label }, h("dt", null, label), h("dd", null, value)))),
+      h("p", { className: "muted" }, "Details reflect the last check. The companion may restart after being idle."));
   }
 
   private closeConnectionDetails(): void {
