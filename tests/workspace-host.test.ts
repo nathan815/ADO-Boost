@@ -65,10 +65,10 @@ describe("workspace host lifecycle", () => {
   });
 
   it.each([
-    ["https://dev.azure.com/org/Project%20Space/_git/repo/pullrequest/42?_a=files&path=old#diff", "https://dev.azure.com/org/Project%20Space?adoBoostPrHub=dashboard"],
-    ["https://dev.azure.com/org/project/_workitems/edit/42?query=old", "https://dev.azure.com/org/project?adoBoostPrHub=dashboard"],
-    ["https://org.visualstudio.com/Project%20Space/_git/repo/pullrequests?_a=mine", "https://org.visualstudio.com/Project%20Space?adoBoostPrHub=dashboard"]
-  ])("opens PR Hub at project Overview from %s", (source, destination) => {
+    ["https://dev.azure.com/org/Project%20Space/_git/repo/pullrequest/42?_a=files&path=old#diff", "https://dev.azure.com/org/Project%20Space?adoBoostPrHome=dashboard"],
+    ["https://dev.azure.com/org/project/_workitems/edit/42?query=old", "https://dev.azure.com/org/project?adoBoostPrHome=dashboard"],
+    ["https://org.visualstudio.com/Project%20Space/_git/repo/pullrequests?_a=mine", "https://org.visualstudio.com/Project%20Space?adoBoostPrHome=dashboard"]
+  ])("opens PR Home at project Overview from %s", (source, destination) => {
     vi.stubGlobal("location", new URL(source));
     host.update(true);
     const entry = document.querySelector<HTMLAnchorElement>("[data-ado-boost-workspace=entry]")!;
@@ -133,7 +133,7 @@ describe("workspace host lifecycle", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("keeps modified PR Hub clicks as normal canonical links", () => {
+  it("keeps modified PR Home clicks as normal canonical links", () => {
     history.replaceState(null, "", "/org/project/_git/repo");
     host.update(true);
     const entry = document.querySelector<HTMLAnchorElement>("[data-ado-boost-workspace=entry]")!;
@@ -141,7 +141,7 @@ describe("workspace host lifecycle", () => {
     entry.addEventListener("click", (event) => { prevented = event.defaultPrevented; event.preventDefault(); });
     entry.dispatchEvent(new MouseEvent("click", { ctrlKey: true, bubbles: true, cancelable: true }));
     expect(prevented).toBe(false);
-    expect(entry.href).toBe("https://dev.azure.com/org/project?adoBoostPrHub=dashboard");
+    expect(entry.href).toBe("https://dev.azure.com/org/project?adoBoostPrHome=dashboard");
     expect(document.querySelector("iframe")).toBeNull();
   });
 
@@ -174,17 +174,17 @@ describe("workspace host lifecycle", () => {
     host.update(true);
     const entry = document.querySelector<HTMLAnchorElement>("[data-ado-boost-workspace=entry]")!;
     entry.click();
-    expect(location.href).toBe("https://dev.azure.com/org/project?adoBoostPrHub=dashboard");
+    expect(location.href).toBe("https://dev.azure.com/org/project?adoBoostPrHome=dashboard");
     const frame = document.querySelector("iframe");
     messages[0]!({ kind: "navigate", view: "people" });
     entry.click();
-    expect(location.href).toBe("https://dev.azure.com/org/project?adoBoostPrHub=dashboard");
+    expect(location.href).toBe("https://dev.azure.com/org/project?adoBoostPrHome=dashboard");
     expect(document.querySelector("iframe")).toBe(frame);
     expect(disconnect).not.toHaveBeenCalled();
   });
 
   it("preserves native URL parameters on existing deep workspace links through tab changes and closing", () => {
-    history.replaceState(null, "", "/org/project/_git/repo/pullrequests?_a=mine&keep=1&adoBoostPrHub=dashboard");
+    history.replaceState(null, "", "/org/project/_git/repo/pullrequests?_a=mine&keep=1&adoBoostPrHome=dashboard");
     host.update(true);
     const frame = document.querySelector("iframe");
     messages[0]!({ kind: "navigate", view: "people" });
@@ -193,7 +193,7 @@ describe("workspace host lifecycle", () => {
     expect(location.href).toBe("https://dev.azure.com/org/project/_git/repo/pullrequests?_a=mine&keep=1");
   });
 
-  it("suppresses native selection only while PR Hub is open and restores native styles on exit", async () => {
+  it("suppresses native selection only while PR Home is open and restores native styles on exit", async () => {
     const nativeStyles = document.createElement("style");
     nativeStyles.textContent = ".project-navigation .displayed-container, .project-navigation .navigation-link.displayed { background-color: rgb(200, 200, 200); } .project-navigation .navigation-link.displayed .navigation-text { font-weight: 600; }";
     document.body.append(nativeStyles);
@@ -221,13 +221,13 @@ describe("workspace host lifecycle", () => {
     expect(getComputedStyle(replacement).backgroundColor).toBe("rgb(200, 200, 200)");
   });
 
-  it("puts PR Hub before native navigation links with the ADO Boost icon", async () => {
+  it("puts PR Home before native navigation links with the ADO Boost icon", async () => {
     document.querySelector(".project-navigation")!.innerHTML = '<div class="navigation-section" role="menubar"><a href="/org/project">Overview</a></div>';
-    await vi.waitFor(() => expect(document.querySelector(".navigation-section")?.firstElementChild?.textContent).toBe("PR Hub"));
+    await vi.waitFor(() => expect(document.querySelector(".navigation-section")?.firstElementChild?.textContent).toBe("PR Home"));
     const entry = document.querySelector<HTMLAnchorElement>("[data-ado-boost-workspace=entry]")!;
     expect(entry.querySelector("img")?.src).toBe("chrome-extension://test/icons/ado-boost.svg");
     expect(entry.getAttribute("role")).toBe("menuitem");
-    expect(entry.querySelector(".expanded-only")?.textContent).toBe("PR Hub");
+    expect(entry.querySelector(".expanded-only")?.textContent).toBe("PR Home");
     entry.click();
     expect(entry.getAttribute("aria-current")).toBe("page");
     messages[0]!({ kind: "close" });
@@ -242,7 +242,7 @@ describe("workspace host lifecycle", () => {
     expect(document.querySelectorAll("iframe")).toHaveLength(1);
     expect(document.querySelector(".region-content")?.classList.contains("ado-boost-workspace-hidden")).toBe(true);
     expect(document.getElementById("native")).toBe(native);
-    expect(location.href).toBe("https://dev.azure.com/org/project?adoBoostPrHub=dashboard");
+    expect(location.href).toBe("https://dev.azure.com/org/project?adoBoostPrHome=dashboard");
     host.update(true);
     expect(document.querySelectorAll("iframe")).toHaveLength(1);
     messages[0]!({ kind: "close" });
@@ -271,7 +271,7 @@ describe("workspace host lifecycle", () => {
   it("handles extension route Back/Forward without reusing the wrong view", async () => {
     document.querySelector<HTMLAnchorElement>("[data-ado-boost-workspace=entry]")!.click();
     const first = document.querySelector("iframe");
-    history.replaceState(null, "", `${location.pathname}?adoBoostPrHub=feed&_a=mine`);
+    history.replaceState(null, "", `${location.pathname}?adoBoostPrHome=feed&_a=mine`);
     dispatchEvent(new PopStateEvent("popstate"));
     await vi.waitFor(() => expect(document.querySelector<HTMLIFrameElement>("iframe")?.dataset.route).toBe("feed|"));
     expect(document.querySelector("iframe")).toBe(first);

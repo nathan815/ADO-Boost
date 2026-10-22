@@ -80,11 +80,11 @@ export class WorkspaceHost {
       iconContainer.className = "navigation-icon flex-row flex-center flex-noshrink justify-center";
       iconContainer.append(icon);
       const label = document.createElement("span");
-      label.textContent = "PR Hub";
+      label.textContent = "PR Home";
       label.className = "navigation-text expanded-only text-ellipsis flex-grow";
       this.entry.append(iconContainer, label);
-      this.entry.title = "PR Hub - ADO Boost";
-      this.entry.setAttribute("aria-label", "PR Hub");
+      this.entry.title = "PR Home - ADO Boost";
+      this.entry.setAttribute("aria-label", "PR Home");
       if (nav.getAttribute("role") === "menubar") this.entry.setAttribute("role", "menuitem");
       this.entry.href = this.workspaceUrl("dashboard");
       this.entry.dataset.adoBoostWorkspace = "entry";
@@ -102,7 +102,7 @@ export class WorkspaceHost {
       nav.prepend(this.entry);
     }
     if (this.entry) this.entry.href = this.workspaceUrl("dashboard");
-    const view = new URL(location.href).searchParams.get("adoBoostPrHub");
+    const view = new URL(location.href).searchParams.get("adoBoostPrHome");
     if (this.entry) {
       if (view) this.entry.setAttribute("aria-current", "page");
       else this.entry.removeAttribute("aria-current");
@@ -232,14 +232,14 @@ export class WorkspaceHost {
     this.cancelHomeNavigation();
     const overview = document.querySelector<HTMLAnchorElement>(".project-navigation #__bolt-ms-vss-web-home-hub-group-link");
     if (!overview || new URL(overview.href).origin !== destination.origin || new URL(overview.href).pathname !== destination.pathname) {
-      this.reportNavigationError("ADO Boost could not find the project's Overview link. Open Overview, then select PR Hub again.");
+      this.reportNavigationError("ADO Boost could not find the project's Overview link. Open Overview, then select PR Home again.");
       return;
     }
     const deadline = Date.now() + 15_000;
     const timer = setInterval(() => {
       if (Date.now() >= deadline) {
         this.cancelHomeNavigation();
-        this.reportNavigationError("ADO Boost could not open project Overview. Select Overview, then try PR Hub again.");
+        this.reportNavigationError("ADO Boost could not open project Overview. Select Overview, then try PR Home again.");
       } else this.check();
     }, 100);
     this.homeNavigation = { destination, sourcePath: location.pathname, timer };
@@ -264,18 +264,18 @@ export class WorkspaceHost {
   private workspaceUrl(view: string): string {
     const current = new URL(location.href);
     const context = organizationContext(current);
-    if (!context) throw new Error("PR Hub requires an Azure DevOps organization.");
+    if (!context) throw new Error("PR Home requires an Azure DevOps organization.");
     const project = current.pathname.split("/").filter(Boolean)[current.hostname === "dev.azure.com" ? 1 : 0];
     const url = new URL(context.base);
     if (project && !project.startsWith("_")) url.pathname = `${url.pathname.replace(/\/$/, "")}/${project}`;
-    url.searchParams.set("adoBoostPrHub", view);
+    url.searchParams.set("adoBoostPrHome", view);
     return url.href;
   }
 
   private navigate(view: string | null, person?: string): void {
     const url = new URL(location.href);
-    if (view) url.searchParams.set("adoBoostPrHub", view);
-    else url.searchParams.delete("adoBoostPrHub");
+    if (view) url.searchParams.set("adoBoostPrHome", view);
+    else url.searchParams.delete("adoBoostPrHome");
     if (person) url.searchParams.set("adoBoostPerson", person);
     else url.searchParams.delete("adoBoostPerson");
     if (url.href !== location.href) history.pushState(null, "", url);

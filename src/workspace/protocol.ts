@@ -94,7 +94,7 @@ export function workspaceRoute(url: URL): WorkspaceRoute {
   try {
     subject = personSchema.safeParse(JSON.parse(url.searchParams.get("adoBoostPerson") ?? "null")).data ?? null;
   } catch { /* Invalid profile links open the viewer's profile instead. */ }
-  return workspaceRouteSchema.safeParse({ view: url.searchParams.get("adoBoostPrHub"), subject }).data ?? { view: "dashboard", subject };
+  return workspaceRouteSchema.safeParse({ view: url.searchParams.get("adoBoostPrHome"), subject }).data ?? { view: "dashboard", subject };
 }
 
 export function organizationContext(url: URL): WorkspaceContext | null {

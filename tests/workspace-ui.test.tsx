@@ -59,6 +59,7 @@ describe("workspace views", () => {
     });
     await act(async () => { render(<WorkspaceApp {...props} />, root); });
     expect(ready).toBe(true);
+    expect(root.querySelector(".brand")?.textContent).toBe("PR Home");
     expect([...root.querySelectorAll(".workspace-tabs > div > button")].map((button) => button.textContent)).toEqual([
       "My PRs", "Activity feed", "Profile", "Projects", "People"
     ]);

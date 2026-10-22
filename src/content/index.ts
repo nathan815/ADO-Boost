@@ -112,7 +112,7 @@ class ContentApp {
     if (!settingsOnly && url === this.currentUrl) return;
     this.currentUrl = url;
     const route = parsePrRoute(new URL(url));
-    const workspaceOpen = new URL(url).searchParams.has("adoBoostPrHub") && resolveFeature(this.settings, "workspace").enabled;
+    const workspaceOpen = new URL(url).searchParams.has("adoBoostPrHome") && resolveFeature(this.settings, "workspace").enabled;
     const routeKey = route ? `${route.origin}|${route.organization}|${route.project}|${route.repository}|${route.pullRequestId}` : "";
     if (!workspaceOpen && this.settings.masterEnabled && resolveFeature(this.settings, "prOverview").enabled
       && routeKey && routeKey === this.currentRouteKey && this.panel && this.enhancer) {

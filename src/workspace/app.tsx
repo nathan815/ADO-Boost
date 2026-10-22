@@ -84,7 +84,7 @@ export function WorkspaceApp(dependencies: WorkspaceDependencies) {
   const view = !session.preferences.projects.length ? "projects" : session.view;
   return <div className="workspace">
     <header className="workspace-header"><div className="workspace-identity"><img className="brand-icon" src="./icons/ado-boost.svg" alt="" width="32" height="32" />
-      <div><span className="brand">PR Hub</span><span className="brand-caption">ADO Boost<span className="organization">{session.context.organization}</span></span></div></div>
+      <div><span className="brand">PR Home</span><span className="brand-caption">ADO Boost<span className="organization">{session.context.organization}</span></span></div></div>
       <div className="header-actions"><PersonLink person={session.viewer} context={session.context} open={openPerson} />
         <Action onClick={() => run(client.request({ type: "close" }))}>Back to Azure DevOps</Action></div></header>
     <nav className="workspace-tabs" aria-label="ADO Boost"><div>{([
