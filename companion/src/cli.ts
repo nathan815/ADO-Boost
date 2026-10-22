@@ -1,6 +1,7 @@
 import { access, cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { execFile } from "node:child_process";
@@ -8,6 +9,7 @@ import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { assertOwnedMarker, assertOwnedRegistry, createMarker, extensionIdFromManifestKey } from "./ownership.js";
 import { withStagingDirectory } from "./staging.js";
+import { accountSchema, availableAccounts, companionEnvironment, readJsonIfPresent, sameAccount, type CopilotAccount } from "./accounts.js";
 
 const exec = promisify(execFile);
 const EXTENSION_ID = "oldakfajnbllipnfdaghapeiofnciopo";
@@ -31,14 +33,16 @@ switch (args[0]) {
   case "doctor":
     await doctor();
     break;
-  case "login":
-    await runCopilot(["login"]);
+  case "login": {
+    const host = option("--host");
+    await runCopilot(["login", ...(host ? ["--host", host] : [])]);
     break;
+  }
   case "uninstall-host":
     await uninstall(args.includes("--yes"));
     break;
   default:
-    console.log("Usage: ado-boost <setup|doctor|login|uninstall-host> [--yes]");
+    console.log("Usage: ado-boost <setup|doctor|login|uninstall-host> [--yes] [--account <username>] [--host <github.com|enterprise.ghe.com>]");
 }
 
 async function setup(confirmed: boolean): Promise<void> {
@@ -49,12 +53,17 @@ async function setup(confirmed: boolean): Promise<void> {
   await assertOwnedDirectory(hostDir);
   const existingRegistry = await queryRegistryDefault(true);
   assertOwnedRegistry(existingRegistry, manifestPath);
+  const previous = await readJsonIfPresent(join(hostDir, "host-config.json"));
+  const previousHome = previous && typeof previous === "object" && "copilotHome" in previous && typeof previous.copilotHome === "string" ? previous.copilotHome : undefined;
+  const copilotHome = resolve(process.env.COPILOT_HOME ?? previousHome ?? join(homedir(), ".copilot"));
+  const account = await chooseAccount(previous, copilotHome);
   console.log(`Extension ID: ${EXTENSION_ID}`);
   console.log(`Extension folder: ${extensionDir}`);
   console.log(`Native host folder: ${hostDir}`);
   console.log(`Edge registry key: ${registryKey}`);
   console.log(`Node runtime: ${nodePath}`);
   console.log(`Copilot CLI: ${copilotPath}`);
+  console.log(`Pinned Copilot account: ${account.login} (${account.host})`);
   if (!confirmed && !await confirm("Install these per-user files and register the Edge native host?")) return;
   await mkdir(installRoot, { recursive: true });
   const transaction = randomUUID();
@@ -72,7 +81,12 @@ async function setup(confirmed: boolean): Promise<void> {
     await cp(join(root, "host.js"), join(stageHost, "host.js"));
     const stageConfigPath = join(stageHost, "host-config.json");
     await writeFile(join(stageHost, "launcher.json"), JSON.stringify({ nodePath, hostPath: join(hostDir, "host.js"), configPath: join(hostDir, "host-config.json") }, null, 2));
-    await writeFile(stageConfigPath, JSON.stringify({ allowedOrigins: [`chrome-extension://${EXTENSION_ID}/`], cliPath: copilotPath }, null, 2));
+    await writeFile(stageConfigPath, JSON.stringify({
+      allowedOrigins: [`chrome-extension://${EXTENSION_ID}/`],
+      cliPath: copilotPath,
+      copilotHome,
+      account
+    }, null, 2));
     await writeFile(join(stageHost, `${HOST_NAME}.json`), JSON.stringify({
       name: HOST_NAME,
       description: "ADO Boost local Copilot native host",
@@ -112,6 +126,11 @@ async function doctor(): Promise<void> {
     ["Installed extension", () => validateExtensionDirectory(extensionDir)],
     ["Native host runtime", () => access(join(hostDir, "host.js"), constants.R_OK)],
     ["Native host manifest", async () => JSON.parse(await readFile(manifestPath, "utf8"))],
+    ["Pinned Copilot account", async () => {
+      const config = await readJsonIfPresent(join(hostDir, "host-config.json"));
+      const account = accountSchema.parse(config && typeof config === "object" && "account" in config ? config.account : undefined);
+      return { stdout: `${account.login} (${account.host})` };
+    }],
     ["Edge registry", () => exec("reg.exe", ["query", registryKey, "/ve"])]
   ];
   for (const [name, check] of checks) {
@@ -194,7 +213,7 @@ async function findCopilot(): Promise<string> {
 async function runCopilot(command: string[]): Promise<void> {
   const child = await import("node:child_process");
   await new Promise<void>((resolve, reject) => {
-    const process = child.spawn(findCopilotSync(), command, { stdio: "inherit", shell: false });
+    const process = child.spawn(findCopilotSync(), command, { stdio: "inherit", shell: false, env: companionEnvironment(globalThis.process.env) });
     process.once("error", reject);
     process.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`Copilot CLI exited with code ${code}`)));
   });
@@ -202,6 +221,43 @@ async function runCopilot(command: string[]): Promise<void> {
 
 function findCopilotSync(): string {
   return process.env.COPILOT_CLI_PATH ?? "copilot.exe";
+}
+
+async function chooseAccount(previous: unknown, copilotHome: string): Promise<CopilotAccount> {
+  const accounts = await availableAccounts(copilotHome);
+  const login = option("--account");
+  const host = option("--host") ?? "github.com";
+  if (login) {
+    const requested = accountSchema.parse({ login, host });
+    const account = accounts.find((candidate) => sameAccount(candidate, requested));
+    if (!account) throw new Error("The requested account is not signed in to Copilot CLI. Run ado-boost login, then retry setup.");
+    return account;
+  }
+  if (option("--host")) throw new Error("--host requires --account");
+  if (previous && typeof previous === "object" && "account" in previous && previous.account !== undefined) {
+    return accountSchema.parse(previous.account);
+  }
+  if (!accounts.length) throw new Error("No signed-in Copilot accounts were found. Run ado-boost login, then retry setup --account <username>.");
+  if (args.includes("--yes") || !process.stdin.isTTY) throw new Error("Select an account explicitly with setup --account <username> [--host <host>].");
+  accounts.forEach((account, index) => console.log(`${index + 1}. ${account.login} (${account.host})`));
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await prompt.question("Choose the Copilot account number to pin: ");
+    const index = Number(answer.trim()) - 1;
+    const account = Number.isInteger(index) ? accounts[index] : undefined;
+    if (!account) throw new Error("Invalid account selection. Setup was not changed.");
+    return account;
+  } finally {
+    prompt.close();
+  }
+}
+
+function option(name: string): string | undefined {
+  const index = args.indexOf(name);
+  if (index < 0) return undefined;
+  const value = args[index + 1];
+  if (!value || value.startsWith("--")) throw new Error(`${name} requires a value`);
+  return value;
 }
 
 async function confirm(question: string): Promise<boolean> {

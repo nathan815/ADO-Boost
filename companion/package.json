@@ -6,7 +6,16 @@
   "bin": {
     "ado-boost": "dist/cli.js"
   },
-  "files": ["dist/*.js", "dist/*.exe", "dist/protocol-version.txt", "dist/Go-LICENSE.txt", "prebuilt-extension", "README.md", "LICENSE"],
+  "files": [
+    "dist/*.js",
+    "dist/*.exe",
+    "dist/protocol-version.txt",
+    "dist/Go-LICENSE.txt",
+    "dist/JSON5-LICENSE.txt",
+    "prebuilt-extension",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
@@ -17,6 +26,7 @@
     "@github/copilot-sdk": "0.2.2",
     "@types/node": "^24.9.1",
     "esbuild": "^0.28.2",
+    "json5": "^2.2.3",
     "typescript": "^5.9.3",
     "vitest": "^5.0.3",
     "zod": "^4.1.12"
@@ -24,6 +34,8 @@
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
   },
-  "os": ["win32"],
+  "os": [
+    "win32"
+  ],
   "license": "MIT"
 }

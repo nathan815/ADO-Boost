@@ -31,6 +31,22 @@ function setup() {
 afterEach(() => vi.useRealTimers());
 
 describe("native companion client", () => {
+  it("treats account discovery and selection as bounded settings requests, not inference", async () => {
+    const { client, messages, respond } = setup();
+    const accounts = client.request("accounts");
+    expect(client.hasActiveInference).toBe(false);
+    respond("hello", { version: 1 });
+    await vi.waitFor(() => expect(messages).toHaveLength(2));
+    respond("accounts", { accounts: [], selected: null });
+    await expect(accounts).resolves.toEqual({ accounts: [], selected: null });
+    const select = client.request("select-account", { account: { host: "https://github.com", login: "reviewer" } });
+    expect(client.hasActiveInference).toBe(false);
+    await vi.waitFor(() => expect(messages).toHaveLength(3));
+    respond("select-account", { accounts: [], selected: null });
+    await select;
+    client.disconnect();
+  });
+
   it("handshakes once and maps authenticated/unauthenticated health without inference", async () => {
     const { client, runtime, messages, respond } = setup();
     const health = client.request("health");

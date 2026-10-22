@@ -1,15 +1,18 @@
 import { readFile, mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { CopilotClient, type CopilotSession, type PermissionHandler } from "@github/copilot-sdk";
+import { CopilotClient, type CopilotSession, type GetAuthStatusResponse, type PermissionHandler } from "@github/copilot-sdk";
 import { z } from "zod";
 import { CancellationRegistry, createCancellableResource } from "./lifecycle.js";
 import { SessionUsage } from "./session-usage.js";
 import { FrameDecoder, PROTOCOL_VERSION, encodeFrame, requestSchema, type NativeRequest, type NativeResponse } from "./protocol.js";
+import { accountEnvironment, accountSchema, availableAccounts, requirePinnedAccount, sameAccount, writeJsonAtomic, type CopilotAccount } from "./accounts.js";
 
 const hostConfigSchema = z.object({
   allowedOrigins: z.array(z.string().regex(/^chrome-extension:\/\/[a-p]{32}\/$/)).min(1),
-  cliPath: z.string().min(1).optional()
+  cliPath: z.string().min(1).optional(),
+  copilotHome: z.string().min(1).optional(),
+  account: accountSchema.optional()
 });
 
 const groupResponseSchema = z.object({
@@ -22,16 +25,13 @@ const groupResponseSchema = z.object({
 
 const denyAll: PermissionHandler = () => ({ kind: "denied-by-rules", rules: [] });
 const configIndex = process.argv.indexOf("--config");
-const configPath = configIndex >= 0 ? process.argv[configIndex + 1] : undefined;
+const configPath = (configIndex >= 0 ? process.argv[configIndex + 1] : undefined) ?? "";
 if (!configPath) throw new Error("Native host config path is required");
 const config = hostConfigSchema.parse(JSON.parse(await readFile(configPath, "utf8")));
 const callerOrigin = process.argv[configIndex + 2];
 if (!callerOrigin || !config.allowedOrigins.includes(callerOrigin)) throw new Error("Native host caller origin is not allowlisted");
 
-const safeEnv = Object.fromEntries(Object.entries(process.env).filter(([name]) =>
-  !/(^|_)(TOKEN|SECRET|PASSWORD|AUTH)$/i.test(name)
-  && !/^(HTTP|HTTPS|ALL|NO)_PROXY$/i.test(name)
-));
+const profileRoot = join(dirname(configPath), "..", "copilot-profiles");
 const workspace = join(tmpdir(), "ADOBoost", "copilot-workspace");
 await mkdir(workspace, { recursive: true });
 
@@ -43,6 +43,8 @@ let handshakeComplete = false;
 let activeInference = 0;
 let startingClient: CopilotClient | null = null;
 let shuttingDown = false;
+let switchingAccount = false;
+let accountGeneration = 0;
 
 process.stdin.on("data", (chunk: Buffer) => {
   try {
@@ -93,10 +95,24 @@ async function dispatch(value: unknown): Promise<void> {
       write({ id: request.id, ok: true, type: "cancelled", data: { requestId: request.requestId } });
       return;
     }
+    if (request.type === "accounts") {
+      write({ id: request.id, ok: true, type: "accounts", data: { accounts: await availableAccounts(config.copilotHome), selected: config.account ?? null } });
+      return;
+    }
+    if (request.type === "select-account") {
+      const data = await selectAccount(request.account);
+      write({ id: request.id, ok: true, type: "select-account", data });
+      return;
+    }
     if (request.type === "health") {
-      const sdk = await getClient();
-      const [status, auth] = await Promise.all([sdk.getStatus(), sdk.getAuthStatus()]);
-      write({ id: request.id, ok: true, type: "health", data: { protocolVersion: PROTOCOL_VERSION, sdk: status, auth } });
+      try {
+        const sdk = await getClient();
+        const [status, auth] = await Promise.all([sdk.getStatus(), getPinnedAuth(sdk)]);
+        write({ id: request.id, ok: true, type: "health", data: { protocolVersion: PROTOCOL_VERSION, sdk: status, auth } });
+      } catch (error) {
+        if (!["account-required", "account-mismatch", "login-required"].includes(errorCode(error))) throw error;
+        write({ id: request.id, ok: true, type: "health", data: { protocolVersion: PROTOCOL_VERSION, auth: { isAuthenticated: false, statusMessage: error instanceof Error ? error.message : "Select a Copilot account" } } });
+      }
       return;
     }
     const response = await askCopilot(request);
@@ -109,12 +125,16 @@ async function dispatch(value: unknown): Promise<void> {
 }
 
 async function askCopilot(request: Extract<NativeRequest, { type: "semantic-groups" | "chat" }>): Promise<unknown> {
+  if (switchingAccount) throw coded("account-switching", "The Copilot account is changing. Try again after the switch completes.");
   if (activeInference >= 2) throw coded("busy", "The Copilot companion is already processing two requests");
+  const generation = accountGeneration;
   activeInference += 1;
   let session: CopilotSession | null = null;
   const usage = new SessionUsage();
   try {
     const sdk = await getClient();
+    await getPinnedAuth(sdk);
+    if (generation !== accountGeneration || switchingAccount) throw coded("account-changed", "The Copilot account changed. Retry the request.");
     cancellations.throwIfCancelled(request.id);
     session = await createCancellableResource(
       request.id,
@@ -136,9 +156,11 @@ async function askCopilot(request: Extract<NativeRequest, { type: "semantic-grou
       (created) => created.disconnect()
     );
     sessions.set(request.id, session);
+    if (generation !== accountGeneration || switchingAccount) throw coded("account-changed", "The Copilot account changed. Retry the request.");
     cancellations.throwIfCancelled(request.id);
     const prompt = request.type === "semantic-groups" ? groupingPrompt(request) : chatPrompt(request);
     const event = await session.sendAndWait({ prompt }, 120_000);
+    if (generation !== accountGeneration) throw coded("account-changed", "The Copilot account changed before the response completed. Retry the request.");
     const content = event?.data.content;
     if (!content) throw coded("empty-response", "Copilot returned no answer");
     if (request.type === "chat") return { answer: content };
@@ -146,24 +168,30 @@ async function askCopilot(request: Extract<NativeRequest, { type: "semantic-grou
     return { ...validateGroups(parsed, request.files.map((file) => file.path)), session: usage.summary(session.sessionId) };
   } finally {
     sessions.delete(request.id);
-    await session?.disconnect();
-    activeInference -= 1;
+    try {
+      await session?.disconnect();
+    } finally {
+      activeInference -= 1;
+    }
   }
 }
 
 async function getClient(): Promise<CopilotClient> {
+  if (switchingAccount) throw coded("account-switching", "The Copilot account is changing. Try again after the switch completes.");
+  const account = config.account;
+  if (!account) throw coded("account-required", "Choose a Copilot account in ADO Boost settings or run ado-boost setup --account <username>.");
   if (client?.getState() === "connected") return client;
   if (clientStartup) return clientStartup;
   clientStartup = (async () => {
-    const candidate = new CopilotClient({
-      ...(config.cliPath ? { cliPath: config.cliPath } : {}),
-      useStdio: true,
-      useLoggedInUser: true,
-      logLevel: "error",
-      env: safeEnv
-    });
+    const candidate = await createAccountClient(account);
     startingClient = candidate;
-    await candidate.start();
+    try {
+      await candidate.start();
+      requirePinnedAccount(config.account, await candidate.getAuthStatus());
+    } catch (error) {
+      await candidate.forceStop();
+      throw error;
+    }
     if (shuttingDown) {
       await candidate.forceStop().catch(() => undefined);
       throw coded("shutting-down", "Native host is shutting down");
@@ -180,6 +208,62 @@ async function getClient(): Promise<CopilotClient> {
     throw error;
   } finally {
     clientStartup = null;
+  }
+}
+
+async function getPinnedAuth(sdk: CopilotClient): Promise<GetAuthStatusResponse> {
+  const saved = hostConfigSchema.parse(JSON.parse(await readFile(configPath, "utf8")));
+  const auth = await sdk.getAuthStatus();
+  requirePinnedAccount(saved.account, auth);
+  return auth;
+}
+
+async function createAccountClient(account: CopilotAccount): Promise<CopilotClient> {
+  return new CopilotClient({
+    ...(config.cliPath ? { cliPath: config.cliPath } : {}),
+    useStdio: true,
+    useLoggedInUser: true,
+    logLevel: "error",
+    env: await accountEnvironment(profileRoot, account, {
+      ...process.env,
+      ...(config.copilotHome ? { COPILOT_HOME: config.copilotHome } : {})
+    })
+  });
+}
+
+async function selectAccount(account: CopilotAccount): Promise<{ accounts: CopilotAccount[]; selected: CopilotAccount }> {
+  if (switchingAccount) throw coded("account-switching", "Another account switch is already in progress.");
+  switchingAccount = true;
+  let candidate: CopilotClient | null = null;
+  try {
+    const accounts = await availableAccounts(config.copilotHome);
+    const known = accounts.find((candidate) => sameAccount(candidate, account));
+    if (!known) throw coded("account-unavailable", "That account is no longer in the Copilot CLI's signed-in account list. Sign in with ado-boost login, then refresh the account list.");
+    account = known;
+    accountGeneration++;
+    for (const [id, session] of sessions) {
+      cancellations.cancel(id);
+      await session.abort();
+    }
+    if (clientStartup) await Promise.allSettled([clientStartup]);
+    candidate = await createAccountClient(account);
+    startingClient = candidate;
+    await candidate.start();
+    requirePinnedAccount(account, await candidate.getAuthStatus());
+    if (shuttingDown) throw coded("shutting-down", "Native host is shutting down");
+    await client?.forceStop();
+    await writeJsonAtomic(configPath, { ...config, account });
+    config.account = account;
+    client = candidate;
+    candidate = null;
+    return { accounts, selected: account };
+  } finally {
+    try {
+      if (candidate) await candidate.forceStop();
+    } finally {
+      switchingAccount = false;
+      startingClient = null;
+    }
   }
 }
 
