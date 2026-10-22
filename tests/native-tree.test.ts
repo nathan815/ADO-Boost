@@ -555,7 +555,7 @@ describe("native tree bridge client", () => {
       filters, semantic: expect.objectContaining({ revision: 1, view: { mode: "inline", groupId: null } })
     }), location.origin);
     send({ channel: CHANNEL, kind: "status", session: command.session, state: "comparison-mismatch", detail: "Different comparison", fileCount: null });
-    expect(state.groups).toBeNull();
+    expect(state.groups).not.toBeNull();
     expect(state.available).toBe(false);
     client.stop();
     const calls = vi.mocked(window.postMessage).mock.calls.length;
@@ -582,6 +582,41 @@ describe("native tree bridge client", () => {
     state.begin();
     send(action);
     expect(regenerate).toHaveBeenCalledOnce();
+  });
+
+  it("refreshes only for a newer merge-base comparison, not historical or custom comparisons", () => {
+    const state = new SemanticGroupState();
+    state.setEnabled(true);
+    const refresh = vi.fn();
+    client = new NativeTreeClient(analysis, window, state, undefined, undefined, refresh);
+    const command = configured();
+    const status = { channel: CHANNEL, kind: "status", session: command.session, state: "comparison-mismatch",
+      detail: "Different comparison", fileCount: null };
+    send({ ...status, comparison: { iteration: 2, baseIteration: 0 } });
+    send({ ...status, comparison: { iteration: 4, baseIteration: 3 } });
+    send({ ...status, comparison: { iteration: 3, baseIteration: 0 } });
+    expect(refresh).not.toHaveBeenCalled();
+    send({ ...status, comparison: { iteration: 4, baseIteration: 0 } }, null);
+    expect(refresh).not.toHaveBeenCalled();
+    send({ ...status, comparison: { iteration: 4, baseIteration: 0 } });
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it("includes stale state and sends a changed comparison even when its files and counts are unchanged", () => {
+    const state = new SemanticGroupState();
+    state.setEnabled(true);
+    client = new NativeTreeClient(analysis, window, state);
+    configured();
+    state.complete(state.begin(), validateSemanticGroups(analysis.files, []));
+    state.markStale();
+    expect(window.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+      semantic: expect.objectContaining({ stale: true })
+    }), location.origin);
+    analysis.context = { ...analysis.context, identity: "next", iterationId: 4 };
+    client.configure(configuration().filters, true);
+    expect(window.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+      comparison: expect.objectContaining({ iteration: 4 })
+    }), location.origin);
   });
 
   it("opens session details during grouping only for a live, same-session semantic action", () => {

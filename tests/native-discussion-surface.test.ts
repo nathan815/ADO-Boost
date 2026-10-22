@@ -43,6 +43,34 @@ afterEach(() => {
 });
 
 describe("native discussion page surface", () => {
+  it("captures comparison identity when each native editor is enhanced", async () => {
+    const session = "16748ae6-f0a9-4dad-ac76-88e2bafc32c1";
+    document.body.innerHTML = '<div class="repos-comment-editor-fit"><textarea>Original text</textarea><button class="primary">Comment</button></div>';
+    await import("../src/native-discussions/main");
+    const messages: unknown[] = [];
+    vi.spyOn(window, "postMessage").mockImplementation((message) => { messages.push(message); });
+    const configure = (comparisonIdentity: string) => window.dispatchEvent(new MessageEvent("message", {
+      source: window, origin: location.origin, data: {
+        channel: DISCUSSION_CHANNEL, kind: "configure", session, comparisonIdentity,
+        page: location.origin + location.pathname, reviewer, enabled: true, drafts: []
+      }
+    }));
+    configure("original");
+    configure("latest");
+    document.querySelector<HTMLButtonElement>("[data-adopp-add-review]")!.click();
+    expect(messages).toContainEqual(expect.objectContaining({ action: "add", comparisonIdentity: "original" }));
+    const editor = document.createElement("div");
+    editor.className = "repos-comment-editor-fit";
+    editor.innerHTML = '<textarea>New text</textarea><button class="primary">Comment</button>';
+    document.body.append(editor);
+    configure("latest");
+    editor.querySelector<HTMLButtonElement>("[data-adopp-add-review]")!.click();
+    expect(messages).toContainEqual(expect.objectContaining({ action: "add", comparisonIdentity: "latest" }));
+    window.dispatchEvent(new MessageEvent("message", {
+      source: window, origin: location.origin, data: { channel: DISCUSSION_CHANNEL, kind: "dispose", session }
+    }));
+  });
+
   it("renders marked drafts and preserves Post while adding Add to review", async () => {
     const session = "16748ae6-f0a9-4dad-ac76-88e2bafc32c1";
     document.body.innerHTML = `<table class="activity-feed-list"><tbody>

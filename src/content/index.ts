@@ -21,6 +21,7 @@ import { DiffCountController } from "../core/diff-counts";
 import type { DiffPolicy } from "../core/types";
 import { NativeDiffPreferencesClient, readPageDiffPreference } from "../native-tree/diff-preferences";
 import { SemanticGroupState } from "../core/semantic-groups";
+import { ComparisonRefresh } from "../core/comparison-refresh";
 
 class ContentApp {
   private readonly api = new AdoApi(new FetchHttpClient());
@@ -43,6 +44,7 @@ class ContentApp {
   private routeController: AbortController | null = null;
   private currentUrl = "";
   private currentRouteKey = "";
+  private refreshComparison: ((apply?: boolean) => Promise<void>) | null = null;
   private readonly visits = new PrVisitTracker(async (route) => {
     const response = await chrome.runtime.sendMessage({ channel: "adopp-popup", kind: "record-visit", route }) as { ok: boolean; error?: string } | undefined;
     if (!response?.ok) throw new Error(response?.error ?? "No response from extension service worker");
@@ -60,8 +62,19 @@ class ContentApp {
       void this.mount(true);
     });
     this.observeNavigation();
+    addEventListener("focus", this.checkComparison);
+    document.addEventListener("visibilitychange", this.checkComparison);
+    window.setInterval(this.checkComparison, 60_000);
     await this.mount();
   }
+
+  private readonly checkComparison = (): void => {
+    if (document.visibilityState !== "visible" || !this.settings || !resolveFeature(this.settings, "copilotSemanticGroups").enabled) return;
+    void this.refreshComparison?.(false).catch((error: unknown) => {
+      console.error("ADO Boost could not refresh the PR comparison", error);
+      this.panel?.reportComparisonError(error);
+    });
+  };
 
   private onDiffPreference(ignoreTrimWhitespace: boolean | null): void {
     this.setDiffPolicy({ ignoreTrimWhitespace });
@@ -105,6 +118,7 @@ class ContentApp {
       return;
     }
     this.routeController?.abort();
+    this.refreshComparison = null;
     this.counts.setAnalysis(null);
     this.routeController = new AbortController();
     const controller = this.routeController;
@@ -131,6 +145,20 @@ class ContentApp {
         if (controller.signal.aborted) return;
         analysis.diffPolicy = policy;
         const semanticGroups = new SemanticGroupState();
+        const comparison = new ComparisonRefresh({
+          analysis, api: this.api, analyzer: this.analyzer, signal: controller.signal, policy: () => this.diffPolicy,
+          markStale: () => semanticGroups.markStale(),
+          apply: (updated) => {
+            this.counts.setAnalysis(null);
+            this.panel?.updateComparison(updated);
+            if (this.settings) this.nativeDiscussions?.update(resolveFeature(this.settings, "draftQueue").enabled, resolveFeature(this.settings, "commentTimestamps").enabled);
+            this.counts.setAnalysis(analysis);
+            this.enhancer?.refresh();
+            void this.counts.update(this.diffPolicy);
+          }
+        });
+        const refreshComparison = (apply = true) => comparison.refresh(apply);
+        this.refreshComparison = refreshComparison;
         this.panel = new ReviewPanel({
           analysis,
           api: this.api,
@@ -141,7 +169,8 @@ class ContentApp {
           copilot: this.copilot,
           reviewKey: this.analyzer.reviewKey(analysis.context),
           openSettings: this.openSettings,
-          semanticGroups
+          semanticGroups,
+          refreshComparison
         });
         this.enhancer = new NativePrEnhancer(analysis, this.settings, {
           openDiscussions: () => this.panel?.openDiscussions(),
@@ -151,7 +180,12 @@ class ContentApp {
           triggerTestToast: () => this.panel?.triggerTestToast(),
           openSettings: this.openSettings
         }, new NativeTreeClient(analysis, window, semanticGroups,
-          () => this.panel?.requestSemanticGroups(), () => this.panel?.openCopilotGroups()), undefined, semanticGroups);
+          () => this.panel?.requestSemanticGroups(), () => this.panel?.openCopilotGroups(), () => {
+            void refreshComparison().catch((error: unknown) => {
+              console.error("ADO Boost could not refresh the PR comparison", error);
+              this.panel?.reportComparisonError(error);
+            });
+          }), undefined, semanticGroups);
         this.enhancer.start();
         this.counts.setAnalysis(analysis);
         void this.counts.update(this.diffPolicy);

@@ -2,7 +2,7 @@ import type { AdoApi } from "../adapters/ado-api";
 import type { BrowserStore } from "../adapters/browser";
 import { DraftQueue } from "../core/drafts";
 import type { WriteGateway } from "../core/write-gateway";
-import type { PullRequestAnalysis, PullRequestThread, ReviewDecision, ReviewDraft, SubmissionReceipt } from "../core/types";
+import type { PullRequestAnalysis, PullRequestContext, PullRequestThread, ReviewDecision, ReviewDraft, SubmissionReceipt } from "../core/types";
 import type { FeatureSettings } from "../features/registry";
 import { resolveFeature } from "../features/registry";
 import { adoFileUrl, navigateToAdoComment, navigateToAdoFile } from "./ado-navigation";
@@ -15,7 +15,7 @@ import { commentTimestampMarkup, refreshCommentTimestamps } from "./comment-time
 type DraftInput = Pick<ReviewDraft, "kind" | "path" | "trackingId" | "line" | "side" | "threadId">;
 
 export class DiscussionController {
-  private readonly queue: DraftQueue;
+  private queue: DraftQueue;
   private drafts: ReviewDraft[] = [];
   private threads: PullRequestThread[] = [];
   private receipt: SubmissionReceipt | null = null;
@@ -55,6 +55,10 @@ export class DiscussionController {
     if (this.enabled("threadNavigator")) await this.loadThreads();
     this.loading = false;
     this.onChange();
+  }
+
+  updateComparison(): void {
+    this.queue = new DraftQueue(this.store, this.analysis.context);
   }
 
   destroy(): void {
@@ -164,9 +168,9 @@ export class DiscussionController {
     }
   }
 
-  showInlineDraft(root: ShadowRoot, path: string, trackingId: number, line = 1, side: "left" | "right" = "right"): void {
+  showInlineDraft(root: ShadowRoot, path: string, trackingId: number, line = 1, side: "left" | "right" = "right", context = this.analysis.context): void {
     if (!this.enabled("draftQueue")) return;
-    this.showDraftDialog(root, { kind: "inline", path, trackingId, line, side });
+    this.showDraftDialog(root, { kind: "inline", path, trackingId, line, side }, undefined, context);
   }
 
   showGeneralDraft(root: ShadowRoot, body = ""): void {
@@ -246,7 +250,8 @@ export class DiscussionController {
     return "";
   }
 
-  private showDraftDialog(root: ShadowRoot, input: DraftInput, existing?: ReviewDraft): void {
+  private showDraftDialog(root: ShadowRoot, input: DraftInput, existing?: ReviewDraft, context?: PullRequestContext): void {
+    const queue = context ? new DraftQueue(this.store, context) : this.queue;
     const backdrop = document.createElement("div");
     backdrop.className = "dialog-backdrop";
     const inline = input.kind === "inline";
@@ -258,7 +263,7 @@ export class DiscussionController {
       if (preview) preview.innerHTML = renderMarkdownPreview(textarea.value);
     });
     backdrop.querySelector(".cancel")?.addEventListener("click", () => backdrop.remove());
-    backdrop.querySelector(".save-draft")?.addEventListener("click", () => void this.saveDraft(backdrop, input, existing?.id));
+    backdrop.querySelector(".save-draft")?.addEventListener("click", () => void this.saveDraft(backdrop, input, existing?.id, queue));
     textarea?.focus();
   }
 
@@ -273,9 +278,10 @@ export class DiscussionController {
     if (!this.enabled("draftQueue")) return;
     const key = existingId ? `edit:${existingId}` : input.kind === "reply" ? `reply:${input.threadId}` : "general";
     if (!this.composers.has(key)) {
+      const queue = this.queue;
       let draftId = existingId;
       const save = async (value: string) => {
-        const draft = await this.saveComposerDraft(input, value, draftId);
+        const draft = await this.saveComposerDraft(input, value, draftId, queue);
         draftId = draft.id;
         return draft;
       };
@@ -307,20 +313,20 @@ export class DiscussionController {
     composer?.querySelector<HTMLTextAreaElement>(".draft-body")?.focus();
   }
 
-  private async saveComposerDraft(input: DraftInput, body: string, id?: string): Promise<ReviewDraft> {
+  private async saveComposerDraft(input: DraftInput, body: string, id?: string, queue = this.queue): Promise<ReviewDraft> {
     if (!this.enabled("draftQueue")) throw new Error("Private feedback drafts are disabled");
     if (id) {
-      const drafts = await this.queue.list();
+      const drafts = await queue.list();
       const draft = drafts.find((candidate) => candidate.id === id);
       if (!draft) throw new Error("This draft was removed. Cancel this editor and start a new comment.");
       if (draft.delivery === "ambiguous") throw new Error("This comment may already have posted. Check Azure DevOps before creating another comment.");
       if (draft.delivery === "posted" || draft.delivery === "sending") throw new Error("This comment is already posted or being submitted.");
-      await this.queue.update(id, { body });
+      await queue.update(id, { body });
       const updated: ReviewDraft = { ...draft, body, delivery: "pending", error: undefined };
       this.drafts = drafts.map((candidate) => candidate.id === id ? updated : candidate);
       return updated;
     }
-    const draft = await this.queue.add({ ...input, body });
+    const draft = await queue.add({ ...input, body });
     this.drafts = [...this.drafts, draft];
     return draft;
   }
@@ -374,7 +380,7 @@ export class DiscussionController {
     });
   }
 
-  private async saveDraft(backdrop: HTMLElement, input: DraftInput, existingId?: string): Promise<void> {
+  private async saveDraft(backdrop: HTMLElement, input: DraftInput, existingId?: string, queue = this.queue): Promise<void> {
     const body = backdrop.querySelector<HTMLTextAreaElement>(".draft-body")?.value.trim();
     if (!body) return;
     const line = input.kind === "inline" ? Number(backdrop.querySelector<HTMLInputElement>(".draft-line")?.value) : input.line;
@@ -388,8 +394,8 @@ export class DiscussionController {
       ...(line !== undefined ? { line } : {}),
       ...(side !== undefined ? { side } : {})
     };
-    if (existingId) await this.queue.update(existingId, { body, ...location });
-    else await this.queue.add({ ...input, body, ...location });
+    if (existingId) await queue.update(existingId, { body, ...location });
+    else await queue.add({ ...input, body, ...location });
     this.drafts = await this.queue.list();
     backdrop.remove();
     this.onChange();
@@ -407,9 +413,10 @@ export class DiscussionController {
   private async showSubmitDialog(root: ShadowRoot): Promise<void> {
     if (!this.enabled("submitReview") || !this.reviewDrafts().length) return;
     this.actionError = null;
+    const context = this.analysis.context;
     let currentVote: number;
     try {
-      currentVote = await this.api.getCurrentVote(this.analysis.context);
+      currentVote = await this.api.getCurrentVote(context);
     } catch (error) {
       this.actionError = error instanceof Error ? error.message : "Current vote could not be loaded";
       this.onChange();
@@ -422,7 +429,7 @@ export class DiscussionController {
     backdrop.innerHTML = `<section class="dialog submit-dialog" role="dialog" aria-modal="true"><h3>Submit Review</h3><p>Current Azure DevOps vote: <strong>${voteLabel(currentVote)}</strong>. Feedback is posted first. The selected decision is applied only if every selected item succeeds.</p><label>Optional overall summary<textarea class="submission-summary" rows="4" placeholder="Add a general summary to this submission"></textarea></label><div class="submit-items">${selectable.map((draft) => `<label><input type="checkbox" data-submit-id="${draft.id}" checked> ${escapeHtml(draft.path ?? (draft.kind === "reply" ? `Thread ${draft.threadId}` : "General comment"))}: ${escapeHtml(draft.body)}</label>`).join("")}</div><label class="decision-label">Decision<select class="decision"><option value="comment">Comment only (leave vote unchanged)</option><option value="approve">Approve</option><option value="approve-suggestions">Approve with suggestions</option><option value="wait-author">Wait for author</option><option value="reject">Reject</option></select></label><div class="dialog-actions"><button class="secondary cancel" type="button">Cancel</button><button class="primary confirm-submit" type="button">Confirm submission</button></div></section>`;
     root.append(backdrop);
     backdrop.querySelector(".cancel")?.addEventListener("click", () => backdrop.remove());
-    backdrop.querySelector(".confirm-submit")?.addEventListener("click", () => void this.submit(backdrop));
+    backdrop.querySelector(".confirm-submit")?.addEventListener("click", () => void this.submit(backdrop, context));
     const updateSubmitState = () => {
       const hasComment = !!backdrop.querySelector("[data-submit-id]:checked") || !!backdrop.querySelector<HTMLTextAreaElement>(".submission-summary")?.value.trim();
       const button = backdrop.querySelector<HTMLButtonElement>(".confirm-submit")!;
@@ -432,7 +439,7 @@ export class DiscussionController {
     for (const checkbox of backdrop.querySelectorAll("[data-submit-id]")) checkbox.addEventListener("change", updateSubmitState);
   }
 
-  private async submit(backdrop: HTMLElement): Promise<void> {
+  private async submit(backdrop: HTMLElement, context: PullRequestContext): Promise<void> {
     const button = backdrop.querySelector<HTMLButtonElement>(".confirm-submit");
     if (!button || button.disabled || button.dataset.submitting === "true" || !this.enabled("submitReview")) return;
     const ids = [...backdrop.querySelectorAll<HTMLInputElement>("[data-submit-id]:checked")].map((input) => input.dataset.submitId!);
@@ -445,10 +452,10 @@ export class DiscussionController {
     const decision = backdrop.querySelector<HTMLSelectElement>(".decision")?.value as ReviewDecision ?? "comment";
     try {
       if (summary) {
-        const draft = await this.queue.add({ kind: "general", body: summary });
+        const draft = await new DraftQueue(this.store, context).add({ kind: "general", body: summary });
         ids.push(draft.id);
       }
-      const result = await this.writes.submitReview(this.analysis.context, ids, decision, true);
+      const result = await this.writes.submitReview(context, ids, decision, true);
       this.drafts = result.drafts;
       this.receipt = result.receipt;
       backdrop.remove();

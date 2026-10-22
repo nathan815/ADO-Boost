@@ -18,10 +18,11 @@ export class NativeDiscussionClient {
   private commentTimestamps = false;
   private unsubscribeDrafts: (() => void) | null = null;
   private drafts: ReviewDraft[] = [];
+  private readonly comparisons = new Map<string, Pick<PullRequestAnalysis, "context" | "files">>();
 
   constructor(
     private readonly analysis: PullRequestAnalysis,
-    store: BrowserStore,
+    private readonly store: BrowserStore,
     private readonly onChange: () => void = () => undefined,
     private readonly scope = window
   ) {
@@ -61,11 +62,13 @@ export class NativeDiscussionClient {
 
   private configure(enabled: boolean): void {
     const context = this.analysis.context;
+    this.comparisons.set(context.identity, { context, files: [...this.analysis.files] });
     const configuration: DiscussionConfiguration = {
       channel: DISCUSSION_CHANNEL,
       kind: "configure",
       session: this.session,
       page: this.scope.location.origin + this.scope.location.pathname,
+      comparisonIdentity: context.identity,
       reviewer: context.reviewer,
       enabled,
       commentTimestamps: this.commentTimestamps,
@@ -113,14 +116,16 @@ export class NativeDiscussionClient {
       return;
     }
     const input = action.draft;
+    const comparison = this.comparisons.get(action.comparisonIdentity ?? this.analysis.context.identity);
+    if (!comparison) throw new Error("Draft editor belongs to an unknown PR comparison. Reopen the editor and try again.");
     if (input.kind === "reply" && !input.threadId) throw new Error("Reply draft is missing its Azure DevOps thread");
     let trackingId: number | undefined;
     if (input.kind === "inline") {
       if (!input.path || !input.line) throw new Error("Inline draft is missing its file location");
-      trackingId = this.analysis.files.find((file) => file.path === input.path)?.trackingId;
+      trackingId = comparison.files.find((file) => file.path === input.path)?.trackingId;
       if (trackingId === undefined) throw new Error("Inline draft does not match a changed file");
     }
-    await this.queue.add({
+    await new DraftQueue(this.store, comparison.context).add({
       kind: input.kind,
       body: input.body,
       ...(input.path ? { path: input.path } : {}),

@@ -251,7 +251,34 @@ describe("semantic native adapter", () => {
       expect(f.action).toHaveBeenCalledWith("regenerate", configuration.semantic!.view);
     }
   });
-  it("extends the toolbar background under the scrollbar and tracks resizing, scrolling, and disposal", () => {
+  it.each([false, true])("keeps stale groups selectable and exposes direct regeneration with busy=%s", (busy) => {
+    const configuration = config();
+    configuration.semantic = { ...configuration.semantic!, stale: true, busy };
+    const f = fixture(configuration);
+    const deferred = f.explorer.render();
+    if (!react.isValidElement(deferred) || typeof deferred.props.children !== "function") throw new Error("Missing native tree callback");
+    const container: unknown = deferred.props.children();
+    if (!react.isValidElement(container) || !Array.isArray(container.props.children)) throw new Error("Missing native tree container");
+    const portal: unknown = container.props.children[1];
+    if (!record(portal) || !react.isValidElement(portal.children) || !Array.isArray(portal.children.props.children)) throw new Error("Missing toolbar");
+    const dropdown: unknown = portal.children.props.children[1];
+    const notice: unknown = portal.children.props.children[2];
+    if (!react.isValidElement(dropdown) || !react.isValidElement(notice) || !Array.isArray(notice.props.children)) throw new Error("Missing stale controls");
+    expect(dropdown.props.disabled).toBe(false);
+    const label: unknown = notice.props.children[0];
+    const regenerate: unknown = notice.props.children[1];
+    if (!react.isValidElement(label) || !react.isValidElement(regenerate)) throw new Error("Missing regenerate action");
+    expect(label.props.children).toBe("Groups are stale");
+    expect(regenerate.props.disabled).toBe(busy);
+    expect(regenerate.props.children).toBe(busy ? "Grouping..." : "Regenerate");
+    if (!busy) {
+      (regenerate.props.onClick as () => void)();
+      expect(f.action).toHaveBeenCalledWith("regenerate", configuration.semantic.view);
+    }
+    expect(nativeFiles(f.provider.roots).map((file) => file.data.path)).toEqual(["/src/a.ts", "/src/b.ts"]);
+  });
+
+  it("keeps the toolbar sticky and extends its background under the scrollbar through resizing, scrolling, and disposal", () => {
     let resize: (() => void) | undefined;
     const disconnect = vi.fn();
     vi.stubGlobal("ResizeObserver", class {
@@ -262,6 +289,10 @@ describe("semantic native adapter", () => {
     try {
       fixture();
       const toolbar = document.querySelector<HTMLElement>("[data-adopp-semantic-toolbar]")!;
+      const style = getComputedStyle(toolbar);
+      expect(style.position).toBe("sticky");
+      expect(style.top).toBe("0px");
+      expect(style.zIndex).toBe("1");
       const scroll = toolbar.parentElement!;
       scroll.style.color = "red";
       vi.spyOn(scroll, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 100, 320, 400));

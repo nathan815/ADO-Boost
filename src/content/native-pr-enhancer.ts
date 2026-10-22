@@ -127,7 +127,7 @@ export class NativePrEnhancer {
 
   private updateGroupingIndicator(start = document.querySelector<HTMLButtonElement>(".adopp-start-button")): void {
     if (!start) return;
-    const busy = this.semanticGroups?.busy ?? false;
+    const busy = this.semanticGroups?.processing ?? false;
     start.setAttribute("aria-busy", String(busy));
     start.setAttribute("aria-label", busy ? "ADO Boost: generating Copilot groups" : "ADO Boost");
     start.title = busy ? "ADO Boost: generating Copilot groups..." : "ADO Boost";

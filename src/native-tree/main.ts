@@ -22,7 +22,8 @@ function report(state: TreeStatus["state"], detail: string, fileCount: number | 
   if (!config) return;
   const status: TreeStatus = {
     channel: CHANNEL, kind: "status", session: config.session, state, detail, fileCount,
-    filtersActive: hasFilters(config.filters) || config.semantic?.view.mode === "group" || Boolean(mounted?.view.getFilesFilter().hasChangesToReset())
+    filtersActive: hasFilters(config.filters) || config.semantic?.view.mode === "group" || Boolean(mounted?.view.getFilesFilter().hasChangesToReset()),
+    ...(mounted ? { comparison: { iteration: mounted.view.selectedIterationId.value, baseIteration: mounted.view.baseIterationId.value } } : {})
   };
   const serialized = JSON.stringify(status);
   if (serialized === lastStatus) return;

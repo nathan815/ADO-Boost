@@ -33,7 +33,7 @@ export class SemanticToolbar {
     this.element.dataset.adoppSemanticToolbar = "";
     this.style = document.createElement("style");
     this.style.textContent = `
-      [data-adopp-semantic-toolbar] { padding: 8px 12px; flex-shrink: 0; min-width: 0; background: var(--background-color); font: 12px "Segoe UI",sans-serif; }
+      [data-adopp-semantic-toolbar] { position: sticky; top: 0; z-index: 1; padding: 8px 12px; flex-shrink: 0; min-width: 0; background: var(--background-color); font: 12px "Segoe UI",sans-serif; }
       [data-adopp-semantic-scroll] { background-image: linear-gradient(to bottom, transparent var(--adopp-semantic-background-start), var(--background-color) var(--adopp-semantic-background-start), var(--background-color) var(--adopp-semantic-background-end), transparent var(--adopp-semantic-background-end)); background-origin: border-box; background-repeat: no-repeat; }
       .adopp-semantic-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; color: var(--text-primary-color); }
       .adopp-semantic-heading strong { font-size: 12px; font-weight: 600; }
@@ -149,6 +149,11 @@ export class SemanticToolbar {
           disabled: semantic.busy, onClick: () => this.action("regenerate", semantic.view),
           title: "Generate semantic groups" }, semantic.busy ? "Grouping..." : "Generate")),
       dropdown,
+      semantic.stale ? react.createElement("div", { className: "adopp-semantic-heading adopp-semantic-message", role: "status" },
+        react.createElement("span", {}, "Groups are stale"),
+        react.createElement("button", { type: "button", className: "adopp-semantic-regenerate bolt-focus-treatment",
+          disabled: semantic.busy, onClick: () => this.action("regenerate", semantic.view),
+          title: "Regenerate groups for the latest iteration" }, semantic.busy ? "Grouping..." : "Regenerate")) : null,
       semantic.view.mode === "group" && selected
         ? react.createElement("p", { className: "adopp-semantic-description" }, selected.rationale) : null,
       semantic.busy ? react.createElement("p", { className: "adopp-semantic-message", role: "status" },

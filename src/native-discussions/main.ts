@@ -283,6 +283,7 @@ function renderComposerActions(): void {
       continue;
     }
     const button = nativePrimary?.cloneNode(true) as HTMLButtonElement | undefined ?? document.createElement("button");
+    const comparisonIdentity = config?.comparisonIdentity;
     button.removeAttribute("id");
     delete button.dataset.adoppOriginalPostLabel;
     button.dataset.adoppAddReview = "true";
@@ -298,7 +299,7 @@ function renderComposerActions(): void {
     textarea.addEventListener("input", update);
     button.addEventListener("click", () => {
       const current = composerTextarea(editor);
-      if (current) addComposerDraft(editor, current, button);
+      if (current) addComposerDraft(editor, current, button, comparisonIdentity);
     });
     actionHost.insertBefore(button, nativePrimary ?? null);
   }
@@ -448,7 +449,7 @@ function hashDraftId(value: string): number {
   return hash || 1;
 }
 
-function addComposerDraft(editor: HTMLElement, textarea: HTMLTextAreaElement, button: HTMLButtonElement): void {
+function addComposerDraft(editor: HTMLElement, textarea: HTMLTextAreaElement, button: HTMLButtonElement, comparisonIdentity?: string): void {
   const body = textarea.value.trim();
   if (!body || !config) return;
   const location = composerLocation(editor);
@@ -473,6 +474,7 @@ function addComposerDraft(editor: HTMLElement, textarea: HTMLTextAreaElement, bu
     kind: "action",
     session: config.session,
     action: "add",
+    ...(comparisonIdentity ? { comparisonIdentity } : {}),
     draft: { ...location, body }
   }, window.location.origin);
 }

@@ -33,6 +33,7 @@ interface ReviewPanelDependencies {
   openSettings: () => void;
   synthetic?: boolean;
   semanticGroups?: SemanticGroupState;
+  refreshComparison?: () => Promise<void>;
 }
 
 type PanelTab = "discussions" | "groups" | "chat";
@@ -44,7 +45,7 @@ export class ReviewPanel {
   private readonly layout: ReviewPanelLayout;
   private header: AdoPanelHeader | null = null;
   private readonly announcement: AnnouncementService;
-  private readonly diffDialog: DiffDialog;
+  private diffDialog: DiffDialog;
   private readonly discussion: DiscussionController;
   private readonly completionMonitor: ReviewCompletionMonitor;
   private settings: FeatureSettings;
@@ -63,7 +64,7 @@ export class ReviewPanel {
   private get copilotGroups() { return this.semanticGroups.groups; }
   private readonly companionStatus: CompanionStatus;
   private copilotBusy = false;
-  private get copilotGrouping() { return this.semanticGroups.busy; }
+  private get copilotGrouping() { return this.semanticGroups.processing; }
   private copilotError = "";
   private copilotChatError = "";
   private copilotAnswer = "";
@@ -84,7 +85,7 @@ export class ReviewPanel {
       groupsAvailable = available;
       if (!available) this.cachedGroupsRequest++;
       this.render();
-      if (restore) void this.restoreCachedCopilotGroups();
+      if (restore) void this.restoreCachedCopilotGroups(false, this.semanticGroups.stale);
     });
     this.completionMonitor = new ReviewCompletionMonitor(
       () => this.checkReviewCompletion(),
@@ -94,7 +95,8 @@ export class ReviewPanel {
       }
     );
     this.announcement = new AnnouncementService(dependencies.api, dependencies.store);
-    this.diffDialog = new DiffDialog(dependencies.api, dependencies.analysis.context, (root, path, trackingId, line, side) => this.discussion.showInlineDraft(root, path, trackingId, line, side));
+    const initialContext = dependencies.analysis.context;
+    this.diffDialog = new DiffDialog(dependencies.api, initialContext, (root, path, trackingId, line, side) => this.discussion.showInlineDraft(root, path, trackingId, line, side, initialContext));
     this.discussion = new DiscussionController(dependencies.api, dependencies.store, dependencies.analysis, dependencies.writes, () => this.settings, () => this.render(), this.toast, () => this.completionMonitor.refresh());
     this.host.dataset.theme = dependencies.settings.presentation.theme;
     this.host.dataset.adoppReviewPanel = "true";
@@ -163,8 +165,28 @@ export class ReviewPanel {
     this.root.querySelector<HTMLButtonElement>("#groups-tab")?.focus();
   }
 
+  updateComparison(analysis: PullRequestAnalysis): void {
+    if (this.destroyed || analysis.context.identity === this.dependencies.analysis.context.identity) return;
+    this.cachedGroupsRequest++;
+    Object.assign(this.dependencies.analysis, analysis);
+    this.discussion.updateComparison();
+    const context = analysis.context;
+    this.diffDialog = new DiffDialog(this.dependencies.api, context,
+      (root, path, trackingId, line, side) => this.discussion.showInlineDraft(root, path, trackingId, line, side, context));
+    this.semanticGroups.updateComparison(analysis.files);
+    this.copilotError = "";
+    this.render();
+    void this.restoreCachedCopilotGroups(false, true);
+  }
+
+  reportComparisonError(error: unknown): void {
+    if (this.destroyed) return;
+    this.copilotError = error instanceof Error ? error.message : "Couldn't refresh the pull request comparison";
+    this.render();
+  }
+
   requestSemanticGroups(): void {
-    if (this.destroyed || this.copilotBusy || this.groupConfirmation || !this.semanticGroups.enabled || !this.semanticGroups.available) return;
+    if (this.destroyed || this.copilotBusy || this.groupConfirmation || !this.semanticGroups.enabled) return;
     if (this.settings.features.confirmCopilotGroups) {
       this.selectTab("groups");
       this.open = true;
@@ -241,6 +263,10 @@ export class ReviewPanel {
     const chatEnabled = resolveFeature(this.settings, "copilotChat").enabled;
     if (this.activeTab === "groups" && !groupsEnabled || this.activeTab === "chat" && !chatEnabled) this.selectTab("discussions");
     const scrollTop = this.tabScroll[this.activeTab];
+    const dialogs = [...this.root.children].filter((element): element is HTMLElement => element instanceof HTMLElement
+      && element.matches(".dialog-backdrop") && element !== this.groupConfirmation);
+    const dialogFocus = dialogs.some((dialog) => dialog.contains(this.root.activeElement)) ? this.root.activeElement : null;
+    for (const dialog of dialogs) dialog.remove();
     const confirmationFocus = this.groupConfirmation?.contains(this.root.activeElement) ? this.root.activeElement : null;
     this.groupConfirmation?.close();
     this.companionStatus.detach();
@@ -289,6 +315,8 @@ export class ReviewPanel {
     this.companionStatus.mount(statusSlot);
     if (this.open && statusSlot) this.companionStatus.checkOnce();
     this.toast.mount();
+    this.root.append(...dialogs);
+    if (dialogFocus instanceof HTMLElement) dialogFocus.focus();
     if (this.groupConfirmation) {
       this.root.append(this.groupConfirmation);
       this.groupConfirmation.showModal();
@@ -355,8 +383,10 @@ export class ReviewPanel {
 
   private copilotGroupsPanelMarkup(): string {
     const comparisonNotice = !this.semanticGroups.available
-      ? '<p class="delivery" role="status">Semantic groups were cleared because the comparison changed. Choose All Changes to generate groups for the analyzed comparison.</p>' : "";
-    return `<section class="copilot-panel" aria-busy="${this.copilotGrouping}">${this.copilotError ? `<div class="delivery error" role="alert">${escapeHtml(this.copilotError)}</div>` : ""}${comparisonNotice}${this.copilotSessionMarkup()}<button class="${this.copilotGroups ? "secondary" : "primary"} copilot-groups" type="button" ${this.copilotBusy || !this.semanticGroups.available ? "disabled" : ""}>${this.copilotGrouping ? '<span class="grouping-spinner" aria-hidden="true"></span>Grouping changes...' : this.copilotGroups ? "Regenerate" : "Generate"}</button>${this.copilotGroupsMarkup()}</section>`;
+      ? '<p class="delivery" role="status">Choose the latest All Changes comparison to apply groups to the file tree.</p>' : "";
+    const staleNotice = this.semanticGroups.stale ? '<p class="delivery" role="status">Groups are stale. Regenerate for the latest iteration.</p>' : "";
+    const error = this.copilotError || this.semanticGroups.error;
+    return `<section class="copilot-panel" aria-busy="${this.copilotGrouping}">${error ? `<div class="delivery error" role="alert">${escapeHtml(error)}</div>` : ""}${comparisonNotice}${staleNotice}${this.copilotSessionMarkup()}<button class="${this.copilotGroups ? "secondary" : "primary"} copilot-groups" type="button" ${this.copilotBusy ? "disabled" : ""}>${this.copilotGrouping ? '<span class="grouping-spinner" aria-hidden="true"></span>Grouping changes...' : this.copilotGroups ? "Regenerate" : "Generate"}</button>${this.copilotGroupsMarkup()}</section>`;
   }
 
   private copilotChatMarkup(): string {
@@ -364,7 +394,7 @@ export class ReviewPanel {
   }
 
   private copilotGroupsMarkup(): string {
-    if (this.copilotGrouping) return `<p class="muted" role="status">Grouping changes with Copilot...</p>`;
+    if (this.copilotGrouping && !this.copilotGroups) return `<p class="muted" role="status">Grouping changes with Copilot...</p>`;
     if (!this.copilotGroups) return "";
     const fileCount = this.copilotGroups.reduce((count, group) => count + group.files.length, 0);
     return `<section class="copilot-results" aria-label="Semantic groups"><p class="muted" role="status">${this.copilotGroups.length} groups, ${fileCount} files</p>${this.copilotGroups.map((group) =>
@@ -379,7 +409,7 @@ export class ReviewPanel {
     if (!result) return "";
     const header = `<div class="section-head"><h3 title="Latest completed grouping session. Each generation uses a separate session.">Session</h3>${result.cached ? '<span class="status" title="Restored from cache. No new model request.">Cached</span>' : ""}</div>`;
     const generated = result.generation;
-    const metadata = `<p class="copilot-generation">Iteration ${generated?.iterationId ?? this.dependencies.analysis.context.iterationId} / ${generated ? `<time datetime="${escapeHtml(generated.generatedAt)}">${escapeHtml(new Date(generated.generatedAt).toLocaleString())}</time>` : "Time not recorded"}</p>`;
+    const metadata = `<p class="copilot-generation">Iteration ${generated?.iterationId ?? (this.semanticGroups.stale ? "unknown" : this.dependencies.analysis.context.iterationId)} / ${generated ? `<time datetime="${escapeHtml(generated.generatedAt)}">${escapeHtml(new Date(generated.generatedAt).toLocaleString())}</time>` : "Time not recorded"}</p>`;
     const session = result.session;
     if (!session) return `<section class="copilot-session" aria-label="Copilot grouping session">${header}${metadata}<p class="muted copilot-session-unavailable">Session info unavailable.</p></section>`;
     const tokens = (value: number | null | undefined) => value == null ? "Not reported" : value.toLocaleString();
@@ -388,20 +418,23 @@ export class ReviewPanel {
     return `<section class="copilot-session" aria-label="Copilot grouping session">${header}${metadata}<dl><div><dt>Session ID</dt><dd><code>${escapeHtml(session.sessionId)}</code></dd></div><div><dt>Model</dt><dd>${model}</dd></div><div><dt>Input tokens</dt><dd>${tokens(session.inputTokens)}</dd></div><div><dt>Output tokens</dt><dd>${tokens(session.outputTokens)}</dd></div><div><dt>Total tokens</dt><dd>${tokens(total)}</dd></div>${session.cacheReadTokens != null ? `<div><dt>Cache read tokens</dt><dd>${tokens(session.cacheReadTokens)}</dd></div>` : ""}${session.cacheWriteTokens != null ? `<div><dt>Cache write tokens</dt><dd>${tokens(session.cacheWriteTokens)}</dd></div>` : ""}</dl></section>`;
   }
 
-  private async restoreCachedCopilotGroups(generateOnMiss = false): Promise<void> {
-    if (this.destroyed || !this.semanticGroups.enabled || !this.semanticGroups.available || this.copilotGroups !== null) return;
+  private async restoreCachedCopilotGroups(generateOnMiss = false, replaceStale = false): Promise<void> {
+    if (this.destroyed || !this.semanticGroups.enabled || (this.copilotGroups !== null && !(replaceStale && this.semanticGroups.stale))) return;
     const request = ++this.cachedGroupsRequest;
+    const identity = this.dependencies.analysis.context.identity;
     const isCurrent = () => request === this.cachedGroupsRequest && !this.destroyed && this.semanticGroups.enabled
-      && this.semanticGroups.available && !this.semanticGroups.busy && this.copilotGroups === null;
+      && identity === this.dependencies.analysis.context.identity
+      && !this.semanticGroups.processing && (this.copilotGroups === null || (replaceStale && this.semanticGroups.stale));
     try {
       const result = await this.dependencies.copilot.cachedSemanticGroups(this.dependencies.analysis.context, this.dependencies.analysis.files);
       if (!isCurrent()) return;
       if (result) {
-        const groups = validateSemanticGroups(this.dependencies.analysis.files, result.groups);
+        if (result.stale && this.copilotGroups !== null) return;
+        const groups = validateSemanticGroups(this.dependencies.analysis.files, result.groups, result.stale);
         this.copilotError = "";
         const generation = this.semanticGroups.begin();
         this.copilotGroupResult = result;
-        this.semanticGroups.complete(generation, groups);
+        this.semanticGroups.complete(generation, groups, result.stale);
       } else if (generateOnMiss && resolveFeature(this.settings, "autoGenerateCopilotGroups").enabled) {
         void this.loadCopilotGroups(this.dependencies.analysis.files);
       }
@@ -413,13 +446,23 @@ export class ReviewPanel {
   }
 
   private async loadCopilotGroups(files: FileStat[]): Promise<void> {
-    if (this.destroyed || !this.semanticGroups.enabled || !this.semanticGroups.available || this.copilotBusy) return;
+    if (this.destroyed || !this.semanticGroups.enabled || this.copilotBusy) return;
     this.cachedGroupsRequest++;
     this.copilotBusy = true;
-    const request = this.semanticGroups.begin();
+    let request = this.semanticGroups.begin();
+    this.semanticGroups.setInFlight(true);
     this.copilotError = "";
     this.render();
     try {
+      const identity = this.dependencies.analysis.context.identity;
+      await this.dependencies.refreshComparison?.();
+      if (this.destroyed || !this.semanticGroups.enabled) return;
+      if (!this.semanticGroups.isCurrent(request)) {
+        if (identity === this.dependencies.analysis.context.identity) return;
+        this.cachedGroupsRequest++;
+        request = this.semanticGroups.begin();
+      }
+      files = this.dependencies.analysis.files;
       const excerpts = await buildCopilotExcerpts(this.dependencies.api, this.dependencies.analysis.context, files);
       if (!this.semanticGroups.isCurrent(request) || this.destroyed) return;
       const result = await this.dependencies.copilot.semanticGroups(this.dependencies.analysis.context, this.dependencies.analysis.files, excerpts, this.copilotGroups !== null);
@@ -434,6 +477,7 @@ export class ReviewPanel {
       if (!this.open) this.toast.show(`Copilot grouping failed: ${this.copilotError}`);
     } finally {
       this.copilotBusy = false;
+      this.semanticGroups.setInFlight(false);
       this.render();
     }
   }

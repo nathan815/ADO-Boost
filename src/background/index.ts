@@ -97,7 +97,7 @@ async function handleCopilot(kind: string, payload: Record<string, unknown>, sen
   if (kind === "cached-semantic-groups") {
     requireFeature(currentSettings, "copilotSemanticGroups");
     if (!files) throw new Error("Missing changed-file context");
-    return loadCachedCopilotGroups(current.identity, files);
+    return loadCachedCopilotGroups(current.identity, files, true);
   }
   const excerpts = Array.isArray(payload.excerpts) ? payload.excerpts : null;
   if (!files || !excerpts) throw new Error("Missing bounded changed-file context");
@@ -127,10 +127,30 @@ async function handleCopilot(kind: string, payload: Record<string, unknown>, sen
   throw new Error("Unsupported Copilot request");
 }
 
-async function loadCachedCopilotGroups(identity: string, files: unknown[]): Promise<CopilotGroupResult | null> {
+async function loadCachedCopilotGroups(identity: string, files: unknown[], includeStale = false): Promise<CopilotGroupResult | null> {
   const key = `copilot-groups:${identity}`;
   const value: unknown = (await chrome.storage.local.get(key))[key];
-  if (value === undefined) return null;
+  if (value === undefined) {
+    if (!includeStale) return null;
+    const parts = identity.split("/");
+    const iteration = Number(parts.at(-3));
+    if (!Number.isInteger(iteration) || iteration < 2) return null;
+    const prefix = `copilot-groups:${parts.slice(0, -3).join("/")}/`;
+    const entries = await chrome.storage.local.get(null);
+    const previous = Object.keys(entries).filter((candidate) => {
+      if (!candidate.startsWith(prefix)) return false;
+      const suffix = candidate.slice(prefix.length).split("/");
+      const id = Number(suffix[0]);
+      return suffix.length === 3 && Number.isInteger(id) && id > 0 && id < iteration;
+    }).sort((a, b) => Number(b.slice(prefix.length).split("/")[0]) - Number(a.slice(prefix.length).split("/")[0]));
+    if (!previous.length) return null;
+    const cached = entries[previous[0]!];
+    const result = parseCopilotGroupResult(Array.isArray(cached) ? { groups: cached } : cached);
+    const paths = proposalPaths(files);
+    const groups = result.groups.map((group) => ({ ...group, paths: group.paths.filter((path) => paths.has(path)) })).filter((group) => group.paths.length);
+    validateProposalPaths(groups, files);
+    return { ...result, groups, cached: true, stale: true };
+  }
   const result = parseCopilotGroupResult(Array.isArray(value) ? { groups: value } : value);
   validateProposalPaths(result.groups, files);
   return { ...result, cached: true };
@@ -279,7 +299,7 @@ function isCopilotMessage(value: unknown): value is { channel: "adopp-copilot"; 
 }
 
 function validateProposalPaths(proposals: Array<{ paths: string[] }>, files: unknown[]): void {
-  const allowed = new Set(files.map((file) => file && typeof file === "object" ? (file as { path?: unknown }).path : undefined).filter((path): path is string => typeof path === "string"));
+  const allowed = proposalPaths(files);
   const seen = new Set<string>();
   for (const proposal of proposals) {
     for (const path of proposal.paths) {
@@ -287,5 +307,10 @@ function validateProposalPaths(proposals: Array<{ paths: string[] }>, files: unk
       if (seen.has(path)) throw new Error(`Copilot returned duplicate path ${path}`);
       seen.add(path);
     }
+
   }
+}
+
+function proposalPaths(files: unknown[]): Set<string> {
+  return new Set(files.map((file) => file && typeof file === "object" ? (file as { path?: unknown }).path : undefined).filter((path): path is string => typeof path === "string"));
 }

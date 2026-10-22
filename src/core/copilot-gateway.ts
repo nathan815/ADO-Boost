@@ -21,7 +21,8 @@ const groupResultSchema = z.object({
   groups: z.array(z.object({ title: z.string(), rationale: z.string(), paths: z.array(z.string()) })),
   session: sessionSchema.nullish(),
   generation: z.object({ iterationId: z.number().int().positive(), generatedAt: z.iso.datetime({ offset: true }) }).nullish(),
-  cached: z.boolean().optional()
+  cached: z.boolean().optional(),
+  stale: z.boolean().optional()
 });
 
 export interface CopilotGroupResult {
@@ -29,11 +30,12 @@ export interface CopilotGroupResult {
   session: z.infer<typeof sessionSchema> | null;
   generation?: { iterationId: number; generatedAt: string } | null;
   cached: boolean;
+  stale?: boolean;
 }
 
 export function parseCopilotGroupResult(value: unknown): CopilotGroupResult {
   const data = groupResultSchema.parse(value);
-  return { groups: data.groups, session: data.session ?? null, generation: data.generation ?? null, cached: data.cached ?? false };
+  return { groups: data.groups, session: data.session ?? null, generation: data.generation ?? null, cached: data.cached ?? false, ...(data.stale ? { stale: true } : {}) };
 }
 
 export function parseCopilotHealth(value: unknown): CopilotHealth {

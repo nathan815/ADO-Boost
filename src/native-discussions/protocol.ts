@@ -25,6 +25,7 @@ export const discussionConfigurationSchema = z.object({
   kind: z.literal("configure"),
   session: z.string().uuid(),
   page: z.string().url().max(8192),
+  comparisonIdentity: z.string().min(1).max(8192).optional(),
   reviewer: z.object({
     id: z.string().min(1).max(500),
     displayName: z.string().min(1).max(500)
@@ -49,6 +50,7 @@ export const discussionActionSchema = z.discriminatedUnion("action", [
     kind: z.literal("action"),
     session: z.string().uuid(),
     action: z.literal("add"),
+    comparisonIdentity: z.string().min(1).max(8192).optional(),
     draft: z.object({
       kind: z.enum(["general", "inline", "reply"]),
       body: z.string().trim().min(1).max(150000),

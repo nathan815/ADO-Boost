@@ -28,7 +28,7 @@ describe("background Copilot grouping results", () => {
       },
       storage: {
         local: {
-          get: async (key: string) => values.has(key) ? { [key]: values.get(key) } : {},
+          get: async (key: string | null) => key === null ? Object.fromEntries(values) : values.has(key) ? { [key]: values.get(key) } : {},
           set: async (entries: Record<string, unknown>) => { for (const [key, value] of Object.entries(entries)) values.set(key, value); }
         },
         onChanged: { addListener: vi.fn() }
@@ -134,5 +134,45 @@ describe("background Copilot grouping results", () => {
     native.mockResolvedValue({ auth: { isAuthenticated: true } });
     await expect(send("health", { context })).resolves.toMatchObject({ ok: false, error: expect.any(String) });
     expect(native).not.toHaveBeenCalled();
+  });
+
+  it("restores only the newest older iteration from the same PR and preserves its session", async () => {
+    const prefix = "https://dev.azure.com/project/repo-id/7";
+    const latest = { ...context, iterationId: 4, identity: `${prefix}/4/source/base` };
+    getContext.mockResolvedValue(latest);
+    const generation = { iterationId: 3, generatedAt: "2026-10-20T12:00:00Z" };
+    values.set(`copilot-groups:${prefix}/2/old/base`, { groups, session });
+    values.set(`copilot-groups:${prefix}/3/old/base`, { groups: [
+      ...groups, { title: "Removed", rationale: "", paths: ["/removed.ts"] }
+    ], session, generation });
+    values.set(`copilot-groups:${prefix}/5/future/base`, { groups: [], session: null });
+    values.set("copilot-groups:https://dev.azure.com/project/repo-id/70/3/old/base", { groups: [], session: null });
+    const payload = { context: latest, files: [{ path: "/file.ts" }, { path: "/new.ts" }] };
+    await expect(send("cached-semantic-groups", payload)).resolves.toEqual({
+      ok: true, data: { groups, session, generation, cached: true, stale: true }
+    });
+    expect(native).not.toHaveBeenCalled();
+    expect(values.has(`copilot-groups:${latest.identity}`)).toBe(false);
+    values.set(`copilot-groups:${latest.identity}`, { groups, session: { ...session, sessionId: "latest" } });
+    await expect(send("cached-semantic-groups", payload)).resolves.toMatchObject({
+      ok: true, data: { session: { sessionId: "latest" }, cached: true }
+    });
+    const response = await send("cached-semantic-groups", payload) as { data: { stale?: boolean } };
+    expect(response.data.stale).not.toBe(true);
+  });
+
+  it("does not treat an older cache as a successful generation or overwrite it on failure", async () => {
+    const prefix = "https://dev.azure.com/project/repo-id/7";
+    const latest = { ...context, iterationId: 2, identity: `${prefix}/2/source/base` };
+    getContext.mockResolvedValue(latest);
+    const oldKey = `copilot-groups:${prefix}/1/old/base`;
+    const old = { groups, session };
+    values.set(oldKey, old);
+    native.mockRejectedValue(new Error("Disconnected"));
+    await expect(send("semantic-groups", { context: latest, files: [{ path: "/file.ts" }], excerpts: [], regenerate: true }))
+      .resolves.toEqual({ ok: false, error: "Disconnected" });
+    expect(native).toHaveBeenCalledOnce();
+    expect(values.get(oldKey)).toEqual(old);
+    expect(values.has(`copilot-groups:${latest.identity}`)).toBe(false);
   });
 });

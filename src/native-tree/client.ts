@@ -25,7 +25,8 @@ export class NativeTreeClient implements NativeTreePort {
     private readonly scope = window,
     private readonly semantic?: SemanticGroupState,
     private readonly regenerate?: () => void,
-    private readonly viewSession?: () => void
+    private readonly viewSession?: () => void,
+    private readonly comparisonChanged?: () => void
   ) {}
 
   configure(filters: TreeFilters, countsEnabled: boolean): void {
@@ -39,9 +40,9 @@ export class NativeTreeClient implements NativeTreePort {
       groups: (this.semantic.groups ?? []).map((group) => ({
         id: group.id, title: group.title, rationale: group.rationale, paths: group.files.map((file) => file.path)
       })),
-      view: this.semantic.view, busy: this.semantic.busy, error: this.semantic.error.slice(0, 1000)
+      view: this.semantic.view, busy: this.semantic.processing, stale: this.semantic.stale, error: this.semantic.error.slice(0, 1000)
     } : undefined;
-    const signature = JSON.stringify({ filters, countsEnabled, files, countDescription, semantic });
+    const signature = JSON.stringify({ comparison: this.analysis.context.identity, filters, countsEnabled, files, countDescription, semantic });
     if (this.active && signature === this.signature) return;
     this.signature = signature;
     if (!this.active) {
@@ -96,13 +97,15 @@ export class NativeTreeClient implements NativeTreePort {
         || !this.status || !["active", "counts-unavailable"].includes(this.status.state)) return;
       if (action.data.action === "select") this.semantic.select(action.data.view);
       else if (action.data.action === "view-session") this.viewSession?.();
-      else if (!this.semantic.busy) this.regenerate?.();
+      else if (!this.semantic.processing) this.regenerate?.();
       return;
     }
     const parsed = statusSchema.safeParse(event.data);
     if (!parsed.success || parsed.data.session !== this.session) return;
     this.status = parsed.data;
     this.semantic?.setAvailable(parsed.data.state !== "comparison-mismatch");
+    if (parsed.data.state === "comparison-mismatch" && parsed.data.comparison?.baseIteration === 0
+      && parsed.data.comparison.iteration > this.analysis.context.iterationId) this.comparisonChanged?.();
     this.notify();
   };
 

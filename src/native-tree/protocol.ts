@@ -39,6 +39,7 @@ export const semanticSchema = z.object({
   }).strict()).max(200),
   view: semanticViewSchema,
   busy: z.boolean(),
+  stale: z.boolean().optional(),
   error: z.string().max(1000)
 }).strict();
 
@@ -95,7 +96,11 @@ export const statusSchema = z.object({
   state: z.enum(["waiting", "active", "unavailable", "counts-unavailable", "comparison-mismatch", "groups-unavailable"]),
   detail: z.string().max(1000),
   fileCount: z.number().int().nonnegative().nullable(),
-  filtersActive: z.boolean().optional()
+  filtersActive: z.boolean().optional(),
+  comparison: z.object({
+    iteration: z.number().int().positive(),
+    baseIteration: z.number().int().nonnegative()
+  }).strict().optional()
 }).strict();
 
 export type TreeFile = z.infer<typeof fileSchema>;

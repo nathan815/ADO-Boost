@@ -120,6 +120,30 @@ describe("native discussion client", () => {
     expect(latest.drafts).toEqual([]);
   });
 
+  it("keeps native drafts attached to their editor's comparison across an analysis refresh", async () => {
+    const current = { ...analysis, files: [...analysis.files] };
+    client = new NativeDiscussionClient(current, store);
+    await client.start(true);
+    const configured = discussionConfigurationSchema.parse(posted.at(-1));
+    current.context = { ...current.context, identity: "latest", iterationId: 4 };
+    current.files = current.files.map((file) => ({ ...file, trackingId: 24 }));
+    client.update(true);
+    expect(discussionConfigurationSchema.parse(posted.at(-1)).comparisonIdentity).toBe("latest");
+    const send = (comparisonIdentity: string, body: string) => window.dispatchEvent(new MessageEvent("message", {
+      source: window, origin: location.origin, data: {
+        channel: DISCUSSION_CHANNEL, kind: "action", session: configured.session, action: "add", comparisonIdentity,
+        draft: { kind: "inline", body, path: "/src/app.ts", line: 4, side: "right" }
+      }
+    }));
+    send("comparison", "Original editor");
+    send("latest", "New editor");
+    const key = `${analysis.context.origin}/${analysis.context.repositoryId}/${analysis.context.pullRequestId}/${analysis.context.reviewer.id}`;
+    await vi.waitFor(async () => expect(await store.getDrafts(key)).toEqual([
+      expect.objectContaining({ body: "Original editor", comparisonIdentity: "comparison", trackingId: 12 }),
+      expect.objectContaining({ body: "New editor", comparisonIdentity: "latest", trackingId: 24 })
+    ]));
+  });
+
   it("preserves the latest enabled state when storage changes", async () => {
     await client.start(true);
     client.update(false);
