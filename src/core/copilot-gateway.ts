@@ -12,6 +12,7 @@ const tokenCountSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTE
 const sessionSchema = z.object({
   sessionId: z.string().min(1).max(200),
   models: z.array(z.string().min(1).max(200)).max(100),
+  totalNanoAiu: tokenCountSchema.optional(),
   inputTokens: tokenCountSchema,
   outputTokens: tokenCountSchema,
   cacheReadTokens: tokenCountSchema,

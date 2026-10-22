@@ -7,6 +7,7 @@ export class SessionUsage {
   private selectedModel: string | null = null;
   private readonly models = new Set<string>();
   private readonly seen = new Set<string>();
+  private totalNanoAiu: number | null = 0;
   private readonly tokens: Record<TokenField, number | null> = {
     inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0
   };
@@ -17,6 +18,9 @@ export class SessionUsage {
     if (event.type !== "assistant.usage" || this.seen.has(event.id)) return;
     this.seen.add(event.id);
     this.models.add(event.data.model);
+    const cost = event.data.copilotUsage?.totalNanoAiu;
+    const total = this.totalNanoAiu !== null && cost !== undefined ? this.totalNanoAiu + cost : null;
+    this.totalNanoAiu = typeof cost === "number" && Number.isSafeInteger(cost) && cost >= 0 && Number.isSafeInteger(total) ? total : null;
     for (const field of tokenFields) {
       const value = event.data[field];
       const previous = this.tokens[field];
@@ -29,6 +33,7 @@ export class SessionUsage {
     return {
       sessionId,
       models: this.models.size ? [...this.models] : this.selectedModel ? [this.selectedModel] : [],
+      totalNanoAiu: this.seen.size ? this.totalNanoAiu : null,
       ...(this.seen.size ? this.tokens : { inputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null })
     };
   }

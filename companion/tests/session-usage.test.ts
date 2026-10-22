@@ -15,8 +15,42 @@ describe("Copilot session usage", () => {
     tracker.record(usage("two", { model: "model-b", inputTokens: 200, outputTokens: 40, cacheReadTokens: 30, cacheWriteTokens: 0 }));
     expect(tracker.summary("session-1")).toEqual({
       sessionId: "session-1", models: ["model-a", "model-b"], inputTokens: 300, outputTokens: 60,
-      cacheReadTokens: 40, cacheWriteTokens: 5
+      cacheReadTokens: 40, cacheWriteTokens: 5, totalNanoAiu: null
     });
+  });
+
+  it("aggregates reported AI credit costs once per call without using premium request multipliers", () => {
+    const tracker = new SessionUsage();
+    const first = usage("one", { model: "model-a", cost: 99, copilotUsage: { totalNanoAiu: 1_250_000_001, tokenDetails: [] } });
+    tracker.record(first);
+    tracker.record(first);
+    tracker.record(usage("two", { model: "model-b", copilotUsage: { totalNanoAiu: 250_000_000, tokenDetails: [] } }));
+    expect(tracker.summary("session-1").totalNanoAiu).toBe(1_500_000_001);
+    expect(new SessionUsage().summary("new-session").totalNanoAiu).toBeNull();
+  });
+
+  it("distinguishes explicitly reported zero credit usage from absent billing telemetry", () => {
+    const tracker = new SessionUsage();
+    expect(tracker.summary("session-1").totalNanoAiu).toBeNull();
+    tracker.record(usage("one", { model: "model-a", copilotUsage: { totalNanoAiu: 0, tokenDetails: [] } }));
+    expect(tracker.summary("session-1").totalNanoAiu).toBe(0);
+    tracker.record(usage("two", { model: "model-a", cost: 1 }));
+    tracker.record(usage("three", { model: "model-a", copilotUsage: { totalNanoAiu: 100, tokenDetails: [] } }));
+    expect(tracker.summary("session-1").totalNanoAiu).toBeNull();
+  });
+
+  it.each([-1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])("reports invalid credit usage as unknown: %s", (totalNanoAiu) => {
+    const tracker = new SessionUsage();
+    tracker.record(usage("one", { model: "model-a", copilotUsage: { totalNanoAiu, tokenDetails: [] } }));
+    tracker.record(usage("two", { model: "model-a", copilotUsage: { totalNanoAiu: 100, tokenDetails: [] } }));
+    expect(tracker.summary("session-1").totalNanoAiu).toBeNull();
+  });
+
+  it("does not return an unsafe accumulated billing total", () => {
+    const tracker = new SessionUsage();
+    tracker.record(usage("one", { model: "model-a", copilotUsage: { totalNanoAiu: Number.MAX_SAFE_INTEGER, tokenDetails: [] } }));
+    tracker.record(usage("two", { model: "model-a", copilotUsage: { totalNanoAiu: 1, tokenDetails: [] } }));
+    expect(tracker.summary("session-1").totalNanoAiu).toBeNull();
   });
 
   it("reports missing or partially reported metrics as unknown, not zero", () => {

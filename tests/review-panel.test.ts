@@ -936,14 +936,15 @@ describe("ReviewPanel semantic groups", () => {
   it("shows actual model and per-session tokens and preserves them on failure or unsupported comparisons", async () => {
     const { root, semanticGroups, requestGroups, state } = await fixture();
     expect(root.querySelector(".copilot-session")).toBeNull();
-    const session = { sessionId: "session-1", models: ["actual-model", "<img src=x>"], inputTokens: 1200, outputTokens: 300, cacheReadTokens: 400, cacheWriteTokens: 0 };
+    const session = { sessionId: "session-1", models: ["actual-model", "<img src=x>"], totalNanoAiu: 1_250_000_001, inputTokens: 1200, outputTokens: 300, cacheReadTokens: 400, cacheWriteTokens: 0 };
     semanticGroups.mockResolvedValue(groupResult([], session));
     await requestGroups();
     await vi.waitFor(() => expect(root.querySelector(".copilot-session")?.textContent).toContain("actual-model"));
     const metrics = () => Object.fromEntries([...root.querySelectorAll(".copilot-session dl>div")].map((row) => [row.querySelector("dt")!.textContent, row.querySelector("dd")!.textContent]));
     expect(metrics()).toMatchObject({
       "Session ID": "session-1", Model: "actual-model, <img src=x>", "Input tokens": (1200).toLocaleString(), "Output tokens": "300",
-      "Total tokens": (1500).toLocaleString(), "Cache read tokens": "400", "Cache write tokens": "0"
+      "Total tokens": (1500).toLocaleString(), "Cache read tokens": "400", "Cache write tokens": "0",
+      "AI credits used": (1.250000001).toLocaleString(undefined, { maximumFractionDigits: 9 })
     });
     expect(root.querySelector(".copilot-session img")).toBeNull();
     expect(root.querySelector(".copilot-session h3")?.getAttribute("title")).toContain("Each generation uses a separate session");
@@ -952,6 +953,7 @@ describe("ReviewPanel semantic groups", () => {
     await requestGroups();
     await vi.waitFor(() => expect(root.querySelector(".delivery.error")?.textContent).toBe("Host disconnected"));
     expect(metrics()["Total tokens"]).toBe((1500).toLocaleString());
+    expect(metrics()["AI credits used"]).toBe((1.250000001).toLocaleString(undefined, { maximumFractionDigits: 9 }));
     state.setAvailable(false);
     expect(metrics()["Session ID"]).toBe("session-1");
   });
@@ -1049,20 +1051,33 @@ describe("ReviewPanel semantic groups", () => {
   it("labels cached session usage and replaces it with the next generation without accumulating", async () => {
     const { root, semanticGroups, requestGroups } = await fixture();
     semanticGroups.mockResolvedValue(groupResult([], {
-      sessionId: "old-session", models: ["cached-model"], inputTokens: 100, outputTokens: 20, cacheReadTokens: null, cacheWriteTokens: null
+      sessionId: "old-session", models: ["cached-model"], totalNanoAiu: 3_000_000_000, inputTokens: 100, outputTokens: 20, cacheReadTokens: null, cacheWriteTokens: null
     }, true));
     await requestGroups();
     await vi.waitFor(() => expect(root.querySelector(".copilot-session .status")?.textContent).toBe("Cached"));
     expect(root.querySelector(".copilot-session .status")?.getAttribute("title")).toContain("No new model request");
     expect(root.querySelector(".copilot-session code")?.textContent).toBe("old-session");
+    expect(root.querySelectorAll(".copilot-session dd")[2]?.textContent).toBe("3");
     semanticGroups.mockResolvedValue(groupResult([], {
-      sessionId: "new-session", models: ["new-model"], inputTokens: 0, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null
+      sessionId: "new-session", models: ["new-model"], totalNanoAiu: 0, inputTokens: 0, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null
     }));
     await requestGroups();
     await vi.waitFor(() => expect(root.querySelector(".copilot-session")?.textContent).toContain("new-model"));
     expect(root.querySelector(".copilot-session .status")).toBeNull();
     expect(root.querySelector(".copilot-session")?.textContent).not.toContain("cached-model");
-    expect([...root.querySelectorAll(".copilot-session dd")].map((value) => value.textContent)).toEqual(["new-session", "new-model", "0", "Not reported", "Not reported"]);
+    expect([...root.querySelectorAll(".copilot-session dd")].map((value) => value.textContent)).toEqual(["new-session", "new-model", "0", "0", "Not reported", "Not reported"]);
+  });
+
+  it.each([0, 1, 1_250_000_000, null, undefined])("shows per-session AI credits without inventing unreported usage: %s", async (totalNanoAiu) => {
+    const { root, semanticGroups, requestGroups } = await fixture();
+    semanticGroups.mockResolvedValue(groupResult([], {
+      sessionId: "credit-session", models: ["model"], inputTokens: 10, outputTokens: 2, cacheReadTokens: null, cacheWriteTokens: null,
+      ...(totalNanoAiu !== undefined ? { totalNanoAiu } : {})
+    }));
+    await requestGroups();
+    await vi.waitFor(() => expect(root.querySelector(".copilot-session code")?.textContent).toBe("credit-session"));
+    const row = [...root.querySelectorAll(".copilot-session dl>div")].find((row) => row.querySelector("dt")?.textContent === "AI credits used");
+    expect(row?.querySelector("dd")?.textContent).toBe(totalNanoAiu == null ? "Not reported" : (totalNanoAiu / 1e9).toLocaleString(undefined, { maximumFractionDigits: 9 }));
   });
 
   it("explains missing telemetry from legacy companions and cached results", async () => {

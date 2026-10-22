@@ -186,6 +186,17 @@ describe("native companion client", () => {
     expect(() => parseCopilotGroupResult({ groups: [], generation: { ...generation, iterationId: 0 } })).toThrow();
   });
 
+  it("preserves optional AI credit telemetry and rejects invalid billing totals", () => {
+    const session = { sessionId: "session-1", models: ["model"], inputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null };
+    for (const totalNanoAiu of [0, 1, 1_250_000_000, null]) {
+      expect(parseCopilotGroupResult({ groups: [], session: { ...session, totalNanoAiu } }).session?.totalNanoAiu).toBe(totalNanoAiu);
+    }
+    expect(parseCopilotGroupResult({ groups: [], session }).session?.totalNanoAiu).toBeUndefined();
+    for (const totalNanoAiu of [-1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, "100"]) {
+      expect(() => parseCopilotGroupResult({ groups: [], session: { ...session, totalNanoAiu } })).toThrow();
+    }
+  });
+
   it("tracks inference waiting for the handshake so disabling features can cancel it", async () => {
     const { client } = setup();
     const chat = client.request("chat");
