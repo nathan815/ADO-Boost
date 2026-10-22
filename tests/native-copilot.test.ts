@@ -126,12 +126,34 @@ describe("native companion client", () => {
     const chat = client.request("chat", { question: "Why?" });
     await vi.advanceTimersByTimeAsync(0);
     expect(messages.map((message) => message.type)).toEqual(["hello", "health", "chat"]);
-    await vi.advanceTimersByTimeAsync(31_000);
+    await vi.advanceTimersByTimeAsync(121_000);
     await failure;
     expect(port.disconnect).not.toHaveBeenCalled();
     respond("chat", { answer: "Because." });
     await expect(chat).resolves.toEqual({ answer: "Because." });
-    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(119_999);
+    expect(port.disconnect).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(port.disconnect).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("resets the two-minute idle timeout after a new request", async () => {
+    vi.useFakeTimers();
+    const { client, respond, port } = setup();
+    const first = client.request("health");
+    respond("hello", { version: 1 });
+    await vi.advanceTimersByTimeAsync(0);
+    respond("health", { auth: { isAuthenticated: true } });
+    await first;
+    await vi.advanceTimersByTimeAsync(60_000);
+    const second = client.request("health");
+    await vi.advanceTimersByTimeAsync(0);
+    respond("health", { auth: { isAuthenticated: true } });
+    await second;
+    await vi.advanceTimersByTimeAsync(119_999);
+    expect(port.disconnect).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
     expect(port.disconnect).toHaveBeenCalledOnce();
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -155,6 +177,21 @@ describe("native companion client", () => {
   it("rejects malformed health responses rather than treating them as signed out", () => {
     expect(() => parseCopilotHealth({})).toThrow();
     expect(() => parseCopilotHealth({ auth: { isAuthenticated: "yes" } })).toThrow();
+  });
+
+  it("retains validated companion diagnostics from health without requiring newer hosts", () => {
+    expect(parseCopilotHealth({
+      protocolVersion: 1, companion: { version: "2.3.4", pid: 1234, uptimeSeconds: 0 }, sdk: { version: "1.2.3" },
+      auth: { isAuthenticated: true, login: "reviewer", host: "https://github.com" }
+    })).toEqual({
+      connected: true, authenticated: true, login: "reviewer", host: "https://github.com",
+      protocolVersion: 1, companion: { version: "2.3.4", pid: 1234, uptimeSeconds: 0 }, cliVersion: "1.2.3"
+    });
+    expect(parseCopilotHealth({ auth: { isAuthenticated: false }, companion: { pid: 1234, uptimeSeconds: 10 } }))
+      .toEqual({ connected: true, authenticated: false, companion: { pid: 1234, uptimeSeconds: 10 } });
+    for (const companion of [{ pid: -1, uptimeSeconds: 0 }, { pid: "1234", uptimeSeconds: 0 }, { pid: 1234, uptimeSeconds: -1 }, { pid: 1234, uptimeSeconds: 0.5 }]) {
+      expect(() => parseCopilotHealth({ auth: { isAuthenticated: true }, companion })).toThrow();
+    }
   });
 
   it("validates grouping session usage while preserving zero and unknown counters", () => {

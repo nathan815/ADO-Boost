@@ -121,6 +121,6 @@ export class NativeCopilotClient {
     if (this.pending.size) return;
     this.idleTimer = setTimeout(() => {
       if (!this.pending.size) this.disconnect();
-    }, 30_000);
+    }, 120_000);
   }
 }

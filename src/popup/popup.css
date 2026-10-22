@@ -69,6 +69,10 @@ h2 { font-size: 14px; font-weight: 600; }
 .login { overflow-wrap: anywhere; }
 .connection-detail { margin-bottom: 8px; }
 .connection-detail p + p { margin-top: 5px; }
+.connection-diagnostics { margin: 0 0 8px; font-size: 12px; }
+.connection-diagnostics > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 8px; padding: 3px 0; }
+.connection-diagnostics dt { color: var(--text-secondary-color); }
+.connection-diagnostics dd { margin: 0; overflow-wrap: anywhere; }
 .muted { color: var(--text-secondary-color); }
 .error { color: var(--popup-error); overflow-wrap: anywhere; }
 .recent { min-height: 0; }

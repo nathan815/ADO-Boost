@@ -300,10 +300,31 @@ export class ExtensionPopup {
       h("div", { className: "connection-status", role: "status", "aria-live": "polite" },
         h("strong", null, status),
         !this.checking && this.health?.connected && this.health.authenticated && this.health.login ? h("span", { className: "muted login" }, `Signed in as ${this.health.login}`) : null),
+      !this.checking && this.health?.connected ? this.renderConnectionDiagnostics(this.health) : null,
       this.healthError ? h("div", { className: "connection-detail" },
         h("p", { className: "error", role: "alert" }, this.healthError),
         h("p", { className: "muted" }, "Run ado-boost doctor to check the host and CLI, then refresh.")) : null,
       !this.checking && this.health?.connected && !this.health.authenticated ? h("p", { className: "muted" }, this.health.detail ?? "Run ado-boost login, then refresh.") : null));
+  }
+
+  private renderConnectionDiagnostics(health: CopilotHealth) {
+    const details: Array<[string, string]> = [];
+    if (health.companion) {
+      if (health.companion.version) details.push(["Companion version", health.companion.version]);
+      const seconds = health.companion.uptimeSeconds;
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor(seconds % 3600 / 60);
+      const uptime = hours ? `${hours}h ${minutes}m` : minutes ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
+      details.push(["Companion PID", String(health.companion.pid)], ["Uptime", uptime]);
+    }
+    if (health.cliVersion) details.push(["Copilot CLI", health.cliVersion]);
+    if (health.host) details.push(["GitHub host", health.host]);
+    if (health.protocolVersion !== undefined) details.push(["Host protocol", String(health.protocolVersion)]);
+    if (!details.length) return null;
+    return h("div", { className: "connection-detail" },
+      h("dl", { className: "connection-diagnostics" }, details.map(([label, value]) =>
+        h("div", { key: label }, h("dt", null, label), h("dd", null, value)))),
+      h("p", { className: "muted" }, "Details reflect the last check. The companion may restart after being idle."));
   }
 
   private closeConnectionDetails(): void {

@@ -7,6 +7,7 @@ import { CancellationRegistry, createCancellableResource } from "./lifecycle.js"
 import { SessionUsage } from "./session-usage.js";
 import { FrameDecoder, PROTOCOL_VERSION, encodeFrame, requestSchema, type NativeRequest, type NativeResponse } from "./protocol.js";
 import { accountEnvironment, accountSchema, availableAccounts, requirePinnedAccount, sameAccount, writeJsonAtomic, type CopilotAccount } from "./accounts.js";
+import packageInfo from "../package.json" with { type: "json" };
 
 const hostConfigSchema = z.object({
   allowedOrigins: z.array(z.string().regex(/^chrome-extension:\/\/[a-p]{32}\/$/)).min(1),
@@ -108,10 +109,10 @@ async function dispatch(value: unknown): Promise<void> {
       try {
         const sdk = await getClient();
         const [status, auth] = await Promise.all([sdk.getStatus(), getPinnedAuth(sdk)]);
-        write({ id: request.id, ok: true, type: "health", data: { protocolVersion: PROTOCOL_VERSION, sdk: status, auth } });
+        write({ id: request.id, ok: true, type: "health", data: { ...hostHealth(), sdk: status, auth } });
       } catch (error) {
         if (!["account-required", "account-mismatch", "login-required"].includes(errorCode(error))) throw error;
-        write({ id: request.id, ok: true, type: "health", data: { protocolVersion: PROTOCOL_VERSION, auth: { isAuthenticated: false, statusMessage: error instanceof Error ? error.message : "Select a Copilot account" } } });
+        write({ id: request.id, ok: true, type: "health", data: { ...hostHealth(), auth: { isAuthenticated: false, statusMessage: error instanceof Error ? error.message : "Select a Copilot account" } } });
       }
       return;
     }
@@ -122,6 +123,13 @@ async function dispatch(value: unknown): Promise<void> {
   } finally {
     if (request.type !== "cancel") cancellations.finish(request.id);
   }
+}
+
+function hostHealth() {
+  return {
+    protocolVersion: PROTOCOL_VERSION,
+    companion: { version: packageInfo.version, pid: process.pid, uptimeSeconds: Math.floor(process.uptime()) }
+  };
 }
 
 async function askCopilot(request: Extract<NativeRequest, { type: "semantic-groups" | "chat" }>): Promise<unknown> {

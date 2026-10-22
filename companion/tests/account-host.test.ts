@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { build } from "esbuild";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { encodeFrame, FrameDecoder } from "../src/protocol.js";
+import packageInfo from "../package.json" with { type: "json" };
 
 const origin = "chrome-extension://oldakfajnbllipnfdaghapeiofnciopo/";
 const personal = { host: "https://github.com", login: "personal" };
@@ -116,6 +117,7 @@ async function fixture(account?: typeof work) {
   });
   expect((await request("hello", { origin, version: 1 })).ok).toBe(true);
   return {
+    pid: child.pid,
     request,
     auth: async (overrides: unknown) => writeFile(auth, JSON.stringify(overrides)),
     events: async () => (await readFile(events, "utf8")).trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as { type: string; login: string }),
@@ -142,10 +144,16 @@ describe("native account routing", () => {
     try {
       expect(await host.request("accounts")).toMatchObject({ ok: true, data: { accounts: [personal, work], selected: null } });
       expect(await host.events()).toEqual([]);
-      expect(await host.request("health")).toMatchObject({ ok: true, data: { auth: { isAuthenticated: false } } });
+      expect(await host.request("health")).toMatchObject({
+        ok: true, data: { auth: { isAuthenticated: false }, protocolVersion: 1, companion: { version: packageInfo.version, pid: host.pid, uptimeSeconds: expect.any(Number) } }
+      });
       expect(await host.request("semantic-groups", inference)).toMatchObject({ ok: false, error: { code: "account-required" } });
       expect(await host.request("select-account", { account: work })).toMatchObject({ ok: true, data: { selected: work } });
       expect((await host.config()).account).toEqual(work);
+      expect(await host.request("health")).toMatchObject({
+        ok: true, data: { auth: { isAuthenticated: true, ...work }, sdk: { version: "test" }, companion: { pid: host.pid, uptimeSeconds: expect.any(Number) } }
+      });
+      expect((await host.events()).some((event) => event.type === "session")).toBe(false);
       expect((await host.request("semantic-groups", inference)).ok).toBe(true);
       expect(await host.events()).toContainEqual({ type: "prompt", login: work.login });
       expect(await host.request("select-account", { account: personal })).toMatchObject({ ok: true, data: { selected: personal } });

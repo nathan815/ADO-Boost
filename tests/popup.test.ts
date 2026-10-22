@@ -94,7 +94,7 @@ describe("extension popup", () => {
     expect(root.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Reviewing");
   });
 
-  it("sets a stable document width before popup JavaScript loads", () => {
+  it("sets stable document width and minimum height before popup JavaScript loads", () => {
     const html = new DOMParser().parseFromString(popupHtml, "text/html");
     const style = document.createElement("style");
     style.textContent = html.querySelector("head style")!.textContent;
@@ -103,6 +103,8 @@ describe("extension popup", () => {
       expect(getComputedStyle(document.documentElement).width).toBe("420px");
       expect(getComputedStyle(document.documentElement).minWidth).toBe("420px");
       expect(getComputedStyle(document.body).width).toBe("420px");
+      expect(getComputedStyle(document.documentElement).minHeight).toBe("420px");
+      expect(getComputedStyle(document.body).minHeight).toBe("420px");
       expect(getComputedStyle(document.documentElement).overflow).toBe("hidden");
     } finally {
       style.remove();
@@ -151,6 +153,39 @@ describe("extension popup", () => {
     expect(root.querySelector(".companion-username")).toBeNull();
   });
 
+  it.each([[0, "0s"], [59, "59s"], [60, "1m 0s"], [3661, "1h 1m"]])("shows companion diagnostics with %s seconds of uptime", async (uptimeSeconds, uptime) => {
+    const { root } = setup({ health: async () => ({
+      connected: true, authenticated: true, login: "reviewer", host: "https://github.com",
+      companion: { version: "2.3.4", pid: 4321, uptimeSeconds }, cliVersion: "1.2.3", protocolVersion: 1
+    }) });
+    await vi.waitFor(() => expect(root.querySelector(".companion-username")).not.toBeNull());
+    root.querySelector<HTMLButtonElement>(".companion-toggle")!.click();
+    const details = [...root.querySelectorAll(".connection-diagnostics > div")].map((row) => [
+      row.querySelector("dt")?.textContent, row.querySelector("dd")?.textContent
+    ]);
+    expect(details).toEqual([
+      ["Companion version", "2.3.4"], ["Companion PID", "4321"], ["Uptime", uptime], ["Copilot CLI", "1.2.3"], ["GitHub host", "https://github.com"], ["Host protocol", "1"]
+    ]);
+    expect(root.textContent).toContain("Details reflect the last check");
+  });
+
+  it("refreshes process details while signed out and removes stale diagnostics on disconnect", async () => {
+    const health = vi.fn<PopupDependencies["health"]>()
+      .mockResolvedValueOnce({ connected: true, authenticated: false, companion: { pid: 4321, uptimeSeconds: 10 } })
+      .mockResolvedValueOnce({ connected: true, authenticated: false, companion: { pid: 5678, uptimeSeconds: 0 } })
+      .mockRejectedValue(new Error("Disconnected"));
+    const { root } = setup({ health });
+    await vi.waitFor(() => expect(root.textContent).toContain("Needs login"));
+    button(root, "Needs login").click();
+    expect(root.querySelector(".connection-diagnostics")?.textContent).toContain("4321");
+    button(root, "Refresh").click();
+    expect(root.querySelector(".connection-diagnostics")).toBeNull();
+    await vi.waitFor(() => expect(root.querySelector(".connection-diagnostics")?.textContent).toContain("5678"));
+    button(root, "Refresh").click();
+    await vi.waitFor(() => expect(root.textContent).toContain("Disconnected"));
+    expect(root.querySelector(".connection-diagnostics")).toBeNull();
+  });
+
   it("clears the header username when a later health check fails", async () => {
     const health = vi.fn<PopupDependencies["health"]>()
       .mockResolvedValueOnce({ connected: true, authenticated: true, login: "reviewer" })
@@ -195,6 +230,7 @@ describe("extension popup", () => {
     expect(root.querySelector('[role="dialog"]')?.getAttribute("aria-labelledby")).toBe(root.querySelector(".connection h2")?.id);
     expect(root.textContent).toContain("Signed in as reviewer");
     expect(root.querySelector(".connection h2")?.textContent).toBe("Local Copilot");
+    expect(root.querySelector(".connection-diagnostics")).toBeNull();
     expect(deps.health).toHaveBeenCalledOnce();
     button(root, "Refresh").focus();
     document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
