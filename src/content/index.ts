@@ -22,8 +22,10 @@ import type { DiffPolicy } from "../core/types";
 import { NativeDiffPreferencesClient, readPageDiffPreference } from "../native-tree/diff-preferences";
 import { SemanticGroupState } from "../core/semantic-groups";
 import { ComparisonRefresh } from "../core/comparison-refresh";
+import { WorkspaceHost } from "../workspace/host";
 
 class ContentApp {
+  private readonly workspace = new WorkspaceHost();
   private readonly api = new AdoApi(new FetchHttpClient());
   private readonly store = new ChromeBrowserStore();
   private readonly analyzer = new PullRequestAnalyzer(this.api, this.store);
@@ -55,6 +57,7 @@ class ContentApp {
   };
 
   async start(): Promise<void> {
+    this.workspace.start();
     this.preferences.start();
     this.settings = await this.settingsService.load();
     this.unsubscribe = this.settingsService.subscribe((settings) => {
@@ -103,13 +106,15 @@ class ContentApp {
 
   private async mount(settingsOnly = false): Promise<void> {
     if (!this.settings) return;
+    this.workspace.update(resolveFeature(this.settings, "workspace").enabled);
     const url = location.href;
     void this.visits.update(new URL(url), this.settings.masterEnabled).catch((error) => console.error("ADO Boost could not record the PR visit", error));
     if (!settingsOnly && url === this.currentUrl) return;
     this.currentUrl = url;
     const route = parsePrRoute(new URL(url));
+    const workspaceOpen = new URL(url).searchParams.has("adoBoost") && resolveFeature(this.settings, "workspace").enabled;
     const routeKey = route ? `${route.origin}|${route.organization}|${route.project}|${route.repository}|${route.pullRequestId}` : "";
-    if (this.settings.masterEnabled && resolveFeature(this.settings, "prOverview").enabled
+    if (!workspaceOpen && this.settings.masterEnabled && resolveFeature(this.settings, "prOverview").enabled
       && routeKey && routeKey === this.currentRouteKey && this.panel && this.enhancer) {
       this.panel.updateSettings(this.settings);
       this.enhancer.updateSettings(this.settings);
@@ -134,6 +139,7 @@ class ContentApp {
     this.listReviewStatus = null;
 
     if (!this.settings.masterEnabled) return;
+    if (workspaceOpen) return;
     if (!route) {
       this.listReviewStatus = new PullRequestListReviewStatus(new ChromeReviewActivityStorage());
       this.listReviewStatus.start();

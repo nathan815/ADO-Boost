@@ -28,6 +28,7 @@ export default defineConfig({
         background: "src/background/index.ts",
         options: "src/options/index.ts",
         popup: "src/popup/index.ts",
+        workspace: "src/workspace/index.tsx",
         demo: "src/demo/index.ts"
       },
       output: {

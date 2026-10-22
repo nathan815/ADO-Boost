@@ -1,6 +1,7 @@
 export type FeatureGroup = "overview" | "navigation" | "review" | "diffs" | "discussions" | "copilot";
 
 export type FeatureId =
+  | "workspace"
   | "prOverview"
   | "prListBadges"
   | "groupedNavigation"
@@ -31,6 +32,7 @@ export interface FeatureDefinition {
 }
 
 export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
+  { id: "workspace", group: "overview", label: "Dashboard, profiles and activity feed", description: "Open the ADO Boost workspace inside Azure DevOps. Uses selected projects and extension-local IndexedDB; no local server or AI companion required.", defaultEnabled: true, dependencies: [] },
   { id: "prOverview", group: "overview", label: "PR size summary", description: "Show reliable overall and per-file line counts on pull request pages.", defaultEnabled: true, dependencies: [] },
   { id: "prListBadges", group: "overview", label: "PR list size badges", description: "Analyze visible pull requests with a bounded background queue.", defaultEnabled: true, dependencies: [] },
   { id: "groupedNavigation", group: "navigation", label: "Native file-tree enhancements", description: "Render diff counts through Azure DevOps' native tree and add review controls. Native search and reviewed-state filters remain owned by Azure DevOps.", defaultEnabled: true, dependencies: ["prOverview"] },

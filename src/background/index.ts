@@ -14,6 +14,9 @@ import { RecentPrService } from "../core/recent-prs";
 import { parseCopilotGroupResult, parseCopilotHealth, type CopilotGroupResult } from "../core/copilot-gateway";
 import { isPopupMessage, PopupService } from "./popup-service";
 import { writeFailure } from "../core/write-gateway";
+import { startWorkspaceService } from "../workspace/background";
+
+startWorkspaceService();
 
 const api = new AdoApi(new FetchHttpClient());
 const store = new ChromeBrowserStore(false);

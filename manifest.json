@@ -31,6 +31,10 @@
     }
   ],
   "options_page": "options.html",
+  "web_accessible_resources": [{
+    "resources": ["workspace.html", "workspace.js", "chunks/*.js", "assets/*", "icons/ado-boost.svg"],
+    "matches": ["https://dev.azure.com/*", "https://*.visualstudio.com/*"]
+  }],
   "action": {
     "default_title": "ADO Boost: pull requests and companion status",
     "default_popup": "popup.html",
