@@ -8,7 +8,7 @@ import { RuntimeCompanionAccountsGateway } from "../src/core/companion-accounts"
 const personal = { host: "https://github.com", login: "personal" };
 const work = { host: "https://github.com", login: "work_account" };
 const state = { accounts: [personal, work], selected: personal };
-afterEach(() => { document.body.replaceChildren(); });
+afterEach(() => { document.body.replaceChildren(); vi.unstubAllGlobals(); });
 
 describe("companion account settings bridge", () => {
   it("lists and selects accounts without PR context or enabled inference features", async () => {
@@ -16,7 +16,7 @@ describe("companion account settings bridge", () => {
     const service = new CompanionAccountsService({ request }, "extension", "chrome-extension://extension/options.html");
     const sender = { id: "extension", url: "chrome-extension://extension/options.html" };
     await expect(service.handle({ kind: "accounts" }, sender)).resolves.toEqual(state);
-    await service.handle({ kind: "select-account", account: work }, sender);
+    await service.handle({ kind: "select-account", account: work }, { ...sender, url: `${sender.url}#copilot-connection` });
     expect(request.mock.calls).toEqual([["accounts", {}], ["select-account", { account: work }]]);
   });
 
@@ -27,6 +27,7 @@ describe("companion account settings bridge", () => {
       { id: "other", url: "chrome-extension://extension/options.html" },
       { id: "extension", url: "https://dev.azure.com/org" },
       { id: "extension", url: "chrome-extension://extension/popup.html" },
+      { id: "extension", url: "chrome-extension://extension/options.html?untrusted=true" },
       { id: "extension", tab: { url: "chrome-extension://extension/options.html" } }
     ]) await expect(service.handle({ kind: "accounts" }, sender as chrome.runtime.MessageSender)).rejects.toThrow("only");
     expect(request).not.toHaveBeenCalled();
@@ -63,6 +64,10 @@ describe("companion account selector", () => {
     it("loads accounts on first render and preserves the selector when searching", async () => {
       const list = vi.spyOn(RuntimeCompanionAccountsGateway.prototype, "list").mockResolvedValue(state);
       vi.stubGlobal("chrome", {
+        runtime: {
+          getPlatformInfo: vi.fn().mockResolvedValue({ os: "win" }),
+          sendMessage: vi.fn().mockResolvedValue({ ok: true, data: { connected: true, authenticated: true } })
+        },
         storage: {
           local: { get: vi.fn().mockResolvedValue({}), set: vi.fn() },
           onChanged: { addListener: vi.fn() }
@@ -73,7 +78,8 @@ describe("companion account selector", () => {
         await import("../src/options/index");
         await vi.waitFor(() => expect(document.querySelector<HTMLSelectElement>("#companion-account")?.disabled).toBe(false));
         expect(list).toHaveBeenCalledOnce();
-        expect(document.querySelector("main")?.firstElementChild?.id).toBe("companion-account-settings");
+        expect(document.querySelector("#connection-panel")?.lastElementChild?.id).toBe("companion-account-settings");
+        expect(document.querySelector("#connection-panel")?.firstElementChild?.className).toBe("copilot-connection");
         const search = document.querySelector<HTMLInputElement>("#search")!;
         search.value = "account";
         search.setSelectionRange(7, 7);
@@ -127,6 +133,8 @@ describe("companion account selector", () => {
     await control.load();
     expect(control.element.textContent).toContain("<img src=x> Host missing");
     expect(control.element.querySelector("img")).toBeNull();
+    expect(control.element.querySelector("button.primary")).toBeNull();
     expect(control.element.querySelector("button")?.disabled).toBe(false);
   });
+
 });

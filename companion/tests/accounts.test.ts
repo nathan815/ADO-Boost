@@ -85,7 +85,7 @@ describe("companion account selection", () => {
 
   it("fails closed for missing pins, missing identities, signed-out and wrong accounts or hosts", () => {
     expect(() => requirePinnedAccount(undefined, { isAuthenticated: true })).toThrow("Choose");
-    expect(() => requirePinnedAccount(work, { isAuthenticated: false })).toThrow("Sign in");
+    expect(() => requirePinnedAccount(work, { isAuthenticated: false })).toThrow("ado-boost setup");
     for (const auth of [
       { isAuthenticated: true },
       { isAuthenticated: true, ...personal },

@@ -44,6 +44,18 @@ describe("PanelToast", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("preserves an actionable setup link across rerenders and clears it for unrelated errors", () => {
+    const link = document.createElement("a");
+    link.textContent = "Install companion";
+    link.href = "./options.html#copilot-connection";
+    toast.show("Companion unavailable", link);
+    root.replaceChildren();
+    toast.mount();
+    expect(root.querySelector("a")).toBe(link);
+    toast.show("Unrelated failure");
+    expect(root.querySelector("a")).toBeNull();
+  });
+
   it("stays visible until dismissed and replaces the previous message without adding another toast", () => {
     toast.show("First failure");
     vi.advanceTimersByTime(3600000);

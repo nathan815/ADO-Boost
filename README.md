@@ -23,6 +23,40 @@ ADO Boost is an Edge-first browser extension that makes Azure DevOps pull reques
 - Announce you begin reviewing a PR with an auto-generated comment so author is aware (optional).
 - A toolbar popup with local Copilot companion status and **Recently Viewed**, **Reviewing**, and **Reviewed** tabs. It remembers the last selected tab and highlights your review status in the popup and native PR lists.
 
+## Agentic install
+
+Paste this into your coding agent:
+
+```text
+Install https://github.com/nathan815/ADO-Boost
+```
+
+The agent can follow the installation instructions below for your platform. The standalone extension works in Edge or Chrome on Windows, macOS, and Linux; the optional Copilot companion currently requires Windows + Edge. Sign-in, approvals, and browser steps may need your interaction depending on the agent's tools.
+
+## Install the latest Windows release
+
+For Windows + Microsoft Edge with optional Copilot features, download the installer, review it, and run it from an interactive PowerShell terminal:
+
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/nathan815/ADO-Boost/main/scripts/install.ps1 -OutFile .\install-ado-boost.ps1
+Get-Content .\install-ado-boost.ps1
+.\install-ado-boost.ps1
+```
+
+The script checks for supported Node.js (`^20.19.0` or `>=22.12.0`) and GitHub Copilot CLI. If missing or unsupported, it offers to install Node.js LTS (`OpenJS.NodeJS.LTS`) or Copilot CLI (`GitHub.Copilot`) through WinGet, asking for confirmation separately for each. Existing supported installations are reused. If WinGet is unavailable, it stops with instructions to install the prerequisite manually. Prerequisite installers may request additional permissions or approvals; the script does not bypass execution policy, security warnings, or installer prompts.
+
+It downloads the latest published stable Windows release, verifies its GitHub SHA-256 digest, and asks before installing ADO Boost CLI under `%LOCALAPPDATA%\ADO Boost` and adding its `bin` folder to your user PATH. The CLI and its complete package persist after temporary downloads are cleaned up. Upgrades replace only the managed command launcher, retain earlier CLI packages, and refuse to overwrite an unowned launcher. New terminals can use `ado-boost doctor`, `ado-boost login`, and `ado-boost setup`.
+
+The installer runs `ado-boost setup`, which checks the selected account's actual sign-in status, offers Copilot sign-in when needed, and continues with account selection and confirmation of the per-user files and Edge native-host registration. No separate login command is required. You can decline any installation or sign-in prompt. If sign-in or setup fails, the installed CLI remains available so you can rerun `ado-boost setup` to finish. If PowerShell blocks the script, follow your organization's approved script-running policy.
+
+After setup completes, open `edge://extensions`, enable **Developer mode**, select **Load unpacked**, and choose `%LOCALAPPDATA%\ADO Boost\extension`. Enable the desired Copilot features in ADO Boost settings. Browser installation remains manual. Rerun the installer to upgrade; setup preserves the pinned account, and you may need to reload the extension in Edge. Downloading the latest release requires a published release, not a draft.
+
+For the extension without Copilot, download `ado-boost-extension-<version>.zip` from the [latest release](https://github.com/nathan815/ADO-Boost/releases/latest), extract it to a permanent folder, and load that folder through **Load unpacked** in Edge or Chrome. No Node.js or Copilot CLI is needed for the standalone extension.
+
+### Install from inside the extension
+
+Open the **Copilot Connection** tab on the options page and select **Copy install command**, then paste it into PowerShell and follow the prompts. Connection status appears above the install section; account selection and troubleshooting are below it. When setup is needed, the **Settings** tab shows a **Setup required for Copilot** message bar with a primary **Install or repair** button that switches to **Copilot Connection**. **Install or troubleshoot companion** links in the toolbar popup, sidebar, and grouping/chat errors open the same tab. Connection checks require no PR context or inference and display available companion/CLI versions. They work even when Copilot features or the extension master switch are disabled. An unreachable host does not reveal whether Node.js or Copilot CLI is missing, so prerequisite detection happens in the installer instead. The Windows companion currently registers with Edge only; core extension features remain available on other platforms and in Chrome.
+
 ## Install from source
 
 Requirements:

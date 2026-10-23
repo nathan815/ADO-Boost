@@ -11,7 +11,7 @@ export class CompanionAccountSettings {
   constructor(private readonly gateway: CompanionAccountsGateway, document: Document) {
     this.element = document.createElement("div");
     this.element.className = "setting companion-account-setting";
-    this.element.innerHTML = `<label for="companion-account"><strong>Copilot account</strong><small>Pin the GitHub account used for all Copilot requests by ADO Boost. Requests go through the local companion, which runs Copilot CLI in the background on your computer. AI credits will be billed to this account. Your other local Copilot sessions are unchanged.</small></label><div class="companion-account-controls"><select id="companion-account" aria-label="Copilot account"></select><button type="button">Refresh accounts</button></div><output aria-live="polite"></output>`;
+    this.element.innerHTML = `<label for="companion-account"><strong>Copilot account</strong><small>Choose the GitHub account billed for Copilot requests. Your other local Copilot sessions are unchanged.</small></label><div class="companion-account-controls"><select id="companion-account" aria-label="Copilot account"></select><button type="button">Refresh accounts</button></div><output aria-live="polite"></output>`;
     this.select = this.element.querySelector("select")!;
     this.refresh = this.element.querySelector("button")!;
     this.status = this.element.querySelector("output")!;
@@ -34,7 +34,7 @@ export class CompanionAccountSettings {
     this.render();
     try {
       this.state = await request();
-      this.status.textContent = this.state.accounts.length ? success : "No signed-in accounts found. Run ado-boost login, then refresh accounts.";
+      this.status.textContent = this.state.accounts.length ? success : "No signed-in accounts found. Run ado-boost setup to sign in, then refresh accounts.";
     } catch (error) {
       const message = error instanceof Error ? error.message : "Companion account request failed";
       this.status.textContent = `${message.replace(/[.!?]+$/, "")}. Run ado-boost doctor and make sure the companion is up to date.`;

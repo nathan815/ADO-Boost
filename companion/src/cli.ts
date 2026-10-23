@@ -7,9 +7,11 @@ import { createInterface } from "node:readline/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
+import { CopilotClient } from "@github/copilot-sdk";
 import { assertOwnedMarker, assertOwnedRegistry, createMarker, extensionIdFromManifestKey } from "./ownership.js";
 import { withStagingDirectory } from "./staging.js";
-import { accountSchema, availableAccounts, companionEnvironment, readJsonIfPresent, sameAccount, type CopilotAccount } from "./accounts.js";
+import { accountEnvironment, accountSchema, availableAccounts, companionEnvironment, readJsonIfPresent, type CopilotAccount } from "./accounts.js";
+import { resolveSetupAccount } from "./setup-account.js";
 
 const exec = promisify(execFile);
 const EXTENSION_ID = "oldakfajnbllipnfdaghapeiofnciopo";
@@ -210,10 +212,10 @@ async function findCopilot(): Promise<string> {
   return path.trim();
 }
 
-async function runCopilot(command: string[]): Promise<void> {
+async function runCopilot(command: string[], copilotHome?: string): Promise<void> {
   const child = await import("node:child_process");
   await new Promise<void>((resolve, reject) => {
-    const process = child.spawn(findCopilotSync(), command, { stdio: "inherit", shell: false, env: companionEnvironment(globalThis.process.env) });
+    const process = child.spawn(findCopilotSync(), command, { stdio: "inherit", shell: false, env: { ...companionEnvironment(globalThis.process.env), ...(copilotHome ? { COPILOT_HOME: copilotHome } : {}) } });
     process.once("error", reject);
     process.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`Copilot CLI exited with code ${code}`)));
   });
@@ -224,21 +226,33 @@ function findCopilotSync(): string {
 }
 
 async function chooseAccount(previous: unknown, copilotHome: string): Promise<CopilotAccount> {
-  const accounts = await availableAccounts(copilotHome);
   const login = option("--account");
   const host = option("--host") ?? "github.com";
-  if (login) {
-    const requested = accountSchema.parse({ login, host });
-    const account = accounts.find((candidate) => sameAccount(candidate, requested));
-    if (!account) throw new Error("The requested account is not signed in to Copilot CLI. Run ado-boost login, then retry setup.");
-    return account;
-  }
-  if (option("--host")) throw new Error("--host requires --account");
-  if (previous && typeof previous === "object" && "account" in previous && previous.account !== undefined) {
-    return accountSchema.parse(previous.account);
-  }
-  if (!accounts.length) throw new Error("No signed-in Copilot accounts were found. Run ado-boost login, then retry setup --account <username>.");
-  if (args.includes("--yes") || !process.stdin.isTTY) throw new Error("Select an account explicitly with setup --account <username> [--host <host>].");
+  if (!login && option("--host")) throw new Error("--host requires --account");
+  const preferred = login ? accountSchema.parse({ login, host })
+    : previous && typeof previous === "object" && "account" in previous && previous.account !== undefined ? accountSchema.parse(previous.account) : undefined;
+  return resolveSetupAccount(preferred, {
+    accounts: () => availableAccounts(copilotHome),
+    interactive: Boolean(process.stdin.isTTY) && !args.includes("--yes"),
+    confirm,
+    choose: promptAccount,
+    login: (host) => runCopilot(["login", ...(host !== "https://github.com" ? ["--host", host] : [])], copilotHome),
+    verify: async (account) => {
+      const client = new CopilotClient({
+        cliPath: await findCopilot(), useStdio: true, useLoggedInUser: true, logLevel: "error",
+        env: await accountEnvironment(join(installRoot, "copilot-profiles"), account, { ...process.env, COPILOT_HOME: copilotHome })
+      });
+      try {
+        await client.start();
+        return await client.getAuthStatus();
+      } finally {
+        await client.forceStop();
+      }
+    }
+  });
+}
+
+async function promptAccount(accounts: CopilotAccount[]): Promise<CopilotAccount> {
   accounts.forEach((account, index) => console.log(`${index + 1}. ${account.login} (${account.host})`));
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   try {

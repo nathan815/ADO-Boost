@@ -97,6 +97,10 @@ jobs:
       - name: Test companion
         run: npm --prefix companion test
 
+      - name: Test release installer
+        shell: pwsh
+        run: .\tests\install-release.test.ps1
+
       - name: Build extension and companion
         run: |
           npm run build

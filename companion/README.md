@@ -8,6 +8,8 @@ Grouping session telemetry includes AI credit usage from `assistant.usage.copilo
 
 ## Commands
 
+For a guided installation, select **Install or repair** beside the Copilot account selector in extension settings, or **Install or troubleshoot companion** from connection errors. The page checks the current connection and provides a PowerShell command that downloads the latest published Windows package, verifies SHA-256, offers missing prerequisites through WinGet with confirmation, and installs the `ado-boost` command on your user PATH. See the repository [installation instructions](../README.md#install-the-latest-windows-release).
+
 ```powershell
 ado-boost doctor
 ado-boost setup
@@ -20,7 +22,9 @@ ado-boost uninstall-host
 
 `setup` derives and validates the deterministic extension ID from the packaged manifest public key, previews all paths and the per-user registry key, and requires confirmation unless `--yes` is supplied. It rejects unowned existing folders and a registry name that points to another manifest. It stages the complete replacement first, preserves the last owned installation until the staged files are ready, rolls folders back if replacement or registration fails, writes the exact native allowlist, and registers `HKCU\Software\Microsoft\Edge\NativeMessagingHosts\com.adoboost.copilot`.
 
-On first setup, choose an existing signed-in GitHub Copilot account from the numbered list, or specify `--account <github-username>`. Noninteractive setup requires an explicit account unless a previous pin exists. Use `--host <tenant.ghe.com>` with `--account` for GitHub Enterprise Cloud with data residency. Setup upgrades preserve the existing pin unless `--account` explicitly replaces it.
+`setup` handles sign-in as well as installation; a separate `login` command is not required. When there are no signed-in accounts, the requested account is missing, or the selected account has an expired sign-in, interactive setup asks before running Copilot sign-in, then continues in the same invocation. It checks the selected identity through an isolated account profile without creating an AI session or sending PR content. Declining, a failed sign-in, or an identity mismatch stops native-host setup rather than choosing another account.
+
+On first setup, choose a signed-in GitHub Copilot account from the numbered list, or specify `--account <github-username>`. Noninteractive setup requires an explicit account unless a previous pin exists, and fails with instructions to rerun interactive setup if sign-in is needed. `--yes` never authorizes an interactive login. Use `--host <tenant.ghe.com>` with `--account` for GitHub Enterprise Cloud with data residency. Setup upgrades preserve the existing pin unless `--account` explicitly replaces it. An explicitly approved sign-in uses the selected Copilot home and Copilot CLI's normal login behavior; reusing or selecting an already authenticated account does not change the globally active CLI account.
 
 `login` delegates to the installed `copilot login` command in the current console. Pass `--host https://tenant.ghe.com` for a data-residency host. ADO Boost does not collect or copy credentials.
 

@@ -2,13 +2,34 @@ import { FEATURE_REGISTRY, type FeatureGroup, type FeatureSettings, defaultSetti
 import { ChromeSettingsStorage, MemorySettingsStorage, SettingsService } from "../features/settings-service";
 import { RuntimeCompanionAccountsGateway } from "../core/companion-accounts";
 import { CompanionAccountSettings } from "../ui/companion-accounts";
+import { CompanionSetupPage } from "../companion-setup/page";
+import { requestCompanionSetupHealth } from "../core/companion-setup";
+import { OptionsTabs } from "./tabs";
 
 const isFixture = typeof chrome === "undefined" || !chrome.storage?.local;
 const service = new SettingsService(isFixture ? new MemorySettingsStorage() : new ChromeSettingsStorage());
 const rootElement = document.querySelector<HTMLElement>("#app");
 if (!rootElement) throw new Error("Settings root is missing");
 const root = rootElement;
+const tabs = new OptionsTabs(document, window.location);
 const accountSettings = isFixture ? null : new CompanionAccountSettings(new RuntimeCompanionAccountsGateway(), document);
+const setupRoot = document.createElement("div");
+setupRoot.className = "copilot-connection";
+tabs.connection.append(setupRoot);
+const setup = new CompanionSetupPage(setupRoot, {
+  health: isFixture ? async () => ({ connected: false, authenticated: false, detail: "Synthetic offline fixture." }) : requestCompanionSetupHealth,
+  copy: (text) => navigator.clipboard.writeText(text),
+  platform: isFixture ? "unknown" : (await chrome.runtime.getPlatformInfo()).os,
+  onHealth: (health) => tabs.setSetupRequired(!health.connected || !health.authenticated)
+});
+if (accountSettings) {
+  const section = document.createElement("section");
+  section.id = "companion-account-settings";
+  section.className = "setting-list";
+  section.setAttribute("aria-label", "Copilot account");
+  section.append(accountSettings.element);
+  tabs.connection.append(section);
+}
 
 let settings = await service.load();
 let search = "";
@@ -27,9 +48,12 @@ function render(): void {
     `${feature.label} ${feature.description} ${groupLabels[feature.group]} ${feature.group === "copilot" ? "account login" : ""}`.toLowerCase().includes(search.toLowerCase())
   );
   root.innerHTML = `
-    <header class="page-header"><div class="page-title"><img class="page-logo" src="./icons/ado-boost.svg" alt="ADO Boost"><div><h1>ADO Boost settings</h1><p>${isFixture ? "Synthetic offline fixture. " : ""}Choose which ADO Boost features appear in your pull request workflow.</p></div></div><label class="master"><input id="master" type="checkbox" ${settings.masterEnabled ? "checked" : ""}><span>Extension enabled</span></label></header>
+    <header class="page-header"><div class="page-title"><img class="page-logo" src="./icons/ado-boost.svg" alt="ADO Boost"><div><h1>ADO Boost</h1><p>${isFixture ? "Synthetic offline fixture. " : ""}Choose which ADO Boost features appear in your pull request workflow.</p></div></div><label class="master"><input id="master" type="checkbox" ${settings.masterEnabled ? "checked" : ""}><span>Extension enabled</span></label></header>
+  `;
+  root.append(tabs.element);
+  tabs.settings.innerHTML = `
     <div class="search-row"><input id="search" type="search" value="${escapeHtml(search)}" placeholder="Search settings" aria-label="Search settings"><select id="theme" aria-label="Theme"><option value="system" ${settings.presentation.theme === "system" ? "selected" : ""}>System theme</option><option value="light" ${settings.presentation.theme === "light" ? "selected" : ""}>Light</option><option value="dark" ${settings.presentation.theme === "dark" ? "selected" : ""}>Dark</option></select></div>
-    <main>${accountSettings ? `<section id="companion-account-settings" class="setting-list" aria-label="Copilot account"></section>` : ""}${([...new Set(visible.map((feature) => feature.group))] as FeatureGroup[]).map((group) => `
+    <main>${([...new Set(visible.map((feature) => feature.group))] as FeatureGroup[]).map((group) => `
       <section><h2>${groupLabels[group]}</h2><div class="setting-list">${visible.filter((feature) => feature.group === group).map((feature) => {
         const resolution = resolveFeature(settings, feature.id);
         return `<label class="setting"><span><strong>${feature.label}</strong><small>${feature.description}${resolution.reason && settings.features[feature.id] ? ` <b>${resolution.reason}.</b>` : ""}</small></span><input type="checkbox" data-feature="${feature.id}" ${settings.features[feature.id] ? "checked" : ""}></label>`;
@@ -38,7 +62,6 @@ function render(): void {
     <footer><button id="restore" class="secondary" type="button">Restore defaults</button><output id="status" aria-live="polite">Settings save automatically.</output></footer>
   `;
   bind();
-  if (accountSettings) root.querySelector("#companion-account-settings")?.append(accountSettings.element);
 }
 
 function bind(): void {
@@ -83,3 +106,4 @@ function escapeHtml(value: string): string {
 
 render();
 void accountSettings?.load();
+void setup.refresh();

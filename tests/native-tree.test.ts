@@ -693,4 +693,27 @@ describe("native tree bridge client", () => {
     send(action);
     expect(viewSession).toHaveBeenCalledOnce();
   });
+
+  it("routes companion setup only from a live same-session toolbar without regenerating groups", () => {
+    const state = new SemanticGroupState();
+    state.setEnabled(true);
+    const regenerate = vi.fn();
+    const setupCompanion = vi.fn();
+    client = new NativeTreeClient(analysis, window, state, regenerate, undefined, undefined, undefined, setupCompanion);
+    const command = configured();
+    const action = { channel: CHANNEL, kind: "semantic-action", session: command.session, action: "setup-companion", view: state.view };
+    send(action);
+    expect(setupCompanion).not.toHaveBeenCalled();
+    send({ channel: CHANNEL, kind: "status", session: command.session, state: "active", detail: "Ready", fileCount: 2 });
+    send({ ...action, session: configuration().session });
+    send(action, null);
+    send(action, window, "https://other.example");
+    expect(setupCompanion).not.toHaveBeenCalled();
+    send(action);
+    expect(setupCompanion).toHaveBeenCalledOnce();
+    expect(regenerate).not.toHaveBeenCalled();
+    client.stop();
+    send(action);
+    expect(setupCompanion).toHaveBeenCalledOnce();
+  });
 });

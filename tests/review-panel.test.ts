@@ -642,6 +642,7 @@ describe("ReviewPanel semantic groups", () => {
     semanticGroups.mockRejectedValue(new Error("Companion disconnected"));
     await requestGroups();
     await vi.waitFor(() => expect(root.querySelector(".delivery.error")?.textContent).toBe("Companion disconnected"));
+    expect(root.querySelector("#groups-panel .companion-setup-link")?.textContent).toBe("Install or troubleshoot companion");
     expect(root.querySelectorAll("[data-copilot-path]")).toHaveLength(2);
     expect(root.querySelector<HTMLButtonElement>(".copilot-groups")?.disabled).toBe(false);
     panel!.updateSettings({ ...settings, features: { ...settings.features, copilotSemanticGroups: false } });

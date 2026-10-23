@@ -92,7 +92,7 @@ export async function accountEnvironment(profileRoot: string, account: CopilotAc
 
 export function requirePinnedAccount(account: CopilotAccount | undefined, auth: GetAuthStatusResponse): void {
   if (!account) throw accountError("account-required", "Choose a Copilot account in ADO Boost settings or run ado-boost setup --account <username>.");
-  if (!auth.isAuthenticated) throw accountError("login-required", `Sign in to Copilot as ${account.login} (${account.host}) with ado-boost login, then refresh.`);
+  if (!auth.isAuthenticated) throw accountError("login-required", `Run ado-boost setup to sign in to Copilot as ${account.login} (${account.host}), then refresh.`);
   const actual = accountSchema.safeParse({ host: auth.host, login: auth.login });
   if (!actual.success || !sameAccount(account, actual.data)) {
     throw accountError("account-mismatch", `Copilot account mismatch: pinned ${account.login} (${account.host}), but the CLI reported ${auth.login ?? "an unknown account"} (${auth.host ?? "unknown host"}). No PR context was sent.`);

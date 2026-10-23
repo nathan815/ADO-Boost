@@ -194,6 +194,23 @@ describe("semantic native projection", () => {
 });
 
 describe("semantic native adapter", () => {
+  it("links native grouping errors to companion setup without starting generation", () => {
+    const configuration = config();
+    configuration.semantic!.error = "Companion missing";
+    const f = fixture(configuration);
+    const deferred = f.explorer.render();
+    if (!react.isValidElement(deferred) || typeof deferred.props.children !== "function") throw new Error("Missing native tree callback");
+    const container: unknown = deferred.props.children();
+    if (!react.isValidElement(container) || !Array.isArray(container.props.children)) throw new Error("Missing tree container");
+    const portal: unknown = container.props.children[1];
+    if (!record(portal) || !react.isValidElement(portal.children) || !Array.isArray(portal.children.props.children)) throw new Error("Missing toolbar");
+    const setup: unknown = portal.children.props.children.at(-1);
+    if (!react.isValidElement(setup) || typeof setup.props.onClick !== "function") throw new Error("Missing setup action");
+    expect(setup.props.children).toBe("Install or troubleshoot companion");
+    setup.props.onClick();
+    expect(f.action).toHaveBeenLastCalledWith("setup-companion", configuration.semantic!.view);
+  });
+
   it.each([
     [false, false, "Generate"],
     [true, false, null],

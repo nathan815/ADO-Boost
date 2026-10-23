@@ -1,6 +1,7 @@
 export class PanelToast {
   private readonly element: HTMLDivElement;
   private readonly message: HTMLSpanElement;
+  private readonly action: HTMLDivElement;
   private destroyed = false;
 
   constructor(private readonly root: ShadowRoot) {
@@ -14,7 +15,8 @@ export class PanelToast {
     const brand = documentRef.createElement("strong");
     brand.textContent = "ADO Boost";
     this.message = documentRef.createElement("span");
-    content.append(brand, this.message);
+    this.action = documentRef.createElement("div");
+    content.append(brand, this.message, this.action);
     const dismiss = documentRef.createElement("button");
     dismiss.type = "button";
     dismiss.className = "icon";
@@ -25,9 +27,10 @@ export class PanelToast {
     this.element.append(content, dismiss);
   }
 
-  show(message: string): void {
+  show(message: string, action?: HTMLElement): void {
     if (this.destroyed) return;
     this.message.textContent = message;
+    this.action.replaceChildren(...(action ? [action] : []));
     this.mount();
   }
 

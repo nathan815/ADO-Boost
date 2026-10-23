@@ -15,7 +15,7 @@ export class CompanionAccountsService {
   ) {}
 
   async handle(message: unknown, sender: chrome.runtime.MessageSender): Promise<unknown> {
-    if (sender.id !== this.extensionId || sender.url !== this.optionsUrl) {
+    if (sender.id !== this.extensionId || sender.url?.split("#")[0] !== this.optionsUrl) {
       throw new Error("Companion account settings are accepted only from this extension's settings page");
     }
     const request = requestSchema.parse(message);

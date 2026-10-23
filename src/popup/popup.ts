@@ -13,6 +13,7 @@ import type { RecentPr } from "../core/recent-prs";
 import type { FeatureSettings } from "../features/registry";
 import { reviewStatusFor, reviewStatusLabels, type ReviewActivity } from "../core/review-activity";
 import settingsSvg from "../ui/icons/settings.svg?raw";
+import { companionSetupUrl } from "../core/companion-setup";
 
 export const POPUP_TAB_KEY = "popup-tab:v1";
 export const popupTabs = ["recent", "reviewing", "reviewed"] as const;
@@ -304,7 +305,8 @@ export class ExtensionPopup {
       this.healthError ? h("div", { className: "connection-detail" },
         h("p", { className: "error", role: "alert" }, this.healthError),
         h("p", { className: "muted" }, "Run ado-boost doctor to check the host and CLI, then refresh.")) : null,
-      !this.checking && this.health?.connected && !this.health.authenticated ? h("p", { className: "muted" }, this.health.detail ?? "Run ado-boost login, then refresh.") : null));
+      !this.checking && this.health?.connected && !this.health.authenticated ? h("p", { className: "muted" }, this.health.detail ?? "Run ado-boost setup to sign in and finish setup, then refresh.") : null,
+      h(Link, { href: companionSetupUrl(), target: "_blank", rel: "noopener" }, "Install or troubleshoot companion")));
   }
 
   private renderConnectionDiagnostics(health: CopilotHealth) {

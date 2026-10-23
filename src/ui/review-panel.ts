@@ -20,6 +20,8 @@ import { PanelToast } from "./panel-toast";
 import { ReviewCompletionMonitor } from "./review-completion-monitor";
 import { adoFileUrl, navigateToAdoFile } from "./ado-navigation";
 import { CompanionStatus } from "./companion-status";
+import { companionSetupLink } from "./companion-setup-link";
+import { openCompanionSetup } from "../core/companion-setup";
 
 interface ReviewPanelDependencies {
   analysis: PullRequestAnalysis;
@@ -39,6 +41,12 @@ interface ReviewPanelDependencies {
 type PanelTab = "discussions" | "groups" | "chat";
 
 export class ReviewPanel {
+  openCompanionSetup(): void {
+    void openCompanionSetup().catch((error: unknown) => {
+      this.toast.show(error instanceof Error ? error.message : "Could not open companion setup");
+    });
+  }
+
   private readonly host = document.createElement("div");
   private readonly root = this.host.attachShadow({ mode: "open" });
   private readonly toast = new PanelToast(this.root);
@@ -324,6 +332,11 @@ export class ReviewPanel {
       onAnnounce: () => this.startReviewing()
     });
     this.bind();
+    for (const error of this.root.querySelectorAll(".copilot-panel .delivery.error")) {
+      const hint = document.createElement("p");
+      hint.append(companionSetupLink(document));
+      error.after(hint);
+    }
     const statusSlot = this.root.querySelector<HTMLElement>(".companion-status-slot");
     this.companionStatus.mount(statusSlot);
     if (this.open && statusSlot) this.companionStatus.checkOnce();
@@ -488,7 +501,7 @@ export class ReviewPanel {
       if (!this.semanticGroups.isCurrent(request)) return;
       this.copilotError = error instanceof Error ? error.message : "Copilot grouping failed";
       this.semanticGroups.fail(request, this.copilotError);
-      if (!this.open) this.toast.show(`Copilot grouping failed: ${this.copilotError}`);
+      if (!this.open) this.toast.show(`Copilot grouping failed: ${this.copilotError}`, companionSetupLink(document));
     } finally {
       this.copilotBusy = false;
       this.semanticGroups.setInFlight(false);

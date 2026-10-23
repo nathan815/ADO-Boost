@@ -12,7 +12,7 @@ interface GroupOption {
   view: { mode: "all" | "inline" | "group"; groupId: string | null };
 }
 
-export type SemanticAction = (action: "select" | "regenerate" | "view-session" | "toggle-auto-generate" | "toggle-confirmation", view: GroupOption["view"]) => void;
+export type SemanticAction = (action: "select" | "regenerate" | "view-session" | "setup-companion" | "toggle-auto-generate" | "toggle-confirmation", view: GroupOption["view"]) => void;
 
 export class SemanticToolbar {
   readonly element: HTMLDivElement;
@@ -176,7 +176,11 @@ export class SemanticToolbar {
         ? react.createElement("p", { className: "adopp-semantic-description" }, selected.rationale) : null,
       semantic.busy ? react.createElement("p", { className: "adopp-semantic-message", role: "status" },
         react.createElement("span", { className: "adopp-semantic-spinner", "aria-hidden": true }), "Generating Copilot groups...") : null,
-      notice ? react.createElement("p", { className: "adopp-semantic-message", role: semantic.error ? "alert" : "status" }, notice) : null);
+      notice ? react.createElement("p", { className: "adopp-semantic-message", role: semantic.error ? "alert" : "status" }, notice) : null,
+      semantic.error ? react.createElement("button", {
+        type: "button", className: "adopp-semantic-regenerate bolt-focus-treatment",
+        onClick: () => this.action("setup-companion", semantic.view)
+      }, "Install or troubleshoot companion") : null);
     // The public portal factory only creates the portal descriptor; ADO's renderer owns all host elements.
     const portal: unknown = Reflect.apply(createPortal, undefined, [content, this.element, "adopp-semantic-toolbar"]);
     return portal;

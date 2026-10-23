@@ -1,4 +1,5 @@
 import type { CopilotHealth } from "../core/copilot-gateway";
+import { companionSetupLink } from "./companion-setup-link";
 
 export class CompanionStatus {
   readonly element: HTMLDivElement;
@@ -21,6 +22,7 @@ export class CompanionStatus {
     this.element.innerHTML = `<button class="companion-toggle" type="button" aria-controls="companion-details" aria-haspopup="dialog" aria-expanded="false"><span class="companion-dot" aria-hidden="true"></span><span class="grouping-spinner" aria-hidden="true" hidden></span><span class="companion-label" role="status" aria-live="polite"></span></button><section id="companion-details" class="companion-popover" popover="auto" role="dialog" aria-labelledby="companion-heading"><div class="section-head"><h3 id="companion-heading">Copilot companion</h3><button type="button" class="secondary companion-refresh">Refresh</button></div><p class="companion-detail-status" role="status" aria-live="polite"></p><p class="muted companion-login" hidden></p><p class="companion-error" role="alert" hidden></p><p class="muted companion-hint" hidden></p></section>`;
     this.toggle = this.element.querySelector<HTMLButtonElement>(".companion-toggle")!;
     this.details = this.element.querySelector<HTMLElement>(".companion-popover")!;
+    this.details.append(companionSetupLink(document));
     this.refreshButton = this.element.querySelector<HTMLButtonElement>(".companion-refresh")!;
     this.toggle.addEventListener("click", () => {
       if (this.close()) return;
@@ -125,7 +127,7 @@ export class CompanionStatus {
     setMessage(".companion-login", !this.checking && this.health?.connected && this.health.authenticated && this.health.login ? `Signed in as ${this.health.login}` : "");
     setMessage(".companion-error", this.error);
     setMessage(".companion-hint", this.error ? "Run ado-boost doctor, then refresh."
-      : !this.checking && this.health?.connected && !this.health.authenticated ? this.health.detail ?? "Run ado-boost login, then refresh." : "");
+      : !this.checking && this.health?.connected && !this.health.authenticated ? this.health.detail ?? "Run ado-boost setup to sign in and finish setup, then refresh." : "");
   }
 
   private position(): void {

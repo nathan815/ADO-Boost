@@ -27,7 +27,8 @@ export class NativeTreeClient implements NativeTreePort {
     private readonly regenerate?: () => void,
     private readonly viewSession?: () => void,
     private readonly comparisonChanged?: () => void,
-    private readonly preferences?: { autoGenerate(): boolean; showConfirmation(): boolean; toggleAutoGenerate(): void; toggleConfirmation(): void }
+    private readonly preferences?: { autoGenerate(): boolean; showConfirmation(): boolean; toggleAutoGenerate(): void; toggleConfirmation(): void },
+    private readonly setupCompanion?: () => void
   ) {}
 
   configure(filters: TreeFilters, countsEnabled: boolean): void {
@@ -100,6 +101,7 @@ export class NativeTreeClient implements NativeTreePort {
         || !this.status || !["active", "counts-unavailable"].includes(this.status.state)) return;
       if (action.data.action === "select") this.semantic.select(action.data.view);
       else if (action.data.action === "view-session") this.viewSession?.();
+      else if (action.data.action === "setup-companion") this.setupCompanion?.();
       else if (action.data.action === "toggle-auto-generate") this.preferences?.toggleAutoGenerate();
       else if (action.data.action === "toggle-confirmation") this.preferences?.toggleConfirmation();
       else if (!this.semantic.processing) this.regenerate?.();

@@ -16,6 +16,7 @@ import { isPopupMessage, PopupService } from "./popup-service";
 import { writeFailure } from "../core/write-gateway";
 import { startWorkspaceService } from "../workspace/background";
 import { CompanionAccountsService, isCompanionAccountsMessage } from "./companion-accounts";
+import { companionSetupHealth } from "./companion-setup";
 
 startWorkspaceService();
 
@@ -41,6 +42,16 @@ settings.subscribe((current) => {
 });
 
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+  if (message && typeof message === "object" && "channel" in message && message.channel === "adopp-companion-setup") {
+    if (!("kind" in message) || message.kind !== "health") {
+      sendResponse({ ok: false, error: "Unsupported companion setup request" });
+      return;
+    }
+    void companionSetupHealth(sender, chrome.runtime.id, chrome.runtime.getURL("options.html"), copilot)
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Companion status check failed" }));
+    return true;
+  }
   if (isCompanionAccountsMessage(message)) {
     void companionAccounts.handle(message, sender)
       .then((data) => sendResponse({ ok: true, data }))
@@ -58,7 +69,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
       sendResponse({ ok: false, error: "UI requests are accepted only from this extension" });
       return;
     }
-    void openExtensionOptions()
+    void (message.kind === "open-companion-setup" ? chrome.tabs.create({ url: chrome.runtime.getURL("options.html#copilot-connection") }) : openExtensionOptions())
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Unable to open extension settings" }));
     return true;
@@ -283,10 +294,10 @@ async function openExtensionOptions(): Promise<void> {
   await chrome.tabs.create({ url: chrome.runtime.getURL("options.html") });
 }
 
-function isUiMessage(value: unknown): value is { channel: "adopp-ui"; kind: "open-options" } {
+function isUiMessage(value: unknown): value is { channel: "adopp-ui"; kind: "open-options" | "open-companion-setup" } {
   if (!value || typeof value !== "object") return false;
   const message = value as Record<string, unknown>;
-  return message.channel === "adopp-ui" && message.kind === "open-options";
+  return message.channel === "adopp-ui" && (message.kind === "open-options" || message.kind === "open-companion-setup");
 }
 
 function isWriteMessage(value: unknown): value is { channel: "adopp-write"; kind: string; payload: Record<string, unknown> } {

@@ -136,9 +136,9 @@ describe("extension popup", () => {
     const { root } = setup({ health });
     await vi.waitFor(() => expect(root.textContent).toContain("Needs login"));
     expect(root.querySelector(".companion-username")).toBeNull();
-    expect(root.textContent).not.toContain("ado-boost login");
+    expect(root.textContent).not.toContain("ado-boost setup");
     button(root, "Needs login").click();
-    expect(root.textContent).toContain("ado-boost login");
+    expect(root.textContent).toContain("ado-boost setup");
     expect(root.textContent).not.toContain("Checks connection and sign-in only");
     expect(root.textContent).not.toContain("No PR content is sent");
     expect(root.querySelector(".bolt-status")).not.toBeNull();
@@ -207,6 +207,7 @@ describe("extension popup", () => {
     expect(root.querySelector(".connection")).toBeNull();
     button(root, "Unavailable").click();
     expect(root.textContent).toContain("Native host not found");
+    expect(root.querySelector<HTMLAnchorElement>('.connection a[href$="options.html#copilot-connection"]')?.textContent).toBe("Install or troubleshoot companion");
     expect(root.textContent).toContain("ado-boost doctor");
     expect(root.textContent).toContain("Fix a bug");
     button(root, "Refresh").click();

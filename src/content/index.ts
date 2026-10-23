@@ -196,7 +196,7 @@ class ContentApp {
             toggleAutoGenerate: () => { void this.panel?.toggleGroupingPreference("autoGenerateCopilotGroups"); },
             showConfirmation: () => this.settings?.features.confirmCopilotGroups ?? true,
             toggleConfirmation: () => { void this.panel?.toggleGroupingPreference("confirmCopilotGroups"); }
-          }), undefined, semanticGroups);
+          }, () => this.panel?.openCompanionSetup()), undefined, semanticGroups);
         this.enhancer.start();
         this.counts.setAnalysis(analysis);
         void this.counts.update(this.diffPolicy);

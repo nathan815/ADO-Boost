@@ -73,6 +73,7 @@ describe("sidebar companion status", () => {
     expect(details.querySelector(".companion-error")?.textContent).toBe("<img src=x> Host missing");
     expect(details.querySelector("img")).toBeNull();
     expect(details.textContent).toContain("ado-boost doctor");
+    expect(details.querySelector(".companion-setup-link")?.textContent).toBe("Install or troubleshoot companion");
     request.mockResolvedValueOnce({ connected: true, authenticated: false, detail: "Sign in with ado-boost login" });
     refresh.click();
     await vi.waitFor(() => expect(toggle.textContent).toBe("Needs login"));
