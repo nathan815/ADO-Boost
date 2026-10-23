@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ADO Boost",
   "short_name": "ADO Boost",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Reliable PR line totals and an intent-group review navigator for Azure DevOps.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmsHDcfzAXTO0nxF6ya0ocn+rF5LhIkld/q89k6jo7DBK7c9Pq0eNFlXMvDxIYiPotbmBek51cHVrUH2Rss3M3Rhb4nUsWUs2TGGI4hfWKAm3DJKzESwgtvOr7rLRyeMVu/kfVOU3lA/jf89PJ9GVeOa5bUraEMSQ8V9vC3Y09/A2C54gB95swN2CvJ9VFs83TIDESIiJRz5cEk9kS1RsdbwXpa8J37gktjvZ5PT2BpMsEykNSTvmnjxXNtVbshEEQ48GMZ097qMmIlPDWoIM5WM6nENVIANnRY/DJ3cVlmT+F7f2ajefuf6rx98dMlHvgC6QJP/Z5MSpui30/sx5nQIDAQAB",
   "icons": {
