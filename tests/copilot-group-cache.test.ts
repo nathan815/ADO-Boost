@@ -25,6 +25,7 @@ describe("background Copilot grouping results", () => {
       runtime: {
         id: "test-extension", getURL: (path: string) => `chrome-extension://test-extension/${path}`,
         onConnect: { addListener: vi.fn() },
+        onInstalled: { addListener: vi.fn() },
         onMessage: { addListener: (handler: typeof listener) => { listener = handler; } }
       },
       storage: {
