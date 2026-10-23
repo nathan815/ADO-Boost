@@ -13,6 +13,7 @@ import { withStagingDirectory } from "./staging.js";
 import { accountEnvironment, accountSchema, availableAccounts, companionEnvironment, readJsonIfPresent, type CopilotAccount } from "./accounts.js";
 import { resolveSetupAccount } from "./setup-account.js";
 import { createSetupOutput } from "./setup-output.js";
+import { z } from "zod";
 
 const exec = promisify(execFile);
 const EXTENSION_ID = "oldakfajnbllipnfdaghapeiofnciopo";
@@ -35,7 +36,7 @@ class PromptCancelledError extends Error {}
 try {
   switch (args[0]) {
     case "setup":
-      await setup(args.includes("--yes"), args.includes("--from-extension"));
+      await setup(args.includes("--yes"));
       break;
     case "doctor":
       await doctor();
@@ -49,7 +50,7 @@ try {
       await uninstall(args.includes("--yes"));
       break;
     default:
-      console.log("Usage: ado-boost <setup|doctor|login|uninstall-host> [--yes] [--account <username>] [--host <github.com|enterprise.ghe.com>] [--from-extension]");
+      console.log("Usage: ado-boost <setup|doctor|login|uninstall-host> [--yes] [--account <username>] [--host <github.com|enterprise.ghe.com>] [--extension-id <id>]");
   }
 } catch (error) {
   if (!(error instanceof PromptCancelledError)) throw error;
@@ -57,13 +58,15 @@ try {
   process.exitCode = 130;
 }
 
-async function setup(confirmed: boolean, fromExtension: boolean): Promise<void> {
+async function setup(confirmed: boolean): Promise<void> {
+  const extensionId = option("--extension-id");
+  if (extensionId !== undefined && (extensionId.length !== 32 || !/^[a-p]{32}$/.test(extensionId))) throw new Error("--extension-id must contain exactly 32 lowercase letters from a to p");
   setupOutput.section("Copilot setup");
   setupOutput.line("  Checks sign-in, pins your Copilot account, and registers the local host.");
   setupOutput.line("  Review the per-user file locations and account below before installation.");
   setupOutput.line();
   const nodePath = process.execPath;
-  const { copilotPath, previous, copilotHome } = await setupOutput.progress("Checking local installation", async () => {
+  const { copilotPath, previous, copilotHome, allowedOrigins } = await setupOutput.progress("Checking local installation", async () => {
     const copilotPath = await findCopilot();
     await validatePackagedExtension();
     await assertOwnedDirectory(extensionDir);
@@ -71,15 +74,22 @@ async function setup(confirmed: boolean, fromExtension: boolean): Promise<void> 
     const existingRegistry = await queryRegistryDefault(true);
     assertOwnedRegistry(existingRegistry, manifestPath);
     const previous = await readJsonIfPresent(join(hostDir, "host-config.json"));
+    const previousOrigins = previous && typeof previous === "object" && "allowedOrigins" in previous
+      ? z.array(z.string().length(52).regex(/^chrome-extension:\/\/[a-p]{32}\/$/)).min(1).parse(previous.allowedOrigins) : [];
+    const allowedOrigins = [...new Set([
+      `chrome-extension://${EXTENSION_ID}/`,
+      ...previousOrigins,
+      ...(extensionId ? [`chrome-extension://${extensionId}/`] : [])
+    ])];
     const previousHome = previous && typeof previous === "object" && "copilotHome" in previous && typeof previous.copilotHome === "string" ? previous.copilotHome : undefined;
     const copilotHome = resolve(process.env.COPILOT_HOME ?? previousHome ?? join(homedir(), ".copilot"));
-    return { copilotPath, previous, copilotHome };
+    return { copilotPath, previous, copilotHome, allowedOrigins };
   });
   const account = await chooseAccount(previous, copilotHome);
   setupOutput.section("Files and registration", 2);
   setupOutput.detail("Extension folder", extensionDir);
   setupOutput.detail("Native host folder", hostDir);
-  setupOutput.detail("Extension ID", EXTENSION_ID);
+  for (const origin of allowedOrigins) setupOutput.detail("Extension ID", origin.slice("chrome-extension://".length, -1));
   setupOutput.line("    Edge registry key:");
   setupOutput.line(`      ${registryKey}`);
   setupOutput.section("Runtime", 2);
@@ -106,7 +116,7 @@ async function setup(confirmed: boolean, fromExtension: boolean): Promise<void> 
     const stageConfigPath = join(stageHost, "host-config.json");
     await writeFile(join(stageHost, "launcher.json"), JSON.stringify({ nodePath, hostPath: join(hostDir, "host.js"), configPath: join(hostDir, "host-config.json") }, null, 2));
     await writeFile(stageConfigPath, JSON.stringify({
-      allowedOrigins: [`chrome-extension://${EXTENSION_ID}/`],
+      allowedOrigins,
       cliPath: copilotPath,
       copilotHome,
       account
@@ -116,7 +126,7 @@ async function setup(confirmed: boolean, fromExtension: boolean): Promise<void> 
       description: "ADO Boost local Copilot native host",
       path: join(hostDir, "ado-boost-native-host.exe"),
       type: "stdio",
-      allowed_origins: [`chrome-extension://${EXTENSION_ID}/`]
+      allowed_origins: allowedOrigins
     }, null, 2));
     const marker = JSON.stringify(createMarker(EXTENSION_ID, HOST_NAME), null, 2);
     await writeFile(join(stageExtension, markerName), marker);
@@ -141,7 +151,7 @@ async function setup(confirmed: boolean, fromExtension: boolean): Promise<void> 
   await rm(backupHost, { recursive: true, force: true });
   setupOutput.success("Setup complete.");
   setupOutput.section("Next steps");
-  if (!fromExtension) {
+  if (!extensionId) {
     setupOutput.line("  1. Open edge://extensions and enable Developer mode.");
     setupOutput.line("  2. Select Load unpacked and choose:");
     setupOutput.line(`     ${extensionDir}`);

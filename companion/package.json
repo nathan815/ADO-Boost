@@ -2,6 +2,9 @@
   "name": "ado-boost-companion",
   "version": "0.4.0",
   "private": true,
+  "adoBoost": {
+    "setupCapabilities": ["extension-id"]
+  },
   "type": "module",
   "bin": {
     "ado-boost": "dist/cli.js"

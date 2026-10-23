@@ -24,6 +24,7 @@ try {
     }
     Set-Content -LiteralPath "$root\source\companion\dist\cli.js" -Value 'console.log("fixture command " + process.argv.slice(2).join(" "));'
     Set-Content -LiteralPath "$root\source\companion\prebuilt-extension\manifest.json" -Value '{}'
+    Set-Content -LiteralPath "$root\source\companion\package.json" -Value '{"adoBoost":{"setupCapabilities":["extension-id"]}}'
     Compress-Archive -Path "$root\source\*" -DestinationPath "$root\fixture.zip"
     $script:release = @{
         tag_name = 'v0.2.0'
@@ -78,7 +79,7 @@ try {
             $global:LASTEXITCODE = 0
             return $script:nodeVersion
         }
-        if ($args.Count -notin @(2, 3) -or $args[1] -ne 'setup' -or -not (Test-Path -LiteralPath $args[0])) {
+        if ($args.Count -notin @(2, 4) -or $args[1] -ne 'setup' -or -not (Test-Path -LiteralPath $args[0])) {
             throw 'Unexpected setup invocation'
         }
         $script:setupArguments = @($args | Select-Object -Skip 1)
@@ -109,11 +110,31 @@ try {
     if ($LASTEXITCODE -ne 0 -or $result -ne 'fixture command doctor') { throw 'Installed CLI command did not run after staging cleanup' }
 
     $script:messages = @()
-    Install-AdoBoost -FromExtension
+    $extensionId = 'bfafgbohohbfioebcmbcehlnpcmakkbn'
+    Install-AdoBoost -ExtensionId $extensionId
     if ($script:setupCalls -ne 2) { throw 'Extension installation did not run setup exactly once' }
-    if ($script:setupArguments.Count -ne 2 -or $script:setupArguments[1] -ne '--from-extension') { throw 'Extension origin was not passed to setup' }
+    if (($script:setupArguments -join ' ') -cne "setup --extension-id $extensionId") { throw 'Actual extension ID was not forwarded to setup without redundant flags' }
     if ($script:messages -match 'edge://extensions|Load unpacked|^Choose:') { throw 'Extension installation repeated browser installation instructions' }
     if ($script:messages -match 'enable the desired Copilot features') { throw 'Installer duplicated setup completion guidance' }
+
+    foreach ($invalid in @('', 'short', ('A' * 32), ('q' * 32), "$extensionId`n", "$extensionId;whoami", "chrome-extension://$extensionId/")) {
+        $calls = $script:setupCalls
+        Assert-Throws { Install-AdoBoost -ExtensionId $invalid } 'ExtensionId must contain exactly'
+        if ($script:setupCalls -ne $calls) { throw 'Setup ran with an invalid extension ID' }
+    }
+    Copy-Item -LiteralPath "$root\fixture.zip" -Destination "$root\supported.zip"
+    Set-Content -LiteralPath "$root\source\companion\package.json" -Value '{"version":"0.4.0"}'
+    Compress-Archive -Path "$root\source\*" -DestinationPath "$root\fixture.zip" -Force
+    $script:release.assets[0].digest = "sha256:$((Get-FileHash "$root\fixture.zip" -Algorithm SHA256).Hash)"
+    $calls = $script:setupCalls
+    $cliCount = @(Get-ChildItem -LiteralPath "$env:LOCALAPPDATA\ADO Boost\cli" -Directory).Count
+    Assert-Throws { Install-AdoBoost -ExtensionId $extensionId } 'newer published ADO Boost release is required'
+    if ($script:setupCalls -ne $calls) { throw 'Old CLI silently ignored extension registration' }
+    if (@(Get-ChildItem -LiteralPath "$env:LOCALAPPDATA\ADO Boost\cli" -Directory).Count -ne $cliCount) { throw 'Unsupported package was installed' }
+    if (Test-Path -LiteralPath $script:downloadDirectory) { throw 'Unsupported package staging directory was not cleaned up' }
+    Copy-Item -LiteralPath "$root\supported.zip" -Destination "$root\fixture.zip" -Force
+    $script:release.assets[0].digest = "sha256:$((Get-FileHash "$root\fixture.zip" -Algorithm SHA256).Hash)"
+    Set-Content -LiteralPath "$root\source\companion\package.json" -Value '{"adoBoost":{"setupCapabilities":["extension-id"]}}'
 
     $script:setupExitCode = 1
     $script:messages = @()

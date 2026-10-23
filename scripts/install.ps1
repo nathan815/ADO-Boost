@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 
-param([switch] $FromExtension)
+param([string] $ExtensionId)
 
 function Write-AdoBoostMessage {
     param(
@@ -150,9 +150,12 @@ function Install-AdoBoostCommand {
 }
 
 function Install-AdoBoost {
-    param([switch] $FromExtension)
+    param([string] $ExtensionId)
 
     $ErrorActionPreference = 'Stop'
+    if ($PSBoundParameters.ContainsKey('ExtensionId') -and $ExtensionId -cnotmatch '\A[a-p]{32}\z') {
+        throw 'ExtensionId must contain exactly 32 lowercase letters from a to p.'
+    }
     if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
         throw 'The ADO Boost Copilot companion requires Windows.'
     }
@@ -181,9 +184,19 @@ function Install-AdoBoost {
                 throw "Windows package is missing $relativePath. Setup was not run."
             }
         }
+        if ($ExtensionId) {
+            $metadataPath = Join-Path $package 'companion\package.json'
+            if (-not (Test-Path -LiteralPath $metadataPath -PathType Leaf)) {
+                throw 'This companion package does not support extension ID registration. A newer published ADO Boost release is required. Setup was not run.'
+            }
+            $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
+            if ($metadata.adoBoost.setupCapabilities -cnotcontains 'extension-id') {
+                throw 'This companion package does not support extension ID registration. A newer published ADO Boost release is required. Setup was not run.'
+            }
+        }
         $cli = Install-AdoBoostCommand -Package $package -InstallRoot (Join-Path $env:LOCALAPPDATA 'ADO Boost')
         $setupArguments = @('setup')
-        if ($FromExtension) { $setupArguments += '--from-extension' }
+        if ($ExtensionId) { $setupArguments += @('--extension-id', $ExtensionId) }
         & node $cli @setupArguments
         if ($LASTEXITCODE -ne 0) {
             throw "ADO Boost setup failed with exit code $LASTEXITCODE."
@@ -199,5 +212,7 @@ function Install-AdoBoost {
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
-    Install-AdoBoost -FromExtension:$FromExtension
+    $installArguments = @{}
+    if ($PSBoundParameters.ContainsKey('ExtensionId')) { $installArguments.ExtensionId = $ExtensionId }
+    Install-AdoBoost @installArguments
 }

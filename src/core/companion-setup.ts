@@ -1,6 +1,12 @@
 import type { CopilotHealth } from "./copilot-gateway";
 
-export const COMPANION_INSTALL_COMMAND = "Invoke-WebRequest https://raw.githubusercontent.com/nathan815/ADO-Boost/main/scripts/install.ps1 -OutFile \"$env:TEMP\\install-ado-boost.ps1\"; if ($?) { & \"$env:TEMP\\install-ado-boost.ps1\" -FromExtension }";
+export const COMPANION_INSTALL_COMMAND = "Invoke-WebRequest https://raw.githubusercontent.com/nathan815/ADO-Boost/main/scripts/install.ps1 -OutFile \"$env:TEMP\\install-ado-boost.ps1\"; if ($?) { & \"$env:TEMP\\install-ado-boost.ps1\" }";
+
+export function companionInstallCommand(extensionId = typeof chrome !== "undefined" ? chrome.runtime?.id : undefined): string {
+  if (extensionId === undefined) return COMPANION_INSTALL_COMMAND;
+  if (extensionId.length !== 32 || !/^[a-p]{32}$/.test(extensionId)) throw new Error("Invalid ADO Boost extension ID");
+  return COMPANION_INSTALL_COMMAND.replace(" }", ` -ExtensionId ${extensionId} }`);
+}
 
 export function companionSetupUrl(): string {
   return typeof chrome !== "undefined" && chrome.runtime?.getURL ? chrome.runtime.getURL("options.html#copilot-connection") : "./options.html#copilot-connection";

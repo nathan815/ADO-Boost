@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CompanionSetupPage } from "../src/companion-setup/page";
 import { companionSetupHealth } from "../src/background/companion-setup";
-import { COMPANION_INSTALL_COMMAND } from "../src/core/companion-setup";
+import { COMPANION_INSTALL_COMMAND, companionInstallCommand } from "../src/core/companion-setup";
 import { companionSetupLink } from "../src/ui/companion-setup-link";
 import { parseCopilotHealth } from "../src/core/copilot-gateway";
 
@@ -29,6 +29,21 @@ function setup() {
 }
 
 describe("companion setup", () => {
+  it("copies the actual runtime extension ID, including store and keyless unpacked installs", async () => {
+    const id = "bfafgbohohbfioebcmbcehlnpcmakkbn";
+    vi.stubGlobal("chrome", { runtime: { id } });
+    const { root, copy } = setup();
+    const command = root.querySelector<HTMLTextAreaElement>("#install-command")!.value;
+    expect(command).toContain(`-ExtensionId ${id}`);
+    expect(command).not.toContain("-FromExtension");
+    root.querySelector<HTMLButtonElement>("#copy-command")!.click();
+    await vi.waitFor(() => expect(copy).toHaveBeenCalledWith(command));
+    expect(companionInstallCommand("oldakfajnbllipnfdaghapeiofnciopo")).toContain("-ExtensionId oldakfajnbllipnfdaghapeiofnciopo");
+    for (const invalid of ["", "short", "A".repeat(32), "q".repeat(32), `${id}\n`, `${id};whoami`, `chrome-extension://${id}/`]) {
+      expect(() => companionInstallCommand(invalid)).toThrow("Invalid ADO Boost extension ID");
+    }
+  });
+
   it("shows a successful sign-in username only in account diagnostics, not as an error", async () => {
     const { root, health, page } = setup();
     health.mockResolvedValueOnce(parseCopilotHealth({
@@ -96,13 +111,43 @@ describe("companion setup", () => {
     expect(root.querySelector<HTMLButtonElement>("#refresh")?.disabled).toBe(false);
     expect(root.querySelector(".connection-status")?.getAttribute("aria-busy")).toBe("false");
     root.querySelector<HTMLButtonElement>("#copy-command")!.click();
-    await vi.waitFor(() => expect(root.querySelector("#copy-status")?.textContent).toBe("Copied."));
+    await vi.waitFor(() => expect(root.querySelector("#copy-command")?.textContent).toBe("Copied"));
+    expect(root.querySelector("#copy-status")?.textContent).toBe("");
     expect(copy).toHaveBeenCalledWith(COMPANION_INSTALL_COMMAND);
-    expect(COMPANION_INSTALL_COMMAND).toContain('"$env:TEMP\\install-ado-boost.ps1" -FromExtension');
+    expect(COMPANION_INSTALL_COMMAND).toContain('& "$env:TEMP\\install-ado-boost.ps1" }');
     expect(root.querySelector<HTMLTextAreaElement>("#install-command")?.value).toBe(COMPANION_INSTALL_COMMAND);
     copy.mockRejectedValueOnce(new Error("Clipboard blocked"));
     root.querySelector<HTMLButtonElement>("#copy-command")!.click();
     await vi.waitFor(() => expect(root.querySelector("#copy-status")?.textContent).toContain("copy it manually"));
+    expect(root.querySelector("#copy-command")?.textContent).toBe("Copy install command");
+  });
+
+  it("temporarily changes the copy button label and restarts the delay when copied again", async () => {
+    vi.useFakeTimers();
+    const { root, page, copy } = setup();
+    const button = root.querySelector<HTMLButtonElement>("#copy-command")!;
+    button.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(button.textContent).toBe("Copied");
+    expect(root.querySelector("#copy-status")?.textContent).toBe("");
+    await vi.advanceTimersByTimeAsync(1_500);
+    button.click();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(button.textContent).toBe("Copied");
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(button.textContent).toBe("Copy install command");
+    copy.mockRejectedValueOnce(new Error("Clipboard blocked"));
+    button.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(button.textContent).toBe("Copy install command");
+    expect(root.querySelector("#copy-status")?.textContent).toContain("Clipboard blocked");
+    button.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(button.textContent).toBe("Copied");
+    expect(root.querySelector("#copy-status")?.textContent).toBe("");
+    page.stop();
+    expect(button.textContent).toBe("Copy install command");
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("makes installation the primary action, keeps instructions concise, and detects completion automatically", async () => {

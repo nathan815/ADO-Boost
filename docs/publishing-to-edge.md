@@ -35,7 +35,9 @@ Keep the store's data-use declarations consistent with the policy and the submit
 
 Review Microsoft's [personal information requirements](https://learn.microsoft.com/en-us/legal/microsoft-edge/extensions/developer-policies#15-personal-information), including the third-party sharing and non-user information provisions in sections 1.5.3 and 1.5.4. A privacy policy documents behavior; it does not by itself establish that every feature satisfies these requirements.
 
-The optional companion is not included in the Edge Store package. Before distributing it for store users, install the store build and check its actual extension ID. Do not assume it matches the unpacked build's key-derived ID; the native-messaging host allowlist must include the installed store ID.
+The optional companion is not included in the Edge Store package. Commands copied from onboarding or Copilot Connection include the installed extension's runtime ID as `-ExtensionId`, so the first store installation does not depend on a hardcoded store ID. Setup previews that ID before confirmation and adds its exact `chrome-extension://<id>/` origin to both the native manifest and the companion configuration, alongside the stable unpacked ID. Repair preserves previously registered IDs. Only 32 lowercase letters from `a` to `p` are accepted; wildcard origins are never used. Only register IDs from trusted ADO Boost installations.
+
+Publish a Windows companion release supporting extension ID registration before distributing the corresponding store extension. The installer checks the package's `adoBoost.setupCapabilities` for `extension-id` and stops before installing an older package that would ignore the argument. Store-ready ZIPs omit the manifest key, so their unpacked IDs can change when their installation directory changes; rerun the command from the new installation if needed.
 
 Tagged project releases also publish a standalone extension ZIP and a self-contained Windows companion ZIP. See [Releasing ADO Boost](releasing.md) for versioning and release instructions.
 
