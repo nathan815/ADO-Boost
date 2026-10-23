@@ -1,9 +1,11 @@
 {
   "name": "ado-boost-companion",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "adoBoost": {
-    "setupCapabilities": ["extension-id"]
+    "setupCapabilities": [
+      "extension-id"
+    ]
   },
   "type": "module",
   "bin": {
