@@ -23,7 +23,7 @@ Compress-Archive -Path .\release\edge-store\* -DestinationPath ".\release\ado-bo
 3. Choose public or hidden availability and the markets where the extension should be offered.
 4. Complete the properties and privacy declarations. Explain the `storage`, `nativeMessaging`, and Azure DevOps host permissions, declare that this Manifest V3 extension does not execute remote code, and keep the data-use answers consistent with the repository's privacy documentation.
 5. Add the required store description and square logo. Microsoft currently requires a description of 250-10,000 characters and recommends a 300 x 300 logo with a minimum size of 128 x 128. Screenshots are optional but recommended.
-6. Add certification notes explaining how reviewers can test the extension on an Azure DevOps pull request, then submit it for certification.
+6. Add certification notes explaining how reviewers can test the extension on an Azure DevOps pull request, then submit it for certification. Copy the reusable [certification notes](edge-certification-notes.txt), review them against the submitted version, and keep the text under 2,000 characters.
 
 See Microsoft's [Edge extension publishing guide](https://learn.microsoft.com/en-us/microsoft-edge/extensions/publish/publish-extension) for the current Partner Center fields and asset requirements.
 

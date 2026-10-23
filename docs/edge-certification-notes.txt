@@ -1,0 +1,19 @@
+ADO Boost enhances Azure DevOps pull request reviews. It uses the reviewer's existing Azure DevOps sign-in; there is no separate ADO Boost account or publisher-hosted service.
+
+Test prerequisites:
+Use a reviewer-controlled Azure DevOps organization on dev.azure.com or an organization subdomain of visualstudio.com. Create a Git repository with a pull request containing changes to several text files. Posting tests require permission to comment and vote. No access to the publisher's private organization is necessary.
+
+Core testing:
+
+1. Install the extension and open the test pull request in Azure DevOps.
+2. Open Files. Verify added/removed line counts and file filtering.
+3. Open the ADO Boost discussion panel. Create a private feedback draft, reload the page, and verify it remains available.
+4. Preview and submit the draft on the test PR. Verify the comment appears in Azure DevOps. Submission modifies the test PR.
+5. Open the extension toolbar popup to see the recently viewed PR and review tracking.
+6. Open PR Home from project navigation to test the dashboard, people/profile views, and activity feed. Select projects accessible to the signed-in account.
+7. Open extension settings to enable or disable individual features.
+
+Copilot features are optional. They require Windows, the separately installed ADO Boost companion, GitHub Copilot CLI, and a signed-in account with Copilot access. They send relevant PR context to GitHub Copilot. Core features work without these dependencies.
+
+Documentation and source code:
+https://github.com/nathan815/ADO-Boost
