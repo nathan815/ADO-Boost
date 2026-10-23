@@ -12,6 +12,7 @@ export const projectSchema = z.object({ id: z.string(), name: z.string() });
 export type Project = z.infer<typeof projectSchema>;
 export const repositorySchema = z.object({ id: z.string(), name: z.string(), project: projectSchema });
 export type Repository = z.infer<typeof repositorySchema>;
+export interface WorkspaceSuggestions { projects: Project[]; repositories: Repository[] }
 export const prSchema = z.object({
   pullRequestId: z.number().int().positive(), title: z.string(), status: z.string(),
   creationDate: z.string(), closedDate: z.string().optional(), isDraft: z.boolean().optional(),
@@ -37,6 +38,7 @@ export const threadSchema = z.object({
 export type WorkspaceThread = z.infer<typeof threadSchema>;
 export const preferencesSchema = z.object({
   projects: z.array(projectSchema).max(10),
+  projectsConfirmed: z.boolean().optional(),
   follows: z.array(personSchema).max(50),
   favorites: z.array(z.string()).max(1000)
 });
@@ -45,6 +47,7 @@ export const emptyPreferences = (): Preferences => ({ projects: [], follows: [],
 export const readSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("identity") }),
   z.object({ kind: z.literal("projects"), continuation: z.string().max(2048).optional() }),
+  z.object({ kind: z.literal("project"), project: z.string().min(1).max(256) }),
   z.object({ kind: z.literal("repositories"), project: z.string().min(1).max(256) }),
   z.object({
     kind: z.literal("prs"), project: z.string().min(1).max(256),
@@ -66,6 +69,7 @@ export const requestSchema = z.object({
   request: z.discriminatedUnion("type", [
     z.object({ type: z.literal("read"), query: readSchema }),
     z.object({ type: z.literal("preferences"), value: preferencesSchema.optional() }),
+    z.object({ type: z.literal("workspace-suggestions") }),
     z.object({
       type: z.literal("cache"), key: z.string().max(4000), value: z.unknown().optional(),
       retention: z.enum(["recent", "history"]).optional(), permanent: z.boolean().optional()
@@ -79,7 +83,7 @@ export const requestSchema = z.object({
 });
 export type WorkspaceRequest = z.infer<typeof requestSchema>["request"];
 export interface WorkspaceContext { origin: string; organization: string; base: string }
-export interface Session { context: WorkspaceContext; viewer: Person; theme: Record<string, string> }
+export interface Session { context: WorkspaceContext; viewer: Person; theme: Record<string, string>; currentProject?: Project | null }
 export type WorkspaceRoute = z.infer<typeof workspaceRouteSchema>;
 export type WorkspaceView = WorkspaceRoute["view"];
 export interface WorkspaceSession extends Session {
@@ -109,6 +113,14 @@ export function organizationContext(url: URL): WorkspaceContext | null {
   }
   const match = /^([a-z0-9-]+)\.visualstudio\.com$/i.exec(url.hostname);
   return match?.[1] ? { origin: url.origin, organization: match[1], base: url.origin } : null;
+}
+
+export function currentProjectName(url: URL): string | null {
+  if (!organizationContext(url)) return null;
+  const segment = url.pathname.split("/").filter(Boolean)[url.hostname === "dev.azure.com" ? 1 : 0];
+  if (!segment) return null;
+  const name = decodeURIComponent(segment);
+  return name.startsWith("_") ? null : name;
 }
 
 export function prKey(pr: WorkspacePr): string {

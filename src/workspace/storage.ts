@@ -1,4 +1,4 @@
-import { emptyPreferences, preferencesSchema, type Preferences } from "./protocol";
+import { emptyPreferences, preferencesSchema, prPageSchema, type Preferences, type Project, type Repository, type WorkspaceSuggestions } from "./protocol";
 
 interface CacheEntry { key: string; partition: string; updatedAt: number; value: unknown; permanent?: boolean }
 export interface CacheOptions { retention?: "recent" | "history"; permanent?: boolean }
@@ -66,6 +66,46 @@ export class WorkspaceStorage {
       tx.onabort = () => reject(tx.error ?? new Error("Could not clear workspace cache"));
       tx.onerror = () => reject(tx.error ?? new Error("Could not clear workspace cache"));
     });
+  }
+
+  async suggestions(partition: string, viewer: string, selectedProjects: readonly string[]): Promise<WorkspaceSuggestions> {
+    const db = await this.open();
+    const projects = new Map<string, { project: Project; date: string }>();
+    const repositories = new Map<string, { repository: Repository; date: string }>();
+    const selected = new Set(selectedProjects);
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(["cache", "history"], "readonly");
+      for (const name of ["cache", "history"]) {
+        const cursor = tx.objectStore(name).index("partition").openCursor(partition);
+        cursor.onsuccess = () => {
+          const result = cursor.result;
+          if (!result) return;
+          const page = prPageSchema.safeParse((result.value as CacheEntry).value);
+          if (page.success) for (const pr of page.data.items) {
+            if (pr.createdBy.id !== viewer && !pr.reviewers.some((reviewer) => reviewer.id === viewer)) continue;
+            const project = pr.repository.project;
+            const date = pr.closedDate ?? pr.creationDate;
+            const previous = projects.get(project.id);
+            if (!previous || previous.date < date) projects.set(project.id, { project, date });
+            if (selected.has(project.id)) {
+              const previousRepo = repositories.get(pr.repository.id);
+              if (!previousRepo || previousRepo.date < date) repositories.set(pr.repository.id, { repository: pr.repository, date });
+            }
+          }
+          result.continue();
+        };
+      }
+      tx.oncomplete = () => resolve();
+      tx.onabort = () => reject(tx.error ?? new Error("Could not load workspace suggestions"));
+      tx.onerror = () => reject(tx.error ?? new Error("Could not load workspace suggestions"));
+    });
+    return {
+      projects: [...projects.values()].sort((a, b) => b.date.localeCompare(a.date) || a.project.name.localeCompare(b.project.name))
+        .slice(0, 10).map(({ project }) => project),
+      repositories: [...repositories.values()].sort((a, b) => b.date.localeCompare(a.date) ||
+        a.repository.project.name.localeCompare(b.repository.project.name) || a.repository.name.localeCompare(b.repository.name))
+        .slice(0, 20).map(({ repository }) => repository)
+    };
   }
 
   private open(): Promise<IDBDatabase> {

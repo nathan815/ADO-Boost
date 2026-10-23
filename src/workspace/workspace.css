@@ -141,11 +141,16 @@ input[type=checkbox] { accent-color: var(--ws-accent); }
 .people-list li:last-child { border-bottom: 0; padding-bottom: 0; }
 .project-list { display: flex; flex-direction: column; gap: 10px; max-height: 420px; overflow: auto; padding: 4px; }
 .project-list label { display: flex; align-items: center; gap: 10px; font-size: 13px; cursor: pointer; }
+.repository-selector .controls { align-items: flex-end; }
+.repository-count { min-height: 34px; display: inline-flex; align-items: center; font-variant-numeric: tabular-nums; }
 .project-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); padding: 2px; }
 .project-grid label { padding: 16px; border: 1px solid var(--ws-border); border-radius: 8px; }
 .project-grid label:hover { background: var(--ws-hover); }
 .project-grid label[data-selected=true] { border-color: var(--ws-accent); background: var(--ws-accent-soft); }
 .project-grid .workspace-icon { color: var(--ws-muted); }
+.project-selection-heading { align-items: center; margin-bottom: 16px; }
+.selected-projects { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; padding: 0; margin: 0; }
+.selected-projects li { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--ws-border); border-radius: 6px; background: var(--ws-accent-soft); font-size: 13px; }
 .selection-count { flex: none; font-size: 12px; color: var(--ws-muted); padding: 7px 12px; border: 1px solid var(--ws-border); border-radius: 20px; background: var(--ws-surface); }
 .errors { padding: 12px 16px; border: 1px solid #cc8a33; border-radius: 8px; background: #cc8a3314; margin: 12px 0 20px; overflow-wrap: anywhere; font-size: 12px; }
 .errors ul { margin-bottom: 0; }

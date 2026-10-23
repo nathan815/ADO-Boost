@@ -32,6 +32,10 @@ export class WorkspaceApi {
       const items = z.object({ value: z.array(projectSchema) }).parse(data.body).value;
       return { items, more: Boolean(data.continuation), ...(data.continuation ? { continuation: data.continuation } : {}) };
     }
+    if (query.kind === "project") {
+      const data = await this.json(`${base}/_apis/projects/${encodeURIComponent(query.project)}?api-version=7.1`, signal);
+      return projectSchema.parse(data.body);
+    }
     if (query.kind === "repositories") {
       const data = await this.json(`${base}/${encodeURIComponent(query.project)}/_apis/git/repositories?api-version=7.1`, signal);
       return z.object({ value: z.array(repositorySchema) }).parse(data.body).value;

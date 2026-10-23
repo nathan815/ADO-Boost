@@ -1,6 +1,6 @@
 import { FetchHttpClient } from "../adapters/ado-api";
 import { WorkspaceApi } from "./api";
-import { HOST_PORT, organizationContext, readSchema, workspaceRoute } from "./protocol";
+import { HOST_PORT, currentProjectName, organizationContext, readSchema, workspaceRoute } from "./protocol";
 import { workspaceColorScheme, workspaceThemeTokens } from "./theme";
 
 export class WorkspaceHost {
@@ -168,6 +168,7 @@ export class WorkspaceHost {
     this.connectionLost = false;
     const signal = this.controller.signal;
     const api = new WorkspaceApi(new FetchHttpClient(), context);
+    const projectName = currentProjectName(new URL(location.href));
     const port = chrome.runtime.connect({ name: HOST_PORT });
     this.port = port;
     port.onMessage.addListener((message: unknown) => {
@@ -191,8 +192,11 @@ export class WorkspaceHost {
           theme[key] = colors.getPropertyValue(key).trim();
         }
         if (data.kind === "theme") { port.postMessage({ id: data.id, ok: true, data: theme }); return; }
-        void api.read({ kind: "identity" }, signal).then((viewer) => port.postMessage({
-          id: data.id, ok: true, data: { context, viewer, theme, ...workspaceRoute(new URL(location.href)) }
+        void Promise.all([
+          api.read({ kind: "identity" }, signal),
+          projectName ? api.read({ kind: "project", project: projectName }, signal) : Promise.resolve(null)
+        ]).then(([viewer, currentProject]) => port.postMessage({
+          id: data.id, ok: true, data: { context, viewer, currentProject, theme, ...workspaceRoute(new URL(location.href)) }
         })).catch((error: unknown) => this.replyError(port, data.id, error, signal));
         return;
       }

@@ -1,10 +1,28 @@
 import { describe, expect, it, vi } from "vitest";
 import { WorkspaceApi } from "../src/workspace/api";
+import { currentProjectName } from "../src/workspace/protocol";
 
 const context = { origin: "https://dev.azure.com", organization: "org", base: "https://dev.azure.com/org" };
 const json = (value: unknown, init: ResponseInit = {}) => new Response(JSON.stringify(value), { ...init, headers: { "Content-Type": "application/json", ...init.headers } });
 
 describe("workspace read API", () => {
+  it.each([
+    ["https://dev.azure.com/org/Project%20name/_dashboards/dashboard/1", "Project name"],
+    ["https://org.visualstudio.com/One/_git/repo", "One"],
+    ["https://dev.azure.com/org/_projects", null],
+    ["https://org.visualstudio.com/", null]
+  ])("identifies the dashboard project from %s", (url, project) => {
+    expect(currentProjectName(new URL(url))).toBe(project);
+  });
+
+  it("resolves the current project's canonical identity without listing projects or repositories", async () => {
+    const fetch = vi.fn().mockResolvedValue(json({ id: "p", name: "Project name" }));
+    const result = await new WorkspaceApi({ fetch }, context).read({ kind: "project", project: "Project name" }, new AbortController().signal);
+    expect(result).toEqual({ id: "p", name: "Project name" });
+    expect(new URL(fetch.mock.calls[0]![0]).pathname).toBe("/org/_apis/projects/Project%20name");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("uses project-wide PR queries with explicit date semantics and paging", async () => {
     const fetch = vi.fn().mockResolvedValue(json({ value: [] }));
     const api = new WorkspaceApi({ fetch }, context);

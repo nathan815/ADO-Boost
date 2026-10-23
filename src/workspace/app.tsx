@@ -98,7 +98,7 @@ export function WorkspaceApp(dependencies: WorkspaceDependencies) {
       }}>Clear workspace cache</button><p>Projects, follows, and review drafts are kept.</p></div></details></nav>
     <main><Errors errors={error ? [error] : []} />
       {notice && <p role="status">{notice}</p>}
-      {saving && <p role="status">Saving local preferences...</p>}
+      <span className="sr-only" role="status">{saving ? "Saving local preferences..." : ""}</span>
       {view === "projects" ? <Projects {...dependencies} session={session} save={save} saving={saving} /> :
         view === "people" ? <People {...dependencies} session={session} save={save} saving={saving} openPerson={openPerson} /> :
             view === "profile" ? <ProfileView key={subject.id} {...dependencies} session={{ ...session, view, subject }} save={save} openPerson={openPerson} /> :

@@ -1,10 +1,11 @@
 import { z } from "zod";
-import { HOST_PORT, UI_PORT, organizationContext, personSchema, requestSchema, workspaceRouteSchema } from "./protocol";
+import { HOST_PORT, UI_PORT, organizationContext, personSchema, projectSchema, requestSchema, workspaceRouteSchema } from "./protocol";
 import { WorkspaceStorage } from "./storage";
 
 const sessionSchema = z.object({
   context: z.object({ origin: z.string(), organization: z.string(), base: z.string() }),
   viewer: personSchema, theme: z.record(z.string(), z.string()),
+  currentProject: projectSchema.nullish(),
   view: z.enum(["dashboard", "people", "profile", "feed", "projects"]),
   subject: personSchema.nullable()
 });
@@ -37,6 +38,7 @@ export function startWorkspaceService(now: () => number = Date.now): void {
     if (!host) { port.disconnect(); return; }
     const pending = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
     let viewer: string | null = null;
+    let projectInitialized = false;
     let disconnected = false;
     const call = (payload: Record<string, unknown>): Promise<unknown> => new Promise((resolve, reject) => {
       const id = crypto.randomUUID();
@@ -119,8 +121,19 @@ export function startWorkspaceService(now: () => number = Date.now): void {
         const partition = WorkspaceStorage.partition(session.context.organization, session.viewer.id);
         if (request.type === "read") return call({ query: request.query });
         if (request.type === "preferences") {
-          const preferences = await storage.preferences(partition, request.value);
+          let preferences = await storage.preferences(partition, request.value);
+          if (!projectInitialized && !request.value) {
+            const project = session.currentProject;
+            if (project && preferences.projects.length < 10 && !preferences.projects.some((selected) => selected.id === project.id)) {
+              preferences = await storage.preferences(partition, { ...preferences, projects: [...preferences.projects, project] });
+            }
+          }
+          projectInitialized = true;
           return { ...session, preferences };
+        }
+        if (request.type === "workspace-suggestions") {
+          const preferences = await storage.preferences(partition);
+          return storage.suggestions(partition, session.viewer.id, preferences.projects.map((project) => project.id));
         }
         if (request.type === "cache") return storage.cache(partition, request.key, request.value, {
           retention: request.retention ?? "recent", permanent: request.permanent ?? false

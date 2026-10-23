@@ -33,6 +33,51 @@ describe("workspace sender boundary", () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
+  it.each([0, 1, 10])("adds the current project once on open with %s saved projects, preserving selections and the cap", async (count) => {
+    const connection = new PortEvent<TestPort>();
+    const factory = new IDBFactory();
+    vi.stubGlobal("chrome", { runtime: { id: "extension", onConnect: connection } });
+    vi.stubGlobal("indexedDB", factory);
+    const { WorkspaceStorage } = await import("../src/workspace/storage");
+    const storage = new WorkspaceStorage(factory);
+    const partition = WorkspaceStorage.partition("org", "me");
+    const preferences = { projects: Array.from({ length: count }, (_, id) => ({ id: String(id), name: `Project ${id}` })), follows: [], favorites: [] };
+    await storage.preferences(partition, preferences);
+    startWorkspaceService();
+    const hostPort = new TestPort(HOST_PORT, host);
+    const uiPort = new TestPort(UI_PORT, ui);
+    hostPort.postMessage.mockImplementation((value) => {
+      const message = value as { id: string };
+      hostPort.onMessage.emit({ id: message.id, ok: true, data: {
+        context: { origin: "https://dev.azure.com", organization: "org", base: "https://dev.azure.com/org" },
+        currentProject: { id: "one", name: "One" }, viewer: { id: "me", displayName: "Me" },
+        theme: {}, view: "dashboard", subject: null
+      } });
+    });
+    connection.emit(hostPort); connection.emit(uiPort);
+    uiPort.onMessage.emit({ id: "open", request: { type: "preferences" } });
+    const projects = count === 10 ? preferences.projects : [...preferences.projects, { id: "one", name: "One" }];
+    await vi.waitFor(() => expect(uiPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      id: "open", ok: true, data: expect.objectContaining({ preferences: { ...preferences, projects } })
+    })));
+    expect((await storage.preferences(partition)).projects).toEqual(projects);
+    uiPort.onMessage.emit({ id: "recheck", request: { type: "preferences" } });
+    await vi.waitFor(() => expect(uiPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      id: "recheck", ok: true, data: expect.objectContaining({ preferences: { ...preferences, projects } })
+    })));
+    uiPort.onMessage.emit({ id: "deselect", request: { type: "preferences", value: preferences } });
+    await vi.waitFor(() => expect(uiPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({ id: "deselect", ok: true })));
+    uiPort.onMessage.emit({ id: "resume", request: { type: "preferences" } });
+    await vi.waitFor(() => expect(uiPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      id: "resume", ok: true, data: expect.objectContaining({ preferences })
+    })));
+    uiPort.onMessage.emit({ id: "suggestions", request: { type: "workspace-suggestions" } });
+    await vi.waitFor(() => expect(uiPort.postMessage).toHaveBeenCalledWith({
+      id: "suggestions", ok: true, data: { projects: [], repositories: [] }
+    }));
+    uiPort.disconnect(); hostPort.disconnect();
+  });
+
   it("forwards frame readiness to its paired host without reading account data or storage", async () => {
     const connection = new PortEvent<TestPort>();
     vi.stubGlobal("chrome", { runtime: { id: "extension", onConnect: connection } });

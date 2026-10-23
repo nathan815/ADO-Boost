@@ -3,6 +3,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceHost } from "../src/workspace/host";
+import { WorkspaceApi } from "../src/workspace/api";
 
 let host: WorkspaceHost;
 let messages: Array<(message: unknown) => void>;
@@ -25,6 +26,21 @@ beforeEach(() => {
 afterEach(() => { host.stop(); document.body.replaceChildren(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe("workspace host lifecycle", () => {
+  it("includes the resolved current project in the authenticated workspace session", async () => {
+    history.replaceState(null, "", "/org/Project%20Space?adoBoostPrHome=projects");
+    const read = vi.spyOn(WorkspaceApi.prototype, "read").mockImplementation(async (query) =>
+      query.kind === "identity" ? { id: "me", displayName: "Me" } : { id: "p", name: "Project Space" });
+    host.update(true);
+    messages[0]!({ id: "session", kind: "session" });
+    await vi.waitFor(() => expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      id: "session", ok: true, data: expect.objectContaining({
+        currentProject: { id: "p", name: "Project Space" }, viewer: { id: "me", displayName: "Me" }, view: "projects"
+      })
+    })));
+    expect(read).toHaveBeenCalledWith({ kind: "project", project: "Project Space" }, expect.any(AbortSignal));
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
   it("collapses native submenus and accessibility state while open, including remounts, then restores on exit", async () => {
     const group = document.createElement("div");
     group.className = "hub-group-container displayed-container expanded-container";
