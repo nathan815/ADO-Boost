@@ -1,6 +1,6 @@
 import type { CopilotHealth } from "./copilot-gateway";
 
-export const COMPANION_INSTALL_COMMAND = "Invoke-WebRequest https://raw.githubusercontent.com/nathan815/ADO-Boost/main/scripts/install.ps1 -OutFile \"$env:TEMP\\install-ado-boost.ps1\"; if ($?) { & \"$env:TEMP\\install-ado-boost.ps1\" }";
+export const COMPANION_INSTALL_COMMAND = "Invoke-WebRequest https://raw.githubusercontent.com/nathan815/ADO-Boost/main/scripts/install.ps1 -OutFile \"$env:TEMP\\install-ado-boost.ps1\"; if ($?) { & \"$env:TEMP\\install-ado-boost.ps1\" -FromExtension }";
 
 export function companionSetupUrl(): string {
   return typeof chrome !== "undefined" && chrome.runtime?.getURL ? chrome.runtime.getURL("options.html#copilot-connection") : "./options.html#copilot-connection";

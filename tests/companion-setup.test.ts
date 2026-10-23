@@ -98,6 +98,7 @@ describe("companion setup", () => {
     root.querySelector<HTMLButtonElement>("#copy-command")!.click();
     await vi.waitFor(() => expect(root.querySelector("#copy-status")?.textContent).toBe("Copied."));
     expect(copy).toHaveBeenCalledWith(COMPANION_INSTALL_COMMAND);
+    expect(COMPANION_INSTALL_COMMAND).toContain('"$env:TEMP\\install-ado-boost.ps1" -FromExtension');
     expect(root.querySelector<HTMLTextAreaElement>("#install-command")?.value).toBe(COMPANION_INSTALL_COMMAND);
     copy.mockRejectedValueOnce(new Error("Clipboard blocked"));
     root.querySelector<HTMLButtonElement>("#copy-command")!.click();

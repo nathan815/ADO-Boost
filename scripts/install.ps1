@@ -1,5 +1,7 @@
 #Requires -Version 5.1
 
+param([switch] $FromExtension)
+
 function Get-AdoBoostReleaseAsset {
     param([Parameter(Mandatory = $true)] $Release)
 
@@ -129,6 +131,8 @@ function Install-AdoBoostCommand {
 }
 
 function Install-AdoBoost {
+    param([switch] $FromExtension)
+
     $ErrorActionPreference = 'Stop'
     if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
         throw 'The ADO Boost Copilot companion requires Windows.'
@@ -158,10 +162,14 @@ function Install-AdoBoost {
         }
         $cli = Install-AdoBoostCommand -Package $package -InstallRoot (Join-Path $env:LOCALAPPDATA 'ADO Boost')
         Write-Host 'Setup handles Copilot sign-in when needed, account selection, and confirmation of the per-user installation.'
-        Write-Host 'After setup completes, open edge://extensions, enable Developer mode, and select Load unpacked.'
-        Write-Host 'Choose: %LOCALAPPDATA%\ADO Boost\extension'
+        if (-not $FromExtension) {
+            Write-Host 'After setup completes, open edge://extensions, enable Developer mode, and select Load unpacked.'
+            Write-Host 'Choose: %LOCALAPPDATA%\ADO Boost\extension'
+        }
         Write-Host 'Then enable the desired Copilot features in ADO Boost settings.'
-        & node $cli setup
+        $setupArguments = @('setup')
+        if ($FromExtension) { $setupArguments += '--from-extension' }
+        & node $cli @setupArguments
         if ($LASTEXITCODE -ne 0) {
             throw "ADO Boost setup failed with exit code $LASTEXITCODE."
         }
@@ -171,5 +179,5 @@ function Install-AdoBoost {
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
-    Install-AdoBoost
+    Install-AdoBoost -FromExtension:$FromExtension
 }

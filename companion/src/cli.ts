@@ -30,7 +30,7 @@ const args = process.argv.slice(2);
 
 switch (args[0]) {
   case "setup":
-    await setup(args.includes("--yes"));
+    await setup(args.includes("--yes"), args.includes("--from-extension"));
     break;
   case "doctor":
     await doctor();
@@ -44,10 +44,10 @@ switch (args[0]) {
     await uninstall(args.includes("--yes"));
     break;
   default:
-    console.log("Usage: ado-boost <setup|doctor|login|uninstall-host> [--yes] [--account <username>] [--host <github.com|enterprise.ghe.com>]");
+    console.log("Usage: ado-boost <setup|doctor|login|uninstall-host> [--yes] [--account <username>] [--host <github.com|enterprise.ghe.com>] [--from-extension]");
 }
 
-async function setup(confirmed: boolean): Promise<void> {
+async function setup(confirmed: boolean, fromExtension: boolean): Promise<void> {
   const nodePath = process.execPath;
   const copilotPath = await findCopilot();
   await validatePackagedExtension();
@@ -117,7 +117,7 @@ async function setup(confirmed: boolean): Promise<void> {
   });
   await rm(backupExtension, { recursive: true, force: true });
   await rm(backupHost, { recursive: true, force: true });
-  console.log("Setup complete. Load the unpacked extension folder shown above in Edge.");
+  console.log(fromExtension ? "Setup complete." : "Setup complete. Load the unpacked extension folder shown above in Edge.");
 }
 
 async function doctor(): Promise<void> {

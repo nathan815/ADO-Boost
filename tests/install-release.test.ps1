@@ -69,14 +69,19 @@ try {
         $script:userPath = $Value
     }
     function Update-AdoBoostProcessPath {}
+    function Write-Host {
+        param([string] $Object)
+        $script:messages += $Object
+    }
     function node {
         if ($args[0] -eq '--version') {
             $global:LASTEXITCODE = 0
             return $script:nodeVersion
         }
-        if ($args.Count -ne 2 -or $args[1] -ne 'setup' -or -not (Test-Path -LiteralPath $args[0])) {
+        if ($args.Count -notin @(2, 3) -or $args[1] -ne 'setup' -or -not (Test-Path -LiteralPath $args[0])) {
             throw 'Unexpected setup invocation'
         }
+        $script:setupArguments = @($args | Select-Object -Skip 1)
         $script:setupCalls++
         $global:LASTEXITCODE = $script:setupExitCode
     }
@@ -87,8 +92,11 @@ try {
     $script:wingetCalls = @()
     $script:confirmations = @()
     $script:wingetExitCode = 0
+    $script:messages = @()
     Install-AdoBoost
     if ($script:setupCalls -ne 1) { throw 'Setup did not run exactly once' }
+    if ($script:setupArguments.Count -ne 1) { throw 'Default setup received extra arguments' }
+    if (-not ($script:messages -match 'edge://extensions') -or -not ($script:messages -match '^Choose:')) { throw 'Default installation omitted extension instructions' }
     if (Test-Path -LiteralPath $script:downloadDirectory) { throw 'Staging directory was not cleaned up' }
     $launcher = Join-Path $env:LOCALAPPDATA 'ADO Boost\bin\ado-boost.cmd'
     if (-not (Test-Path -LiteralPath $launcher)) { throw 'CLI command was not installed' }
@@ -97,6 +105,13 @@ try {
     if ((Get-Content -LiteralPath $launcher -Raw) -notlike '*%~dp0..\cli\*') { throw 'CLI launcher did not use its persistent package' }
     $result = & $launcher doctor
     if ($LASTEXITCODE -ne 0 -or $result -ne 'fixture command doctor') { throw 'Installed CLI command did not run after staging cleanup' }
+
+    $script:messages = @()
+    Install-AdoBoost -FromExtension
+    if ($script:setupCalls -ne 2) { throw 'Extension installation did not run setup exactly once' }
+    if ($script:setupArguments.Count -ne 2 -or $script:setupArguments[1] -ne '--from-extension') { throw 'Extension origin was not passed to setup' }
+    if ($script:messages -match 'edge://extensions|Load unpacked|^Choose:') { throw 'Extension installation repeated browser installation instructions' }
+    if (-not ($script:messages -match 'enable the desired Copilot features')) { throw 'Extension installation omitted Copilot settings guidance' }
 
     $script:setupExitCode = 1
     Assert-Throws { Install-AdoBoost } 'setup failed with exit code 1'
