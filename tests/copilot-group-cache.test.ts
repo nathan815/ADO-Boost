@@ -131,6 +131,7 @@ describe("background Copilot grouping results", () => {
 
   it("keeps sidebar diagnostics disabled when the required Copilot feature is disabled", async () => {
     const settings = defaultSettings();
+    settings.features.copilotSemanticGroups = false;
     settings.features.copilotChat = true;
     values.set(SETTINGS_KEY, settings);
     native.mockResolvedValue({ auth: { isAuthenticated: true } });

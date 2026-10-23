@@ -3,6 +3,21 @@ import { defaultSettings, FEATURE_REGISTRY, migrateSettings, resolveFeature } fr
 import { MemorySettingsStorage, SettingsService } from "../src/features/settings-service";
 
 describe("feature settings", () => {
+  it("defaults Copilot semantic groups on without enabling automatic generation or chat", () => {
+    const settings = defaultSettings();
+    expect(resolveFeature(settings, "copilotSemanticGroups").enabled).toBe(true);
+    expect(settings.features.autoGenerateCopilotGroups).toBe(false);
+    expect(settings.features.confirmCopilotGroups).toBe(true);
+    expect(settings.features.copilotChat).toBe(false);
+  });
+
+  it("enables missing Copilot semantic group preferences while preserving explicit choices and dependencies", () => {
+    expect(resolveFeature(migrateSettings({ features: {} }), "copilotSemanticGroups").enabled).toBe(true);
+    expect(resolveFeature(migrateSettings({ features: { copilotSemanticGroups: false } }), "copilotSemanticGroups").enabled).toBe(false);
+    expect(resolveFeature(migrateSettings({ features: { groupedNavigation: false } }), "copilotSemanticGroups").enabled).toBe(false);
+    expect(resolveFeature(migrateSettings({ masterEnabled: false }), "copilotSemanticGroups").enabled).toBe(false);
+  });
+
   it("defaults automatic grouping off and manual confirmation on for existing settings", () => {
     const settings = migrateSettings({ features: { copilotSemanticGroups: true } });
     expect(settings.features.autoGenerateCopilotGroups).toBe(false);

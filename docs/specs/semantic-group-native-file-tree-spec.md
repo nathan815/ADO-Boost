@@ -1,6 +1,6 @@
 # Semantic groups in the native PR file tree
 
-**Status:** Locked design, implemented behind the default-off Copilot semantic groups setting. Native integration uses guarded, reversible compatibility adapters.
+**Status:** Locked design, implemented behind the default-enabled Copilot semantic groups setting. Automatic generation remains opt-in, and existing saved feature preferences are preserved. Native integration uses guarded, reversible compatibility adapters.
 
 **Date:** October 21, 2026.
 
@@ -26,7 +26,7 @@ Relevant implementation surfaces:
 | `src/core/types.ts` | `SemanticGroupProposal`, `ReviewGroup`, `FileStat`, and comparison identity. |
 | `src/core/semantic-groups.ts` | Shared comparison-scoped state and request epochs; validates bounded results, rejects unknown or duplicate paths, and retains omitted files. |
 | `src/core/copilot-gateway.ts` | Companion requests for semantic grouping. |
-| `src/features/registry.ts` | Default-off `copilotSemanticGroups` feature and its dependency on native tree enhancements. |
+| `src/features/registry.ts` | Default-enabled `copilotSemanticGroups` feature and its dependency on native tree enhancements. |
 | `src/content/native-pr-enhancer.ts` | Content-side coordination of native tree enhancements and existing navigation controls. |
 | `src/native-tree/client.ts` and `src/native-tree/protocol.ts` | Validated isolated-world to MAIN-world tree configuration. |
 | `src/native-tree/host.ts` and `src/native-tree/adapter.ts` | Guarded host discovery, native filtering, count rendering, and reversible adapter ownership. |
