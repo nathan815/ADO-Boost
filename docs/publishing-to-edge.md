@@ -27,6 +27,14 @@ Compress-Archive -Path .\dist\* -DestinationPath ".\release\ado-boost-$version.z
 
 See Microsoft's [Edge extension publishing guide](https://learn.microsoft.com/en-us/microsoft-edge/extensions/publish/publish-extension) for the current Partner Center fields and asset requirements.
 
+### Privacy policy
+
+Use the project's [privacy policy](../PRIVACY.md) for the Partner Center privacy-policy field. After the file is published on `main`, its public URL is `https://github.com/nathan815/ADO-Boost/blob/main/PRIVACY.md`. Verify that the URL is accessible without signing in before submitting.
+
+Keep the store's data-use declarations consistent with the policy and the submitted version. Distinguish information accessed or stored locally from information received by the publisher, and disclose optional transmission to GitHub Copilot. Do not describe Copilot processing as exclusively local.
+
+Review Microsoft's [personal information requirements](https://learn.microsoft.com/en-us/legal/microsoft-edge/extensions/developer-policies#15-personal-information), including the third-party sharing and non-user information provisions in sections 1.5.3 and 1.5.4. A privacy policy documents behavior; it does not by itself establish that every feature satisfies these requirements.
+
 The optional companion is not included in the Edge Store package. Before distributing it, install the store build once and verify that its extension ID matches the deterministic ID derived from the `key` in `manifest.json`; the native-messaging host allowlist must use the installed store ID.
 
 Tagged project releases also publish a standalone extension ZIP and a self-contained Windows companion ZIP. See [Releasing ADO Boost](releasing.md) for versioning and release instructions.
