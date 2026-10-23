@@ -1,19 +1,19 @@
 # Publishing to Microsoft Edge Add-ons
 
-The CI workflow runs the extension and companion checks on pushes and pull requests. Each successful run uploads an `ado-boost-<version>` artifact containing a store-ready ZIP with `manifest.json` at the archive root.
+The CI workflow runs the extension and companion checks on pushes and pull requests. Each successful run uploads an `ado-boost-<version>` artifact containing a store-ready ZIP with `manifest.json` at the archive root. Both CI and tagged release extension ZIPs omit the manifest's `key` field, which Edge Store rejects. The source manifest, unpacked `dist` build, and extension bundled with the Windows companion retain the key for their stable unpacked extension ID.
 
 ## Create a local package
 
-Build and ZIP the contents of `dist` rather than the `dist` directory itself:
+Build, prepare a separate store copy, and ZIP its contents rather than its directory. The staging directory must not already exist; use a fresh destination for another package:
 
 ```powershell
 npm ci
 npm run typecheck
 npm test
 npm run build
-New-Item -ItemType Directory -Force release | Out-Null
+node scripts/prepare-store-extension.mjs dist release/edge-store
 $version = (Get-Content .\manifest.json | ConvertFrom-Json).version
-Compress-Archive -Path .\dist\* -DestinationPath ".\release\ado-boost-$version.zip" -Force
+Compress-Archive -Path .\release\edge-store\* -DestinationPath ".\release\ado-boost-$version.zip" -Force
 ```
 
 ## Submit the extension
@@ -35,7 +35,7 @@ Keep the store's data-use declarations consistent with the policy and the submit
 
 Review Microsoft's [personal information requirements](https://learn.microsoft.com/en-us/legal/microsoft-edge/extensions/developer-policies#15-personal-information), including the third-party sharing and non-user information provisions in sections 1.5.3 and 1.5.4. A privacy policy documents behavior; it does not by itself establish that every feature satisfies these requirements.
 
-The optional companion is not included in the Edge Store package. Before distributing it, install the store build once and verify that its extension ID matches the deterministic ID derived from the `key` in `manifest.json`; the native-messaging host allowlist must use the installed store ID.
+The optional companion is not included in the Edge Store package. Before distributing it for store users, install the store build and check its actual extension ID. Do not assume it matches the unpacked build's key-derived ID; the native-messaging host allowlist must include the installed store ID.
 
 Tagged project releases also publish a standalone extension ZIP and a self-contained Windows companion ZIP. See [Releasing ADO Boost](releasing.md) for versioning and release instructions.
 

@@ -81,7 +81,11 @@ jobs:
           $companionRoot = Join-Path $desktopRoot "companion"
 
           New-Item -ItemType Directory -Force $releaseRoot, $desktopRoot, $companionRoot | Out-Null
-          Compress-Archive -Path .\dist\* -DestinationPath "$releaseRoot\ado-boost-extension-$version.zip" -Force
+          node scripts/prepare-store-extension.mjs dist release/edge-store
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not prepare the Edge Store extension."
+          }
+          Compress-Archive -Path .\release\edge-store\* -DestinationPath "$releaseRoot\ado-boost-extension-$version.zip" -Force
 
           Copy-Item .\companion\dist $companionRoot -Recurse
           Copy-Item .\companion\prebuilt-extension $companionRoot -Recurse

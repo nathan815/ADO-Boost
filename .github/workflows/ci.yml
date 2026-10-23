@@ -49,9 +49,9 @@ jobs:
       - name: Create Edge Store package
         shell: bash
         run: |
-          mkdir release
-          cd dist
-          zip -r "../release/ado-boost-${{ steps.version.outputs.value }}.zip" .
+          node scripts/prepare-store-extension.mjs dist release/edge-store
+          cd release/edge-store
+          zip -r "../ado-boost-${{ steps.version.outputs.value }}.zip" .
 
       - name: Upload Edge Store package
         uses: actions/upload-artifact@v4
