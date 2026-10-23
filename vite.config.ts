@@ -27,6 +27,7 @@ export default defineConfig({
       input: {
         background: "src/background/index.ts",
         options: "src/options/index.ts",
+        onboarding: "src/onboarding/index.ts",
         popup: "src/popup/index.ts",
         workspace: "src/workspace/index.tsx",
         demo: "src/demo/index.ts"

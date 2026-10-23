@@ -17,8 +17,15 @@ import { writeFailure } from "../core/write-gateway";
 import { startWorkspaceService } from "../workspace/background";
 import { CompanionAccountsService, isCompanionAccountsMessage } from "./companion-accounts";
 import { companionSetupHealth } from "./companion-setup";
+import { openOnboarding } from "./onboarding";
 
 startWorkspaceService();
+chrome.runtime.onInstalled.addListener((details) => {
+  void openOnboarding(details.reason, {
+    getURL: (path) => chrome.runtime.getURL(path),
+    open: (url) => chrome.tabs.create({ url })
+  }).catch((error: unknown) => console.error("Could not open the ADO Boost welcome page", error));
+});
 
 const api = new AdoApi(new FetchHttpClient());
 const store = new ChromeBrowserStore(false);

@@ -139,6 +139,18 @@ async function fixture(account?: typeof work) {
 const inference = { title: "PR", comparisonIdentity: "comparison", files: [{ path: "/file.ts", changeType: "edit", additions: 1, deletions: 0 }], excerpts: [] };
 
 describe("native account routing", () => {
+  it("detects a first setup pin on diagnostic polling without restarting the unconfigured host", async () => {
+    const host = await fixture();
+    try {
+      expect(await host.request("health")).toMatchObject({ ok: true, data: { auth: { isAuthenticated: false } } });
+      await host.pin(work);
+      expect(await host.request("accounts")).toMatchObject({ ok: true, data: { selected: work } });
+      expect(await host.request("health")).toMatchObject({ ok: true, data: { auth: { isAuthenticated: true, login: work.login } } });
+      expect((await host.events()).filter((event) => event.type === "session")).toEqual([]);
+    } finally {
+      await host.close();
+    }
+  });
   it("lists accounts without inference, requires a pin, switches live and persists without changing the global CLI account", async () => {
     const host = await fixture();
     try {

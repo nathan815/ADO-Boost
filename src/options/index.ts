@@ -12,23 +12,22 @@ const rootElement = document.querySelector<HTMLElement>("#app");
 if (!rootElement) throw new Error("Settings root is missing");
 const root = rootElement;
 const tabs = new OptionsTabs(document, window.location);
-const accountSettings = isFixture ? null : new CompanionAccountSettings(new RuntimeCompanionAccountsGateway(), document);
 const setupRoot = document.createElement("div");
 setupRoot.className = "copilot-connection";
 tabs.connection.append(setupRoot);
 const setup = new CompanionSetupPage(setupRoot, {
-  health: isFixture ? async () => ({ connected: false, authenticated: false, detail: "Synthetic offline fixture." }) : requestCompanionSetupHealth,
+  health: async (background) => {
+    await accountSettings?.load(background);
+    return isFixture ? { connected: false, authenticated: false, detail: "Synthetic offline fixture." } : requestCompanionSetupHealth();
+  },
   copy: (text) => navigator.clipboard.writeText(text),
   platform: isFixture ? "unknown" : (await chrome.runtime.getPlatformInfo()).os,
   onHealth: (health) => tabs.setSetupRequired(!health.connected || !health.authenticated)
 });
+setup.connection.indicator.addEventListener("click", () => tabs.openConnection());
+const accountSettings = isFixture ? null : new CompanionAccountSettings(new RuntimeCompanionAccountsGateway(), document, () => setup.refresh());
 if (accountSettings) {
-  const section = document.createElement("section");
-  section.id = "companion-account-settings";
-  section.className = "setting-list";
-  section.setAttribute("aria-label", "Copilot account");
-  section.append(accountSettings.element);
-  tabs.connection.append(section);
+  setup.connection.accounts.append(accountSettings.element);
 }
 
 let settings = await service.load();
@@ -48,8 +47,9 @@ function render(): void {
     `${feature.label} ${feature.description} ${groupLabels[feature.group]} ${feature.group === "copilot" ? "account login" : ""}`.toLowerCase().includes(search.toLowerCase())
   );
   root.innerHTML = `
-    <header class="page-header"><div class="page-title"><img class="page-logo" src="./icons/ado-boost.svg" alt="ADO Boost"><div><h1>ADO Boost</h1><p>${isFixture ? "Synthetic offline fixture. " : ""}Choose which ADO Boost features appear in your pull request workflow.</p></div></div><label class="master"><input id="master" type="checkbox" ${settings.masterEnabled ? "checked" : ""}><span>Extension enabled</span></label></header>
+    <header class="page-header"><div class="page-title"><img class="page-logo" src="./icons/ado-boost.svg" alt="ADO Boost"><div><h1>ADO Boost</h1><div class="header-connection"></div></div></div><label class="master"><input id="master" type="checkbox" ${settings.masterEnabled ? "checked" : ""}><span>Extension enabled</span></label></header>
   `;
+  root.querySelector(".header-connection")!.append(setup.connection.indicator);
   root.append(tabs.element);
   tabs.settings.innerHTML = `
     <div class="search-row"><input id="search" type="search" value="${escapeHtml(search)}" placeholder="Search settings" aria-label="Search settings"><select id="theme" aria-label="Theme"><option value="system" ${settings.presentation.theme === "system" ? "selected" : ""}>System theme</option><option value="light" ${settings.presentation.theme === "light" ? "selected" : ""}>Light</option><option value="dark" ${settings.presentation.theme === "dark" ? "selected" : ""}>Dark</option></select></div>
@@ -105,5 +105,6 @@ function escapeHtml(value: string): string {
 }
 
 render();
-void accountSettings?.load();
-void setup.refresh();
+window.addEventListener("pagehide", () => setup.stop());
+window.addEventListener("pageshow", () => setup.start());
+setup.start();

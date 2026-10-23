@@ -96,6 +96,11 @@ async function dispatch(value: unknown): Promise<void> {
       write({ id: request.id, ok: true, type: "cancelled", data: { requestId: request.requestId } });
       return;
     }
+    if ((request.type === "health" || request.type === "accounts") && !config.account) {
+      const saved = hostConfigSchema.parse(JSON.parse(await readFile(configPath, "utf8")));
+      if (!callerOrigin || !saved.allowedOrigins.includes(callerOrigin)) throw coded("origin-mismatch", "The browser caller is no longer allowlisted");
+      Object.assign(config, saved);
+    }
     if (request.type === "accounts") {
       write({ id: request.id, ok: true, type: "accounts", data: { accounts: await availableAccounts(config.copilotHome), selected: config.account ?? null } });
       return;

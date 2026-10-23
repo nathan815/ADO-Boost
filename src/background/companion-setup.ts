@@ -7,8 +7,9 @@ export async function companionSetupHealth(
   setupUrl: string,
   native: Pick<NativeCopilotClient, "request">
 ) {
-  if (sender.id !== extensionId || sender.url?.split("#")[0] !== setupUrl) {
-    throw new Error("Companion setup checks are accepted only from this extension's settings page");
+  const allowedUrls = [setupUrl, new URL("onboarding.html", setupUrl).href];
+  if (sender.id !== extensionId || !sender.url || !allowedUrls.includes(sender.url.split("#")[0]!)) {
+    throw new Error("Companion setup checks are accepted only from this extension's settings or welcome page");
   }
   return parseCopilotHealth(await native.request("health"));
 }

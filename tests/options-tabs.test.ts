@@ -5,6 +5,7 @@ import { OptionsTabs } from "../src/options/tabs";
 import { CompanionSetupPage } from "../src/companion-setup/page";
 
 afterEach(() => {
+  window.dispatchEvent(new Event("pagehide"));
   document.body.replaceChildren();
   window.history.replaceState(null, "", "/");
   vi.unstubAllGlobals();
@@ -80,12 +81,27 @@ describe("options tabs", () => {
     expect(document.querySelector("h1")?.textContent).toBe("ADO Boost");
     await vi.waitFor(() => expect(document.querySelector<HTMLElement>(".setup-required")?.hidden).toBe(false));
     const command = document.querySelector("#install-command");
+    const card = document.querySelector("#connection-panel .connection-status");
+    expect(card).not.toBeNull();
+    expect(card?.closest('[role="tabpanel"]')?.id).toBe("connection-panel");
+    expect(document.querySelector<HTMLElement>("#connection-panel")?.hidden).toBe(true);
+    expect(document.querySelector("#settings-panel .connection-status")).toBeNull();
+    const connectionButton = document.querySelector<HTMLButtonElement>(".page-header .companion-header-status")!;
+    expect(connectionButton.textContent).toBe("Copilot not set up");
+    expect(document.querySelector("h1")?.nextElementSibling?.contains(connectionButton)).toBe(true);
+    expect(document.querySelector(".page-title p")).toBeNull();
     const search = document.querySelector<HTMLInputElement>("#search")!;
     search.value = "diff";
     search.dispatchEvent(new Event("input"));
     expect(document.querySelector("#install-command")).toBe(command);
-    document.querySelector<HTMLButtonElement>(".setup-required button")!.click();
+    connectionButton.click();
     expect(document.querySelector<HTMLElement>("#connection-panel")?.hidden).toBe(false);
+    expect(document.querySelector(".connection-status")).toBe(card);
+    document.querySelector<HTMLButtonElement>("#settings-tab")!.click();
+    expect(document.querySelector(".page-header .companion-header-status")).toBe(connectionButton);
+    expect(document.querySelector<HTMLElement>("#connection-panel")?.hidden).toBe(true);
+    expect(document.querySelector(".connection-status")).toBe(card);
+    expect(document.querySelectorAll(".connection-status")).toHaveLength(1);
     expect(document.querySelectorAll('[role="tab"]')).toHaveLength(2);
     expect(document.querySelector('a[href*="companion-setup.html"]')).toBeNull();
   });

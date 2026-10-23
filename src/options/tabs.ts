@@ -45,6 +45,7 @@ export class OptionsTabs {
 
   openConnection(): void {
     this.select(true);
+    this.buttons[1]?.focus();
   }
 
   private select(connection: boolean): void {
