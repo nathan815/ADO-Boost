@@ -12,6 +12,7 @@ import { assertOwnedMarker, assertOwnedRegistry, createMarker, extensionIdFromMa
 import { withStagingDirectory } from "./staging.js";
 import { accountEnvironment, accountSchema, availableAccounts, companionEnvironment, readJsonIfPresent, type CopilotAccount } from "./accounts.js";
 import { resolveSetupAccount } from "./setup-account.js";
+import { createSetupOutput } from "./setup-output.js";
 
 const exec = promisify(execFile);
 const EXTENSION_ID = "oldakfajnbllipnfdaghapeiofnciopo";
@@ -27,46 +28,67 @@ const manifestPath = join(hostDir, `${HOST_NAME}.json`);
 const registryKey = `HKCU\\Software\\Microsoft\\Edge\\NativeMessagingHosts\\${HOST_NAME}`;
 const markerName = ".ado-boost-owner.json";
 const args = process.argv.slice(2);
+const setupOutput = createSetupOutput();
 
-switch (args[0]) {
-  case "setup":
-    await setup(args.includes("--yes"), args.includes("--from-extension"));
-    break;
-  case "doctor":
-    await doctor();
-    break;
-  case "login": {
-    const host = option("--host");
-    await runCopilot(["login", ...(host ? ["--host", host] : [])]);
-    break;
+class PromptCancelledError extends Error {}
+
+try {
+  switch (args[0]) {
+    case "setup":
+      await setup(args.includes("--yes"), args.includes("--from-extension"));
+      break;
+    case "doctor":
+      await doctor();
+      break;
+    case "login": {
+      const host = option("--host");
+      await runCopilot(["login", ...(host ? ["--host", host] : [])]);
+      break;
+    }
+    case "uninstall-host":
+      await uninstall(args.includes("--yes"));
+      break;
+    default:
+      console.log("Usage: ado-boost <setup|doctor|login|uninstall-host> [--yes] [--account <username>] [--host <github.com|enterprise.ghe.com>] [--from-extension]");
   }
-  case "uninstall-host":
-    await uninstall(args.includes("--yes"));
-    break;
-  default:
-    console.log("Usage: ado-boost <setup|doctor|login|uninstall-host> [--yes] [--account <username>] [--host <github.com|enterprise.ghe.com>] [--from-extension]");
+} catch (error) {
+  if (!(error instanceof PromptCancelledError)) throw error;
+  setupOutput.line("\nCancelled.");
+  process.exitCode = 130;
 }
 
 async function setup(confirmed: boolean, fromExtension: boolean): Promise<void> {
+  setupOutput.section("Copilot setup");
+  setupOutput.line("  Checks sign-in, pins your Copilot account, and registers the local host.");
+  setupOutput.line("  Review the per-user file locations and account below before installation.");
+  setupOutput.line();
   const nodePath = process.execPath;
-  const copilotPath = await findCopilot();
-  await validatePackagedExtension();
-  await assertOwnedDirectory(extensionDir);
-  await assertOwnedDirectory(hostDir);
-  const existingRegistry = await queryRegistryDefault(true);
-  assertOwnedRegistry(existingRegistry, manifestPath);
-  const previous = await readJsonIfPresent(join(hostDir, "host-config.json"));
-  const previousHome = previous && typeof previous === "object" && "copilotHome" in previous && typeof previous.copilotHome === "string" ? previous.copilotHome : undefined;
-  const copilotHome = resolve(process.env.COPILOT_HOME ?? previousHome ?? join(homedir(), ".copilot"));
+  const { copilotPath, previous, copilotHome } = await setupOutput.progress("Checking local installation", async () => {
+    const copilotPath = await findCopilot();
+    await validatePackagedExtension();
+    await assertOwnedDirectory(extensionDir);
+    await assertOwnedDirectory(hostDir);
+    const existingRegistry = await queryRegistryDefault(true);
+    assertOwnedRegistry(existingRegistry, manifestPath);
+    const previous = await readJsonIfPresent(join(hostDir, "host-config.json"));
+    const previousHome = previous && typeof previous === "object" && "copilotHome" in previous && typeof previous.copilotHome === "string" ? previous.copilotHome : undefined;
+    const copilotHome = resolve(process.env.COPILOT_HOME ?? previousHome ?? join(homedir(), ".copilot"));
+    return { copilotPath, previous, copilotHome };
+  });
   const account = await chooseAccount(previous, copilotHome);
-  console.log(`Extension ID: ${EXTENSION_ID}`);
-  console.log(`Extension folder: ${extensionDir}`);
-  console.log(`Native host folder: ${hostDir}`);
-  console.log(`Edge registry key: ${registryKey}`);
-  console.log(`Node runtime: ${nodePath}`);
-  console.log(`Copilot CLI: ${copilotPath}`);
-  console.log(`Pinned Copilot account: ${account.login} (${account.host})`);
-  if (!confirmed && !await confirm("Install these per-user files and register the Edge native host?")) return;
+  setupOutput.section("Files and registration", 2);
+  setupOutput.detail("Extension folder", extensionDir);
+  setupOutput.detail("Native host folder", hostDir);
+  setupOutput.detail("Extension ID", EXTENSION_ID);
+  setupOutput.line("    Edge registry key:");
+  setupOutput.line(`      ${registryKey}`);
+  setupOutput.section("Runtime", 2);
+  setupOutput.detail("Node runtime", nodePath);
+  setupOutput.detail("Copilot CLI", copilotPath);
+  setupOutput.section("Copilot account", 2);
+  setupOutput.detail("Pinned account", `${account.login} (${account.host})`);
+  setupOutput.line();
+  if (!confirmed && !await confirm("  Install these per-user files and register the Edge native host?")) return;
   await mkdir(installRoot, { recursive: true });
   const transaction = randomUUID();
   const stageRoot = join(installRoot, `.staging-${transaction}`);
@@ -117,7 +139,16 @@ async function setup(confirmed: boolean, fromExtension: boolean): Promise<void> 
   });
   await rm(backupExtension, { recursive: true, force: true });
   await rm(backupHost, { recursive: true, force: true });
-  console.log(fromExtension ? "Setup complete." : "Setup complete. Load the unpacked extension folder shown above in Edge.");
+  setupOutput.success("Setup complete.");
+  setupOutput.section("Next steps");
+  if (!fromExtension) {
+    setupOutput.line("  1. Open edge://extensions and enable Developer mode.");
+    setupOutput.line("  2. Select Load unpacked and choose:");
+    setupOutput.line(`     ${extensionDir}`);
+    setupOutput.line("  3. Go back to your browser and enable the desired Copilot features in ADO Boost settings.");
+  } else {
+    setupOutput.line("  Go back to your browser and enable the desired Copilot features in ADO Boost settings.");
+  }
 }
 
 async function doctor(): Promise<void> {
@@ -232,12 +263,12 @@ async function chooseAccount(previous: unknown, copilotHome: string): Promise<Co
   const preferred = login ? accountSchema.parse({ login, host })
     : previous && typeof previous === "object" && "account" in previous && previous.account !== undefined ? accountSchema.parse(previous.account) : undefined;
   return resolveSetupAccount(preferred, {
-    accounts: () => availableAccounts(copilotHome),
+    accounts: () => setupOutput.progress("Finding Copilot accounts", () => availableAccounts(copilotHome)),
     interactive: Boolean(process.stdin.isTTY) && !args.includes("--yes"),
     confirm,
     choose: promptAccount,
     login: (host) => runCopilot(["login", ...(host !== "https://github.com" ? ["--host", host] : [])], copilotHome),
-    verify: async (account) => {
+    verify: (account) => setupOutput.progress(`Checking Copilot sign-in for ${account.login}`, async () => {
       const client = new CopilotClient({
         cliPath: await findCopilot(), useStdio: true, useLoggedInUser: true, logLevel: "error",
         env: await accountEnvironment(join(installRoot, "copilot-profiles"), account, { ...process.env, COPILOT_HOME: copilotHome })
@@ -248,22 +279,19 @@ async function chooseAccount(previous: unknown, copilotHome: string): Promise<Co
       } finally {
         await client.forceStop();
       }
-    }
+    })
   });
 }
 
 async function promptAccount(accounts: CopilotAccount[]): Promise<CopilotAccount> {
-  accounts.forEach((account, index) => console.log(`${index + 1}. ${account.login} (${account.host})`));
-  const prompt = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    const answer = await prompt.question("Choose the Copilot account number to pin: ");
-    const index = Number(answer.trim()) - 1;
-    const account = Number.isInteger(index) ? accounts[index] : undefined;
-    if (!account) throw new Error("Invalid account selection. Setup was not changed.");
-    return account;
-  } finally {
-    prompt.close();
-  }
+  setupOutput.section("Choose a Copilot account", 2);
+  accounts.forEach((account, index) => setupOutput.line(`    ${index + 1}. ${account.login} (${account.host})`));
+  setupOutput.line();
+  const answer = await askQuestion("  Choose the Copilot account number to pin: ");
+  const index = Number(answer.trim()) - 1;
+  const account = Number.isInteger(index) ? accounts[index] : undefined;
+  if (!account) throw new Error("Invalid account selection. Setup was not changed.");
+  return account;
 }
 
 function option(name: string): string | undefined {
@@ -276,8 +304,22 @@ function option(name: string): string | undefined {
 
 async function confirm(question: string): Promise<boolean> {
   if (!process.stdin.isTTY) return false;
-  const prompt = createInterface({ input: process.stdin, output: process.stdout });
-  const answer = await prompt.question(`${question} [y/N] `);
-  prompt.close();
+  const answer = await askQuestion(`${question} [y/N] `);
   return answer.trim().toLowerCase() === "y";
+}
+
+async function askQuestion(question: string): Promise<string> {
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  const cancellation = new AbortController();
+  prompt.once("SIGINT", () => cancellation.abort());
+  try {
+    return await prompt.question(question, { signal: cancellation.signal });
+  } catch (error) {
+    if (cancellation.signal.aborted && error instanceof Error && error.name === "AbortError") {
+      throw new PromptCancelledError();
+    }
+    throw error;
+  } finally {
+    prompt.close();
+  }
 }

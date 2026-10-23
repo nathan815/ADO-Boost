@@ -70,7 +70,7 @@ try {
     }
     function Update-AdoBoostProcessPath {}
     function Write-Host {
-        param([string] $Object)
+        param([string] $Object, [string] $ForegroundColor)
         $script:messages += $Object
     }
     function node {
@@ -96,7 +96,9 @@ try {
     Install-AdoBoost
     if ($script:setupCalls -ne 1) { throw 'Setup did not run exactly once' }
     if ($script:setupArguments.Count -ne 1) { throw 'Default setup received extra arguments' }
-    if (-not ($script:messages -match 'edge://extensions') -or -not ($script:messages -match '^Choose:')) { throw 'Default installation omitted extension instructions' }
+    if (-not ($script:messages -contains 'CLI installation') -or -not ($script:messages -contains '')) { throw 'Installation omitted spaced section headings' }
+    if (-not ($script:messages -match 'CLI commands') -or -not ($script:messages -match 'ado-boost doctor')) { throw 'Installation omitted CLI command guidance' }
+    if ($script:confirmations -notcontains 'Install ADO Boost CLI and update your user PATH?') { throw 'CLI confirmation was not kept concise' }
     if (Test-Path -LiteralPath $script:downloadDirectory) { throw 'Staging directory was not cleaned up' }
     $launcher = Join-Path $env:LOCALAPPDATA 'ADO Boost\bin\ado-boost.cmd'
     if (-not (Test-Path -LiteralPath $launcher)) { throw 'CLI command was not installed' }
@@ -111,10 +113,12 @@ try {
     if ($script:setupCalls -ne 2) { throw 'Extension installation did not run setup exactly once' }
     if ($script:setupArguments.Count -ne 2 -or $script:setupArguments[1] -ne '--from-extension') { throw 'Extension origin was not passed to setup' }
     if ($script:messages -match 'edge://extensions|Load unpacked|^Choose:') { throw 'Extension installation repeated browser installation instructions' }
-    if (-not ($script:messages -match 'enable the desired Copilot features')) { throw 'Extension installation omitted Copilot settings guidance' }
+    if ($script:messages -match 'enable the desired Copilot features') { throw 'Installer duplicated setup completion guidance' }
 
     $script:setupExitCode = 1
+    $script:messages = @()
     Assert-Throws { Install-AdoBoost } 'setup failed with exit code 1'
+    if ($script:messages -match 'CLI commands') { throw 'Failed setup displayed completion guidance' }
     if (Test-Path -LiteralPath $script:downloadDirectory) { throw 'Failed setup staging directory was not cleaned up' }
     if ($script:userPath.Split(';').Count -ne 2) { throw 'Upgrade duplicated the user PATH entry' }
     $script:setupExitCode = 0

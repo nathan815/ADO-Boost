@@ -2,6 +2,21 @@
 
 param([switch] $FromExtension)
 
+function Write-AdoBoostMessage {
+    param(
+        [string] $Message,
+        [ValidateSet('Section', 'Success')] [string] $Style
+    )
+
+    Write-Host ''
+    if (-not [Console]::IsOutputRedirected -and -not $env:NO_COLOR -and $env:TERM -ne 'dumb') {
+        $color = if ($Style -eq 'Success') { 'Green' } else { 'Cyan' }
+        Write-Host $Message -ForegroundColor $color
+    } else {
+        Write-Host $Message
+    }
+}
+
 function Get-AdoBoostReleaseAsset {
     param([Parameter(Mandatory = $true)] $Release)
 
@@ -96,7 +111,11 @@ function Install-AdoBoostCommand {
             throw "Refusing to replace an unowned command: $launcher"
         }
     }
-    if (-not (Confirm-AdoBoostAction "Install ADO Boost CLI in $InstallRoot and add $bin to your user PATH?")) {
+    Write-AdoBoostMessage 'CLI installation' -Style Section
+    Write-Host "  Install folder: $InstallRoot"
+    Write-Host "  Add to PATH:    $bin"
+    Write-Host ''
+    if (-not (Confirm-AdoBoostAction 'Install ADO Boost CLI and update your user PATH?')) {
         throw 'ADO Boost CLI installation declined.'
     }
     $id = [Guid]::NewGuid().ToString('N')
@@ -126,7 +145,7 @@ function Install-AdoBoostCommand {
         if (Test-Path -LiteralPath $temporaryLauncher) { Remove-Item -LiteralPath $temporaryLauncher -Force }
     }
     $env:Path = "$bin;$env:Path"
-    Write-Host "ADO Boost CLI installed. New terminals can run ado-boost doctor, ado-boost login, and ado-boost setup."
+    Write-AdoBoostMessage 'ADO Boost CLI installed.' -Style Success
     return (Join-Path $destination 'companion\dist\cli.js')
 }
 
@@ -138,6 +157,7 @@ function Install-AdoBoost {
         throw 'The ADO Boost Copilot companion requires Windows.'
     }
     if (-not $env:LOCALAPPDATA) { throw 'LOCALAPPDATA is not available.' }
+    Write-AdoBoostMessage 'ADO Boost installer' -Style Section
     Initialize-AdoBoostPrerequisites
     $headers = @{ Accept = 'application/vnd.github+json'; 'User-Agent' = 'ADO-Boost-Installer' }
     $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/nathan815/ADO-Boost/releases/latest' -Headers $headers
@@ -146,7 +166,8 @@ function Install-AdoBoost {
     New-Item -ItemType Directory -Path $staging -ErrorAction Stop | Out-Null
     try {
         $archive = Join-Path $staging $asset.name
-        Write-Host "Downloading ADO Boost $($release.tag_name)..."
+        Write-AdoBoostMessage "Download ADO Boost $($release.tag_name)" -Style Section
+        Write-Host '  Downloading and verifying the Windows package...'
         Invoke-WebRequest -Uri $asset.browser_download_url -Headers $headers -OutFile $archive -UseBasicParsing
         $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
         if ($hash -ine $asset.digest.Substring(7)) {
@@ -161,18 +182,17 @@ function Install-AdoBoost {
             }
         }
         $cli = Install-AdoBoostCommand -Package $package -InstallRoot (Join-Path $env:LOCALAPPDATA 'ADO Boost')
-        Write-Host 'Setup handles Copilot sign-in when needed, account selection, and confirmation of the per-user installation.'
-        if (-not $FromExtension) {
-            Write-Host 'After setup completes, open edge://extensions, enable Developer mode, and select Load unpacked.'
-            Write-Host 'Choose: %LOCALAPPDATA%\ADO Boost\extension'
-        }
-        Write-Host 'Then enable the desired Copilot features in ADO Boost settings.'
         $setupArguments = @('setup')
         if ($FromExtension) { $setupArguments += '--from-extension' }
         & node $cli @setupArguments
         if ($LASTEXITCODE -ne 0) {
             throw "ADO Boost setup failed with exit code $LASTEXITCODE."
         }
+        Write-AdoBoostMessage 'CLI commands (available in new terminals)' -Style Section
+        Write-Host '  ado-boost doctor   Check the installation'
+        Write-Host '  ado-boost setup    Repair or change the pinned account'
+        Write-Host '  ado-boost login    Sign in to Copilot'
+        Write-Host ''
     } finally {
         Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction Stop
     }
