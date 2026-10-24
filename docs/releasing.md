@@ -26,6 +26,8 @@ npm run release:push -- 0.2.0
 
 Pushing the tag triggers the `Release` workflow. The workflow verifies that the tag points to `main` and matches every version file, reruns the extension and companion checks, builds both products, and creates a draft GitHub release with generated notes. Review and edit the draft in GitHub, add a short overview or upgrade warning when useful, and publish it when ready.
 
+Publishing a GitHub release does not submit it to Edge Store. Promote a selected published release separately through the manual **Publish to Edge** workflow, following the [Edge publishing instructions](publishing-to-edge.md#automate-updates). Other GitHub releases can ship while an Edge version is in certification.
+
 ## Release-note categories
 
 GitHub builds the generated notes from merged pull requests between the previous tag and the new tag. Apply one of these labels to each pull request before creating the release:

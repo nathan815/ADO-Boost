@@ -1,0 +1,115 @@
+name: Publish to Edge
+run-name: Promote ${{ inputs.release_tag }} to Edge certification
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published GitHub release to promote (vMAJOR.MINOR.PATCH)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: edge-store-submission
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Submit selected release
+    runs-on: windows-latest
+    timeout-minutes: 30
+    environment: edge-store
+
+    steps:
+      - name: Require main branch
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -ne "refs/heads/main") {
+            throw "Run Publish to Edge from main; select the release using the release_tag input."
+          }
+
+      - name: Check out publishing tools
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download and validate published release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          $tag = $env:RELEASE_TAG
+          if ($tag -notmatch '^v(?<version>(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$') {
+            throw "Release tag must use vMAJOR.MINOR.PATCH."
+          }
+          $version = $Matches.version
+          $releaseJson = gh release view $tag --repo $env:GITHUB_REPOSITORY --json tagName,isDraft,isPrerelease,assets,url
+          if ($LASTEXITCODE -ne 0) { throw "Could not read GitHub release $tag." }
+          $release = $releaseJson | ConvertFrom-Json
+          if ($release.tagName -cne $tag -or $release.isDraft -or $release.isPrerelease) {
+            throw "Select an existing published stable GitHub release."
+          }
+          git merge-base --is-ancestor "refs/tags/$tag" origin/main
+          if ($LASTEXITCODE -ne 0) { throw "Release tag must point to a commit on main." }
+
+          $assetName = "ado-boost-extension-$version.zip"
+          $assets = @($release.assets | Where-Object { $_.name -ceq $assetName -and $_.state -eq "uploaded" })
+          if ($assets.Count -ne 1 -or $assets[0].digest -notmatch '^sha256:[a-fA-F0-9]{64}$') {
+            throw "Release must have exactly one uploaded $assetName asset with a SHA-256 digest."
+          }
+          $expectedHash = $assets[0].digest.Substring(7)
+          New-Item -ItemType Directory -Path release | Out-Null
+          gh release download $tag --repo $env:GITHUB_REPOSITORY --pattern $assetName --dir release
+          if ($LASTEXITCODE -ne 0) { throw "Could not download release package." }
+          $packagePath = Join-Path $PWD "release\$assetName"
+          if ((Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash -ine $expectedHash) {
+            throw "Release asset digest does not match the downloaded ZIP."
+          }
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($packagePath)
+          try {
+            $manifests = @($zip.Entries | Where-Object { $_.FullName -ceq "manifest.json" })
+            if ($manifests.Count -ne 1) { throw "ZIP must have exactly one root manifest.json." }
+            $reader = [System.IO.StreamReader]::new($manifests[0].Open())
+            try { $manifest = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
+            if ($manifest.name -cne "ADO Boost" -or $manifest.version -cne $version -or $manifest.manifest_version -ne 3) {
+              throw "Package manifest must be ADO Boost MV3 with version $version."
+            }
+            if ($manifest.PSObject.Properties.Name -contains "key") {
+              throw "This release ZIP contains a manifest key and cannot be uploaded to Edge Store. Select a newer store-ready release."
+            }
+          } finally {
+            $zip.Dispose()
+          }
+
+          $notes = (git show "${tag}:docs/edge-certification-notes.txt") -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw "Release must contain docs/edge-certification-notes.txt." }
+          if ([string]::IsNullOrWhiteSpace($notes) -or $notes.Length -ge 2000) {
+            throw "Certification notes must contain between 1 and 1999 characters."
+          }
+          $notesPath = Join-Path $PWD "release\certification-notes.txt"
+          [System.IO.File]::WriteAllText($notesPath, $notes, [System.Text.UTF8Encoding]::new($false))
+          "EDGE_PACKAGE_PATH=$packagePath" >> $env:GITHUB_ENV
+          "EDGE_NOTES_PATH=$notesPath" >> $env:GITHUB_ENV
+          "## Selected Edge promotion" >> $env:GITHUB_STEP_SUMMARY
+          "Release: $($release.url)" >> $env:GITHUB_STEP_SUMMARY
+          "Package: $assetName" >> $env:GITHUB_STEP_SUMMARY
+          "SHA-256: $expectedHash" >> $env:GITHUB_STEP_SUMMARY
+          "Certification notes: docs/edge-certification-notes.txt from $tag" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload package and submit for certification
+        env:
+          EDGE_PRODUCT_ID: ${{ vars.EDGE_PRODUCT_ID }}
+          EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
+        run: node scripts/publish-edge.mjs

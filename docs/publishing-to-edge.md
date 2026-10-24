@@ -43,4 +43,27 @@ Tagged project releases also publish a standalone extension ZIP and a self-conta
 
 ## Automate updates
 
-The initial extension submission and listing metadata must be managed in Partner Center. After the extension exists, enable the Publish API in Partner Center and use the [Edge Add-ons Update REST API](https://learn.microsoft.com/en-us/microsoft-edge/extensions/update/api/using-addons-api) to upload, validate, and publish package updates from CI.
+GitHub releases and Edge Store submissions are independent. Keep publishing GitHub releases for immediate download; use the separate **Publish to Edge** workflow to promote a selected published release when ready. There is no automatic store submission on a commit, tag, or GitHub release event, and no separate Edge version or branch is needed. You can skip intermediate GitHub versions when promoting to Edge.
+
+The initial extension submission and listing metadata must be managed in Partner Center. Wait for initial publication before using the [Edge Add-ons Update REST API](https://learn.microsoft.com/en-us/microsoft-edge/extensions/update/api/using-addons-api). Store updates still go through Microsoft's certification process; API success means a submission was created, not that the version is approved or live.
+
+### One-time configuration
+
+1. In Partner Center's **Microsoft Edge > Publish API** page, enable the current API-key experience and create credentials. Record the Client ID, API key, and key expiry securely. Do not paste the API key into issues, source files, or workflow inputs.
+2. In the GitHub repository's **Settings > Environments**, create an environment named `edge-store`. Restrict deployment branches to `main` and optionally require a reviewer before submission.
+3. Add environment secrets `EDGE_CLIENT_ID` and `EDGE_API_KEY`.
+4. Add environment variable `EDGE_PRODUCT_ID` with the Partner Center product GUID. For the initial ADO Boost listing, this is `a4577b0c-dc7e-4818-8369-45afb5a7696c`. Do not use the Store ID or CRX ID.
+
+Rotate the API key before its Partner Center expiry. The workflow uses the current API-key headers (`Authorization: ApiKey ...` and `X-ClientID`), not the retired client-secret/token flow.
+
+### Promote a release
+
+1. Publish a normal GitHub release containing `ado-boost-extension-<version>.zip`. The selected version must be higher than the version already submitted to Edge. Check Partner Center first: do not start another promotion while certification is in progress.
+2. Review `docs/edge-certification-notes.txt` in that release tag. The workflow submits those exact notes, not the latest notes from `main`. Keep notes current when cutting each release and below 2,000 characters.
+3. Open **Actions > Publish to Edge > Run workflow**, use branch `main`, and enter the release tag, such as `v0.5.0`.
+4. Approve the `edge-store` deployment if environment approval is configured.
+5. Check the Actions summary for the selected release, asset digest, and operation IDs. Follow certification and actual store availability in Partner Center.
+
+The workflow downloads the existing published stable release asset without rebuilding it. It checks that the release tag is on `main`, verifies the asset's GitHub SHA-256 digest, and checks the ZIP's root manifest, version, and absence of `key`. Drafts, prereleases, missing notes, and older ZIPs that still contain `key` are rejected before contacting Edge.
+
+Workflow runs are serialized without cancelling an active run. This does not queue releases behind Microsoft's multi-day certification process. The API can reject a submission with `InProgressSubmission`; the workflow reports that failure rather than cancelling a review. It never automatically retries uploads or submission POSTs, because a lost response may still have been accepted. If an operation fails or times out, inspect Partner Center before rerunning; do not assume no state changed. GitHub releases remain available regardless of Edge review status.
