@@ -1,5 +1,5 @@
 name: Publish to Edge
-run-name: Promote ${{ inputs.release_tag }} to Edge certification
+run-name: Edge promotion ${{ inputs.release_tag }} (dry run ${{ inputs.dry_run }})
 
 on:
   workflow_dispatch:
@@ -8,6 +8,11 @@ on:
         description: Published GitHub release to promote (vMAJOR.MINOR.PATCH)
         required: true
         type: string
+      dry_run:
+        description: Preview Edge API requests without uploading or submitting
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -107,9 +112,10 @@ jobs:
           "SHA-256: $expectedHash" >> $env:GITHUB_STEP_SUMMARY
           "Certification notes: docs/edge-certification-notes.txt from $tag" >> $env:GITHUB_STEP_SUMMARY
 
-      - name: Upload package and submit for certification
+      - name: Preview or submit Edge promotion
         env:
+          EDGE_DRY_RUN: ${{ inputs.dry_run }}
           EDGE_PRODUCT_ID: ${{ vars.EDGE_PRODUCT_ID }}
-          EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
-          EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
+          EDGE_CLIENT_ID: ${{ !inputs.dry_run && secrets.EDGE_CLIENT_ID || '' }}
+          EDGE_API_KEY: ${{ !inputs.dry_run && secrets.EDGE_API_KEY || '' }}
         run: node scripts/publish-edge.mjs

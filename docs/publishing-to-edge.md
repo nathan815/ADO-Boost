@@ -60,10 +60,20 @@ Rotate the API key before its Partner Center expiry. The workflow uses the curre
 
 1. Publish a normal GitHub release containing `ado-boost-extension-<version>.zip`. The selected version must be higher than the version already submitted to Edge. Check Partner Center first: do not start another promotion while certification is in progress.
 2. Review `docs/edge-certification-notes.txt` in that release tag. The workflow submits those exact notes, not the latest notes from `main`. Keep notes current when cutting each release and below 2,000 characters.
-3. Open **Actions > Publish to Edge > Run workflow**, use branch `main`, and enter the release tag, such as `v0.5.0`.
+3. Open **Actions > Publish to Edge > Run workflow**, use branch `main`, and enter the release tag, such as `v0.5.0`. Leave **dry_run** checked (the default) to preview first; uncheck it only when ready to submit.
 4. Approve the `edge-store` deployment if environment approval is configured.
 5. Check the Actions summary for the selected release, asset digest, and operation IDs. Follow certification and actual store availability in Partner Center.
 
 The workflow downloads the existing published stable release asset without rebuilding it. It checks that the release tag is on `main`, verifies the asset's GitHub SHA-256 digest, and checks the ZIP's root manifest, version, and absence of `key`. Drafts, prereleases, missing notes, and older ZIPs that still contain `key` are rejected before contacting Edge.
+
+### Dry run
+
+With **dry_run** checked, release download and local validation still run, but no Edge API requests are sent. The workflow does not pass publishing credentials to the script. It still needs the `edge-store` environment's `EDGE_PRODUCT_ID` variable and follows any environment approval rules.
+
+The logs and Actions summary show the planned HTTP methods, full Edge URLs, explicitly set headers with credentials redacted, and the actual certification JSON body. Instead of printing ZIP bytes, they show its byte count and SHA-256 hash. Upload and submission operation IDs are placeholders because only Edge can return those values; GET requests may repeat according to the displayed polling policy. The preview is generated from the same request definitions used by a live submission.
+
+A dry run can safely preview a release while another version is in review. It does not validate API credentials, authorization, version eligibility, or the current state in Partner Center. It is not a simulated approval or submission.
+
+For a local preview, set `EDGE_DRY_RUN=true`, `EDGE_PRODUCT_ID`, `EDGE_PACKAGE_PATH`, and `EDGE_NOTES_PATH` in the process environment, then run `node scripts/publish-edge.mjs`. The local script defaults to live mode when `EDGE_DRY_RUN` is unset and requires credentials in that mode. Local invocation does not perform the workflow's GitHub release/digest/manifest checks.
 
 Workflow runs are serialized without cancelling an active run. This does not queue releases behind Microsoft's multi-day certification process. The API can reject a submission with `InProgressSubmission`; the workflow reports that failure rather than cancelling a review. It never automatically retries uploads or submission POSTs, because a lost response may still have been accepted. If an operation fails or times out, inspect Partner Center before rerunning; do not assume no state changed. GitHub releases remain available regardless of Edge review status.

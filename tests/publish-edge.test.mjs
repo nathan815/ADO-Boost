@@ -21,6 +21,108 @@ function fixture(responses, options = {}) {
 }
 
 describe("Edge release promotion", () => {
+  it("previews the same requests as live mode with no API calls or polling", async () => {
+    const dry = fixture([], { dryRun: true });
+    await expect(dry.publisher.publish(zip, notes)).resolves.toEqual({ dryRun: true });
+    expect(dry.fetch).not.toHaveBeenCalled();
+    expect(dry.sleep).not.toHaveBeenCalled();
+    const requests = dry.log.mock.calls.map(([message]) => message).filter((message) => message.startsWith("{")).map((message) => JSON.parse(message));
+
+    const live = fixture([accepted(), status("Succeeded"), accepted(submissionId), status("Succeeded")]);
+    await live.publisher.publish(zip, notes);
+    expect(requests).toHaveLength(live.fetch.mock.calls.length);
+    for (const [index, [url, init]] of live.fetch.mock.calls.entries()) {
+      const preview = requests[index];
+      expect(preview.url.replace("{uploadOperationId}", operationId).replace("{submissionOperationId}", submissionId)).toBe(url);
+      expect(preview.method).toBe(init.method);
+      expect(preview.headers).toEqual({ ...init.headers, Authorization: "ApiKey [redacted]", "X-ClientID": "[redacted]" });
+      expect(preview.redirect).toBe(init.redirect);
+      expect(preview.timeoutMs).toBe(60_000);
+      if (typeof init.body === "string") expect(preview.body).toBe(init.body);
+      else if (!init.body) expect(preview).not.toHaveProperty("body");
+    }
+    expect(requests[0].body).toEqual({
+      type: "ZIP binary (not printed)",
+      bytes: zip.byteLength,
+      sha256: createHash("sha256").update(zip).digest("hex")
+    });
+    expect(JSON.parse(requests[2].body)).toEqual({ notes });
+    const output = dry.log.mock.calls.map(([message]) => message).join("\n");
+    expect(output).not.toContain(credentials.apiKey);
+    expect(output).not.toContain(credentials.clientId);
+    expect(output).toContain("GET polls up to 60 times");
+    expect(output).toContain("Credentials");
+    expect(output).not.toContain("Submitted for Edge certification.");
+  });
+
+  it("allows a dry run without publishing credentials", async () => {
+    const fetch = vi.fn();
+    const log = vi.fn();
+    const publisher = new EdgePublisher({ productId }, { dryRun: true, fetch, log });
+    await expect(publisher.publish(zip, notes)).resolves.toEqual({ dryRun: true });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(log.mock.calls.map(([message]) => message).join("\n")).not.toContain("undefined");
+  });
+
+  it("still validates notes and package data before previewing", async () => {
+    const { publisher, fetch, log } = fixture([], { dryRun: true });
+    await expect(publisher.publish(zip, " ")).rejects.toThrow("Certification notes");
+    await expect(publisher.publish(Buffer.alloc(0), notes)).rejects.toThrow("must not be empty");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it("redacts credentials even if they occur in the certification body", async () => {
+    const { publisher, log } = fixture([], { dryRun: true });
+    await publisher.publish(zip, `${notes} ${credentials.apiKey} ${credentials.clientId}`);
+    const output = log.mock.calls.map(([message]) => message).join("\n");
+    expect(output).not.toContain(credentials.apiKey);
+    expect(output).not.toContain(credentials.clientId);
+  });
+
+  it("requires an explicit boolean dry-run option", () => {
+    expect(() => new EdgePublisher(credentials, { dryRun: "true" })).toThrow("boolean");
+    expect(() => new EdgePublisher({ productId: "invalid" }, { dryRun: true })).toThrow("EDGE_PRODUCT_ID");
+  });
+
+  it("supports CLI dry runs without credentials and writes a preview rather than a submission summary", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ado-boost-edge-preview-"));
+    try {
+      const packagePath = join(root, "extension.zip");
+      const notesPath = join(root, "notes.txt");
+      const summaryPath = join(root, "summary.md");
+      await writeFile(packagePath, zip);
+      await writeFile(notesPath, notes);
+      const env = {
+        ...process.env,
+        EDGE_PRODUCT_ID: productId,
+        EDGE_PACKAGE_PATH: packagePath,
+        EDGE_NOTES_PATH: notesPath,
+        EDGE_DRY_RUN: "true",
+        EDGE_CLIENT_ID: "",
+        EDGE_API_KEY: "",
+        GITHUB_STEP_SUMMARY: summaryPath
+      };
+      const script = fileURLToPath(new URL("../scripts/publish-edge.mjs", import.meta.url));
+      const output = execFileSync(process.execPath, [script], { env, encoding: "utf8" });
+      expect(output).toContain("no Edge API requests");
+      const summary = await readFile(summaryPath, "utf8");
+      expect(summary).toContain("Edge dry run: nothing submitted");
+      expect(summary).toContain(`${base}/draft/package`);
+      expect(summary).toContain(notes);
+      expect(summary).not.toContain("## Submitted for certification");
+
+      const invalid = spawnSync(process.execPath, [script], { env: { ...env, EDGE_DRY_RUN: "tru" }, encoding: "utf8" });
+      expect(invalid.status).not.toBe(0);
+      expect(invalid.stderr).toContain("EDGE_DRY_RUN must be true or false");
+      const live = spawnSync(process.execPath, [script], { env: { ...env, EDGE_DRY_RUN: "false" }, encoding: "utf8" });
+      expect(live.status).not.toBe(0);
+      expect(live.stderr).toContain("EDGE_CLIENT_ID and EDGE_API_KEY are required");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("validates upload before submitting notes, using API-key authentication", async () => {
     const { publisher, fetch, sleep, log } = fixture([
       accepted(),
@@ -138,3 +240,9 @@ describe("Edge release promotion", () => {
     expect(() => new EdgePublisher(config)).toThrow(/EDGE_/);
   });
 });
+import { createHash } from "node:crypto";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
