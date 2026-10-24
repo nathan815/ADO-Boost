@@ -4,38 +4,25 @@
 
 # ADO Boost
 
-ADO Boost is an Edge-first browser extension that makes Azure DevOps pull request reviews easier to navigate, discuss, and submit.
+ADO Boost is an Edge-first browser extension that makes Azure DevOps pull request reviews easier to navigate, discuss, and submit, with Copilot-generated semantic file groups to help make sense of large PRs. The standalone extension works in Edge or Chrome on Windows, macOS, and Linux. Copilot features require the Windows + Edge companion.
 
-> [!NOTE] 
-> ADO Boost is not yet available on the Edge Add-Ons Store or Chrome Web Store. See below on how to install it as an unpacked extension.
+## Features
 
-## What it adds
+- **Copilot-generated semantic file groups** organize related changes by purpose, making large PRs easier to review.
+- A cross-repository PR dashboard, contribution profiles, people search, and activity feed.
+- Added/removed line counts for the overall PR, each file, and each PR in native PR lists.
+- File filtering by type and change, with options to hide generated files and lockfiles.
+- A docked discussion panel, private comment drafts, and previewed review submission.
+- Local review progress and recently viewed PRs in the toolbar popup.
+- Ask Copilot questions about the PR and turn answers into private feedback drafts.
 
-- An integrated PR workspace with a cross-repository dashboard, people search, local follows, contribution profiles, and an activity feed across selected projects in the current organization. No local webserver, SQLite, token setup, or Copilot companion is needed for the workspace.
+## Install the extension
 
-- Overall PR and per-file added/removed line diff counts follow the user's whitespace setting supplied by ADO on PR and PR-list pages. Counts show deletions before additions, matching ADO's native header, and omit zero values. With whitespace display off, leading/trailing whitespace-only edits are ignored; enabling it includes those edits. Counts refresh when the setting changes, and tooltips say "whitespace ignored" or "whitespace included". If ADO's setting cannot be read, counts are marked unavailable rather than guessed. PR-list totals are cached separately for each policy.
-- Enhanced file filtering - file types, change types, and options to hide generated files and lockfiles
-- A compact native Bolt total-file-count badge beside the PR **Files** tab, visible across PR tabs and unaffected by file filters.
-- A docked discussion panel with thread filters, replies, and links back to native comments.
-- Relative creation and content-edit times on posted PR comments, inline comments, and replies, both in Azure DevOps and the discussion panel. Hover either time for the exact local date and timezone. Disable **Comment creation and edit times** in settings to restore the original display.
-- Browser-local drafts for general comments, replies, and inline feedback, rendered in the matching native Azure DevOps discussion surface with a clear draft marker.
-- A previewed **Submit Review** flow for publishing selected feedback and optionally applying a vote.
-- Announce you begin reviewing a PR with an auto-generated comment so author is aware (optional).
-- A toolbar popup with local Copilot companion status and **Recently Viewed**, **Reviewing**, and **Reviewed** tabs. It remembers the last selected tab and highlights your review status in the popup and native PR lists.
+ADO Boost is not yet available on the Edge Add-Ons Store or Chrome Web Store.
 
-## Agentic install
+### Install the latest Windows release
 
-Paste this into your coding agent:
-
-```text
-Install https://github.com/nathan815/ADO-Boost
-```
-
-The agent can follow the installation instructions below for your platform. The standalone extension works in Edge or Chrome on Windows, macOS, and Linux; the optional Copilot companion currently requires Windows + Edge. Sign-in, approvals, and browser steps may need your interaction depending on the agent's tools.
-
-## Install the latest Windows release
-
-For Windows + Microsoft Edge with optional Copilot features, download the installer, review it, and run it from an interactive PowerShell terminal:
+**Recommended for Windows + Edge:** run the installer to download the latest release, including the extension and Copilot companion. Download and review the script, then run it from an interactive PowerShell terminal:
 
 ```powershell
 Invoke-WebRequest https://raw.githubusercontent.com/nathan815/ADO-Boost/main/scripts/install.ps1 -OutFile .\install-ado-boost.ps1
@@ -43,149 +30,40 @@ Get-Content .\install-ado-boost.ps1
 .\install-ado-boost.ps1
 ```
 
-The script checks for supported Node.js (`^20.19.0` or `>=22.12.0`) and GitHub Copilot CLI. If missing or unsupported, it offers to install Node.js LTS (`OpenJS.NodeJS.LTS`) or Copilot CLI (`GitHub.Copilot`) through WinGet, asking for confirmation separately for each. Existing supported installations are reused. If WinGet is unavailable, it stops with instructions to install the prerequisite manually. Prerequisite installers may request additional permissions or approvals; the script does not bypass execution policy, security warnings, or installer prompts.
+The installer verifies the release's SHA-256 digest, offers to install missing Node.js and Copilot CLI prerequisites with confirmation, and guides you through sign-in, account selection, and companion setup.
 
-It downloads the latest published stable Windows release, verifies its GitHub SHA-256 digest, and asks before installing ADO Boost CLI under `%LOCALAPPDATA%\ADO Boost` and adding its `bin` folder to your user PATH. The CLI and its complete package persist after temporary downloads are cleaned up. Upgrades replace only the managed command launcher, retain earlier CLI packages, and refuse to overwrite an unowned launcher. New terminals can use `ado-boost doctor`, `ado-boost login`, and `ado-boost setup`.
+When prompted, open `edge://extensions`, enable **Developer mode**, select **Load unpacked**, and choose `%LOCALAPPDATA%\ADO Boost\extension`. No separate extension download is needed. Rerun the installer to upgrade, then reload the extension if needed.
 
-The installer runs `ado-boost setup`, which checks the selected account's actual sign-in status, offers Copilot sign-in when needed, and continues with account selection and confirmation of the per-user files and Edge native-host registration. No separate login command is required. You can decline any installation or sign-in prompt. If sign-in or setup fails, the installed CLI remains available so you can rerun `ado-boost setup` to finish. If PowerShell blocks the script, follow your organization's approved script-running policy.
+Follow your organization's script-running policy. See the [user guide](docs/user-guide.md#copilot-setup) for repair and troubleshooting, or the [companion documentation](companion/README.md) for CLI commands and removal.
 
-After setup completes, open `edge://extensions`, enable **Developer mode**, select **Load unpacked**, and choose `%LOCALAPPDATA%\ADO Boost\extension`. Enable the desired Copilot features in ADO Boost settings. Browser installation remains manual. Rerun the installer to upgrade; setup preserves the pinned account, and you may need to reload the extension in Edge. Downloading the latest release requires a published release, not a draft.
+### Other browsers or extension only
 
-For the extension without Copilot, download `ado-boost-extension-<version>.zip` from the [latest release](https://github.com/nathan815/ADO-Boost/releases/latest), extract it to a permanent folder, and load that folder through **Load unpacked** in Edge or Chrome. No Node.js or Copilot CLI is needed for the standalone extension.
+For Chrome, macOS, Linux, or an installation without the Copilot companion:
 
-### Install from inside the extension
-
-The copied install command includes the installed extension's runtime ID, so the companion can register the exact store or unpacked installation. Setup previews the ID before confirmation, updates both native-host allowlists, and preserves previously registered IDs on repair. Only register trusted ADO Boost extension IDs. This requires a published companion package supporting extension ID registration; the installer stops with an upgrade message if the latest published package is too old.
-
-On first install, ADO Boost opens a welcome screen introducing PR Home's dashboard, profiles, and activity feed, plus file filters, review progress, and private feedback drafts, alongside optional Copilot setup with the same install command. An **OR** option below the install panel lets you **Continue to Settings** without setting up Copilot. The welcome screen and settings check the local connection every five seconds while open, without overlapping checks or sending PR content. Once the companion is connected and signed in, they automatically show **Successfully configured local Copilot connection!** and replace the install instructions with a success message. **Continue to Settings** then becomes the primary action on the welcome screen. **Install or repair** brings the instructions back if needed.
-
-Open the **Copilot Connection** tab on the options page and select **Copy install command**, then paste it into PowerShell and follow the prompts. The header shows a compact connection indicator and the authenticated username; select it to open **Copilot Connection**. That tab contains the full connection status box and account selector. **Refresh status** refreshes both the connection and available accounts. When setup is needed, **Settings** shows a **Setup required for Copilot** message bar with a primary **Install or repair** button. **Install or troubleshoot companion** links in the toolbar popup, sidebar, and grouping/chat errors open the setup tab. Connection checks require no PR context or inference and display available companion/CLI versions. They work even when Copilot features or the extension master switch are disabled. An unreachable host does not reveal whether Node.js or Copilot CLI is missing, so prerequisite detection happens in the installer instead. The Windows companion currently registers with Edge only; core extension features remain available on other platforms and in Chrome.
-
-## Install from source
-
-Requirements:
-
-- Node.js 20.19 or newer, or Node.js 22.12 or newer.
-- npm.
-- Microsoft Edge or Chrome
-
-Build the extension:
-
-```powershell
-npm ci
-npm run build
-```
-
-Load it in Edge:
-
-1. Open `edge://extensions`.
-2. Enable **Developer mode**.
-3. Select **Load unpacked**.
-4. Select the repository's `dist` folder.
+1. Download `ado-boost-extension-<version>.zip` from the [latest release](https://github.com/nathan815/ADO-Boost/releases/latest).
+2. Extract it to a permanent folder.
+3. Open `edge://extensions` or `chrome://extensions` and enable **Developer mode**.
+4. Select **Load unpacked** and choose the extracted folder.
 5. Open an Azure DevOps pull request.
 
-Run `npm run build` again after changing the source, then reload the extension from `edge://extensions`.
-
-## Use ADO Boost
-
-- Open an Azure DevOps pull request under `https://dev.azure.com/` or `https://<org>.visualstudio.com/`.
-- Use the controls beside Azure DevOps' native **Filter** control to filter by change type, file type, or optional noise rules.
-- Use **Post** in a native Azure DevOps comment composer to publish immediately, or **Add to review** to keep the comment private for review submission. Select **Assistant** to manage discussions, drafts, review announcements, and submission.
-- Open the browser toolbar popup to see recent pull requests or switch to **Reviewing** and **Reviewed**. **Start Reviewing** adds a PR to Reviewing; completion of that announced review moves it to Reviewed with a **Review complete** label. Status also appears on native PR lists, and the popup remembers your selected tab. Select the compact companion status indicator for connection/sign-in details and **Refresh**; click outside or press Escape to dismiss it. Use **Clear history** on Recently Viewed to remove recent visits after confirmation without removing tracked reviews, or **Settings** to configure the extension.
-- Open settings directly from the discussion panel's gear button or the ADO Boost action menu beside the native review actions.
-
-Core review features are enabled by default. Generated-file hiding, lockfile hiding, review-start announcements, and Copilot features can be configured in settings.
-
-Panel error notifications are labeled **ADO Boost** and do not time out. Use the **X** button on the right to dismiss them.
-
-To preview a notification without reproducing an error, open the ADO Boost dropdown beside the native review actions and select **Trigger Test Toast** under **Dev options**. This uses the real toast without opening the sidebar or making an Azure DevOps request.
-
-Failed reviewer-vote lookups include request and response diagnostics in the PR page's developer console: the request URL, method, configured headers, credentials mode and body, plus the response URL, status, headers and full response text. Cookie and authorization-related header values are redacted; browser-managed cookie values are not collected. The toast keeps the short error message. Diagnostics are not saved to extension storage.
-
-ADO Boost previews review announcements and submissions before posting them. After you announce a review, it checks for your recorded vote in the PR's reviewer list when the PR loads or the tab becomes active. If you are not listed as a reviewer, there is no recorded vote and the announcement stays open. A recorded review decision or an explicit comment-only review submission can add a completion reply and close the announcement thread; simply loading the PR or a failed vote lookup does not complete the review. Completion-check errors leave the announcement unchanged. ADO Boost does not automatically vote, resolve other discussion threads, merge pull requests, or run pull request code.
+The standalone extension needs no Node.js or Copilot CLI. To build it yourself, see [development](docs/development.md).
 
 ## Privacy and limits
 
-### Dashboard, profiles, and feed
+ADO Boost uses your signed-in Azure DevOps browser session. Drafts, settings, review progress, and cached data stay in this browser profile without browser sync or publisher analytics. Optional Copilot requests send PR context to GitHub Copilot; automatic grouping is opt-in. Only use these features where your organization's policies permit them.
 
-Select **PR Home**, with the ADO Boost icon at the top of Azure DevOps project navigation, to open the full-size workspace on the current project's Overview page. Entry uses ADO's native navigation without a full-page reload, so its URL and breadcrumbs are consistent regardless of which ADO page you started from. The current project is automatically added to your saved selections when the workspace opens, unless all 10 slots are occupied. In **Projects**, choose up to 10 projects and select **Confirm selections** once to save confirmation and collapse the box to a read-only list of selected projects. Confirmation is remembered per account and organization in this browser. **Edit projects** reopens the full selector; changes save automatically and **Done** returns to the compact list. At least one project must remain selected to close the editor. You can deselect the current project while editing for the rest of that workspace session. Selected projects appear first and stay visible even before their project-list page loads; the current project and suggestions from your locally cached authored/assigned PR activity follow. Suggestions are account/organization-specific, are not automatically selected, and do not scan other projects or repositories. The full project catalog is loaded only while editing. Use **My PRs** for authored and assigned PRs, **People** to search and follow teammates, **Profile** for contributions and review history, or **Activity feed** for followed people's activity. Select a contribution day to inspect its PRs; PR links open the native ADO page. **Back to Azure DevOps** restores the native view. The workspace can be disabled independently in extension settings.
+See the [privacy policy](PRIVACY.md) for data handling and controls.
 
-**Repository favorites** has a project dropdown that defaults to the current project when selected, or the first selected project otherwise. Its repositories load automatically, independently of the projects tile. Up to 20 suggestions from your recent cached authored/assigned PRs across selected projects appear first, followed by other repositories from the dropdown's project, without duplicates. Check any repository to favorite it. Favorites among the other repositories appear before non-favorites. Filter by project/repository name and use **Load more repositories** to show another 100 non-suggested repositories; all suggestions remain visible. Azure DevOps' repository-list API does not offer server-side pagination, so each project's complete list is fetched once per selector session and retained in memory when switching projects; only the visible rows are paginated. Loading feedback stays inline with the selector controls and never changes the projects tile. Open **My PRs** to populate activity if there are no suggestions yet. Favorites are optional: PR queries still cover every repository in a selected project, including large projects such as **One**, without enumerating repositories outside this selector.
+## Documentation
 
-The workspace uses the current organization's signed-in browser session. Its IndexedDB database belongs to the extension, not the ADO website. Project selections, repository favorites, follows, and cached responses are partitioned by organization and authenticated viewer. They stay in this browser profile, are not synced, and do not modify ADO subscriptions. **Clear workspace cache** removes this account/organization's recent and historical workspace data without deleting follows, project selections, favorites, review drafts, submission receipts, or progress. Recent responses are reusable for five minutes, with up to 200 recent queries retained per partition. Historical profile pages from months ending at least seven days ago are retained without expiry when every PR on the page has been closed for at least seven days; empty historical pages are retained too. Historical review threads use the same settled-PR rule. Historical records are separate from recent-cache eviction and persist until cache clearing, browser storage eviction, or extension removal. Active and recently closed PR data is not frozen. **Refresh history** explicitly rechecks historical snapshots, including changed votes or reopened PRs. Storage failures are surfaced, not silently ignored.
+- [User guide](docs/user-guide.md): workspace, reviews, local history, and Copilot.
+- [Companion](companion/README.md): Windows setup, accounts, diagnostics, and removal.
+- [Releasing](docs/releasing.md) and [Edge publishing](docs/publishing-to-edge.md).
 
-Profiles default to **Past year**, with PRScope's past-six-month, past-month, and calendar-year choices. Every matching PR page is loaded across the selected projects, without an overall fetch cap or manual sampling. Queries use the project-wide cross-repository PR endpoint, not a loop over repositories, and are split into reusable calendar-month ranges with automatic pagination. Profiles match PRScope's metrics: authored PRs, non-self PRs with a non-zero reviewer vote, active authored PRs, and median merge time. The responsive, Sunday-aligned blue contribution graph counts created/reviewed PRs on each PR's creation date in the browser's local time zone. These are PR activity buckets, not claims that the review happened on that day. Thread history is loaded automatically for every reviewed PR and shows actual comment/vote timestamps separately. Card/event pagination limits only rendering, not fetched data or totals. Failed requests are shown explicitly; profiles are not exhaustive audit logs or measures of review quality, and comment-only participation without a current vote is not counted as a reviewed PR.
+## Development
 
-The dashboard and feed retain progressive loading, starting with the last 90 days and 50 PRs per query/project; **Load more PRs** expands those views. The feed initially includes up to five followed teammates, with **Load more people**, **Load more review events**, and optional self activity. It queries recent PR creation and completion dates and refreshes loaded candidates rather than treating cached events as immutable. Feed review events use actual timestamps in UTC. Automatic refresh runs only while the feed is open and visible; there is no background crawler or localhost service. AI profile summaries are not included.
-
-- ADO Boost uses the signed-in Azure DevOps browser session and same-origin Azure DevOps APIs. It does not require or collect a personal access token.
-- Settings, review progress, private drafts, and submission receipts are stored in extension-local browser storage. ADO Boost does not send analytics or store pull request content in browser sync storage.
-- While ADO Boost is enabled, opening a PR records its title, author's display name, organization/project/repository, identity, URL, and visit time locally. Repository names come from PR metadata even when the opened URL uses a repository GUID; revisiting an older GUID-labeled history entry updates its name and link. The popup shows the author beneath each PR title; previously recorded entries gain author information when revisited. The latest 100 unique PRs are shared across ADO accounts in this browser profile, not synced across devices. Revisits move a PR to the top; file and tab changes within a PR do not. Announced reviews also retain local PR summary metadata with their review state, so they remain accessible outside the recent-history limit. Older saved announcements gain this metadata when revisited. Clearing history leaves drafts and review progress untouched. Older browser history is not imported.
-- Optional Copilot features send PR file metadata and bounded context through GitHub Copilot when requested, or on PR page load if you opt into automatic grouping. Use them only when allowed by your organization's policies.
-- Files larger than 2 MiB, binary files, unavailable versions, and fetch failures are shown as incomplete rather than exact.
-- Azure DevOps review submission is not atomic. Comments may appear before the final vote, and ADO Boost preserves failed or uncertain drafts for review instead of blindly reposting them.
-
-## Optional Copilot companion
-
-The Windows-only companion powers Copilot features through an installed GitHub Copilot CLI. Copilot semantic groups are enabled by default; automatic generation and Copilot PR questions remain opt-in. Core extension features work without the companion.
-
-Choose a signed-in GitHub account during companion setup (`ado-boost setup --account <github-username>`) or in **Copilot account** at the top of settings. Settings loads available accounts from the companion; choosing one saves the pin and switches the live connection, cancelling old-account requests. The popup header shows the signed-in username beside the connection checkmark; its tooltip and connection details identify **Local Copilot**. The companion reuses that account's Windows credential-store sign-in without changing your globally active CLI account. It verifies the pinned username and GitHub host before sending PR context and blocks mismatches rather than using another account. The pin is independent of the Azure DevOps browser login and survives companion upgrades.
-
-**Copilot semantic groups** are enabled by default; existing saved preferences are preserved. Use **Generate** above the native file tree or in the sidebar's **Copilot Groups** tab. The separate **Discussions** tab keeps feedback and threads accessible without scrolling past groups. The first manual generation confirms that all PR files and context will be sent to Copilot running locally, without a file-selection step. All changed-file paths and counts are included; changed-line excerpts retain the existing limits of 20 files, 200 changed lines per file, 32 KB per file, and 128 KB total. **Always show this confirmation dialog** reflects the current confirmation preference and is checked by default. Uncheck it before sending to skip future manual confirmations. You can restore confirmation in settings or the file-tree gear menu.
-
-Enable **Copilot PR questions** to show a separate **Chat** tab for questions, answers, and converting an answer into a private feedback draft. Chat stays separate from group generation, remembers your question when switching tabs, and uses the existing context confirmation before sending a question. Each sidebar tab keeps its own scroll position.
-
-Cached groups for the current comparison load automatically on PR page load, regardless of the automatic-generation and confirmation settings. Restoring them does not send PR context to Copilot, start the companion, or use tokens. The Copilot semantic groups feature must still be enabled.
-
-When a new iteration arrives, previous groups stay visible with a **Groups are stale** notice in the sidebar and an orange **Stale** badge beside the direct **Regenerate** action in the file-tree header. Existing assignments are retained for paths still in the PR; removed paths disappear and newly changed files remain visible under **Unassigned changes**. A page reload also restores the most recent older cached iteration if the current comparison has no cached result. The original session and generation time are preserved until regeneration succeeds. ADO Boost checks for new iterations when the native comparison advances, when the page regains focus, and once a minute while visible. Regeneration refreshes PR context before sending it to Copilot. Historical or custom comparisons do not become the latest PR comparison; native grouping resumes when you return to the latest All Changes view. Open feedback editors retain their original comparison.
-
-**Automatically generate Copilot groups on PR page load** is off by default and can be enabled in settings, the file-tree settings popover, or the confirmation dialog. When enabled, a page load with no cached groups generates them without opening the sidebar or showing a confirmation. The ADO Boost button, sidebar tab and groups view, and native file-tree groups header indicate generation progress. Before groups are available, the file-tree dropdown is disabled and says **Groups not yet generated for this PR**, with a direct **Generate** action. After generation or cache restoration, the dropdown becomes available and the generation action disappears unless groups are stale.
-
-Successful generation opens **All files (N) with groups inline**, with expandable semantic roots preserving ADO's folder hierarchy, native file controls, and rich group explanations. File and folder reviewed checkboxes remain clickable in compact inline views; only synthetic group headers omit a reviewed checkbox. The single **Copilot Groups** selector also offers **All files** and individual groups. Selecting a folder within a group limits its summary diff to that group's files; an individual group shows its explanation below the selector.
-
-Clicking the **Copilot Groups** heading opens the sidebar's **Copilot Groups** tab at the top without changing the heading's normal text color. The gear menu offers **View details in sidebar** and, once groups exist, **Regenerate**, followed by a divider and a small **Settings** section. **Auto generate on each PR** and **Show confirmation dialog** toggle the same preferences used by settings and the confirmation dialog, with checkmarks when enabled. Changing these settings does not start generation immediately. Automatic generation affects future PR page loads; confirmation applies to manual generation. These controls remain available before generation and during regeneration. **Generate** appears beside the heading when groups are missing; stale groups show an orange **Stale** badge to the left of **Regenerate** in the same spot. Fresh groups have no prominent regeneration action in the header; manual regeneration remains available in the gear menu and sidebar. Generation actions use the existing confirmation preference and are disabled while grouping. Generating from the tree leaves the sidebar's open state and selected tab unchanged, including when confirmation is enabled.
-
-The **Copilot Groups** tab shows a compact session card with the session ID, model, iteration, generation date/time, **AI credits used**, and input, output, and total tokens, plus prompt-cache read/write counts when available. Credits come from Copilot's reported per-call billing totals, not token estimates or premium-request multipliers. Missing or incomplete billing telemetry shows **Not reported**; cached results retain the original session's credits without adding new usage. The full-width **Generate** button above the groups is primary; once groups exist, **Regenerate** uses regular styling. Group results have no outer container box. Cached results retain the original generation timestamp and show a **Cached** label; older cached results show **Time not recorded** rather than the cache-loading time. ADO Boost does not override the Copilot CLI's default model. Each generation creates a separate session; these figures are not cumulative across regenerations or chat requests, and cache counters are shown separately rather than added to the input/output total. Results without session telemetry show **Session info unavailable**; individual missing metrics show **Not reported**, not zero. Update the companion as well as the extension to enable session reporting.
-
-When a Copilot feature is enabled, a connection indicator appears on the right of the sidebar header's iteration row. Opening the sidebar checks connection and sign-in without sending PR content. Click the indicator for details and **Refresh**; click outside or press Escape to dismiss its popover. These checks are separate from grouping, so they do not block regeneration or change generation errors. Loading spinners remain animated even when reduced motion is enabled; unrelated reduced-motion behavior is preserved.
-
-Groups are local to the analyzed comparison; cached generation results may be reused after a page reload for the same comparison. Native filters compose with group membership, and switching views never sends context to a model or changes reviewed state. If native integration is incompatible or the comparison is only partially loaded, ordinary ADO browsing remains available and results stay accessible in the sidebar's **Copilot Groups** tab. The original design, folder-scoping architecture, limits, and compatibility findings are documented in the [semantic group native file-tree specification](docs/specs/semantic-group-native-file-tree-spec.md); the generation controls and confirmation preferences above supersede its original always-confirm interaction.
-
-The toolbar popup checks the companion automatically, even when optional Copilot features are disabled or no PR is open. This may start the native host and Copilot CLI on demand; it checks connectivity and sign-in without sending PR content or running an AI request. The host disconnects after two minutes with no pending requests; the popup is not a persistent process monitor. A connected host can still require `ado-boost login`. If the browser cannot find the companion, connection errors explain that it needs to be installed or registered with `ado-boost setup`. Other connection failures direct you to run `ado-boost doctor` and try again.
-
-See [ADO Boost companion](companion/README.md) for requirements, setup, diagnostics, login, and removal commands.
-
-## Contributing
-
-Install dependencies, then run the project checks:
-
-```powershell
-npm ci
-npm run typecheck
-npm test
-npm run build
-```
-
-`npm test` scans only the extension's root `tests` directory. The Windows companion has its own dependencies and test working directory; run its checks separately on Windows:
-
-```powershell
-npm --prefix companion ci
-npm --prefix companion run typecheck
-npm --prefix companion test
-```
-
-CI runs both suites in their respective Extension and Windows companion jobs.
-
-To run the synthetic offline fixture:
-
-```powershell
-npm run dev -- --host 127.0.0.1
-```
-
-Open `http://127.0.0.1:5173/demo.html`. The fixture is clearly labeled and does not perform Azure DevOps writes.
-
-For content-script lifecycle guidance and Azure DevOps UI integration details, see [SPA integration and Azure DevOps UI resources](docs/spa-integration-and-ui-resources.md).
+See the [development guide](docs/development.md) for building from source, running checks, and using the offline demo.
 
 ## License
 
-ADO Boost is licensed under the [MIT License](LICENSE).
+[MIT](LICENSE).
