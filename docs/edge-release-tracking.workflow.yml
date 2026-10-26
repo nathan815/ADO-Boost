@@ -1,0 +1,83 @@
+# NOTE: staged here because the Muse GitHub App cannot write .github/workflows/*.
+# Move/rename this file to .github/workflows/edge-release-tracking.yml (GitHub web UI: Edit -> edit the file name) to activate it.
+
+name: Edge release tracking issue
+
+# Every published GitHub release gets its own Edge Add-ons tracking issue.
+# The daily Edge store status workflow picks up every open issue labelled
+# "edge-release" and updates it as that version moves through certification.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing published release tag to track (vMAJOR.MINOR.PATCH)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: edge-release-tracking
+  cancel-in-progress: false
+
+jobs:
+  track:
+    name: Create tracking issue for the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Create the tracking issue if it does not exist yet
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+        run: |
+          set -euo pipefail
+
+          tag="$RELEASE_TAG"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag '$tag' is not vMAJOR.MINOR.PATCH; not creating a tracking issue."
+            exit 0
+          fi
+          version="${tag#v}"
+          marker="edge-tracking-version:$version"
+
+          gh label create edge-release --color 0078d4 --description "Edge Add-ons release tracking" --force
+
+          existing=$(gh issue list --state all --label edge-release --limit 200 --json number,body \
+            --jq "[.[] | select(.body != null and (.body | contains(\"$marker\")))] | first | .number // empty")
+          if [ -n "$existing" ]; then
+            echo "Tracking issue #$existing already exists for $tag; nothing to do."
+            exit 0
+          fi
+
+          release_url="$RELEASE_URL"
+          if [ -z "$release_url" ]; then
+            release_url=$(gh release view "$tag" --json url --jq .url)
+          fi
+
+          {
+            echo "<!-- $marker -->"
+            echo "Tracking the Microsoft Edge Add-ons release of **ADO Boost $version**."
+            echo
+            echo "- GitHub release: $release_url"
+            echo "- Product ID: \`a4577b0c-dc7e-4818-8369-45afb5a7696c\`"
+            echo "- Store status is updated daily by the **Edge store status** workflow; it comments here only when the observed status changes."
+            echo
+            echo "## Checklist"
+            echo
+            echo "- [ ] Submit $version to Edge Add-ons (Publish to Edge workflow or Partner Center) — a GitHub release alone does not submit anything to the store"
+            echo "- [ ] Record the certification outcome and address any reviewer feedback"
+            echo "- [ ] Confirm the live listing shows version $version"
+            echo "- [ ] Install from Edge Add-ons and smoke-test this version"
+            echo "- [ ] Close this issue once the version is live and verified"
+            echo
+            echo "Note: the daily check watches the public listing, so \"not published\" covers not-yet-submitted, in-review, and rejected. Partner Center / the reviewer email is the source of truth for rejection reasons."
+          } > issue.md
+          gh issue create --title "Track Edge Add-ons release v$version" --label edge-release --body-file issue.md
