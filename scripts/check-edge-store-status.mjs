@@ -47,11 +47,13 @@ export async function checkListing(url, { fetch: request = fetch } = {}) {
   }
   const body = await response.text();
   const notFound = /couldn'?t find|page not found|404/i.test(body);
+  const versionMatch = body.match(/"version"\s*:\s*"(\d+\.\d+\.\d+)"/) ?? body.match(/\bVersion\b[^0-9]{0,12}(\d+\.\d+\.\d+)/i);
+  const listingVersion = versionMatch?.[1] ?? null;
   if (response.status === 200 && !notFound && body.includes("ADO Boost")) {
-    return { state: "published", httpStatus: 200, detail: "Store listing is live and names ADO Boost." };
+    return { state: "published", httpStatus: 200, listingVersion, detail: "Store listing is live and names ADO Boost." };
   }
   if (response.status === 404 || notFound) {
-    return { state: "not-published", httpStatus: response.status, detail: "Store listing is not available yet." };
+    return { state: "not-published", httpStatus: response.status, listingVersion: null, detail: "Store listing is not available yet." };
   }
   return { state: "unknown", httpStatus: response.status, detail: `Unexpected store response (HTTP ${response.status}).` };
 }
@@ -81,9 +83,24 @@ export async function checkPublishOperation(
   };
 }
 
-export function resolveStatus({ listing = null, operation = null } = {}) {
+export function resolveStatus({ listing = null, operation = null, targetVersion = null } = {}) {
   if (listing?.state === "published") {
-    return { status: "published", summary: "Published — the Edge Add-ons listing is live." };
+    if (targetVersion && listing.listingVersion && listing.listingVersion !== targetVersion) {
+      return {
+        status: "not-published",
+        summary: `Not published yet — the live listing is version ${listing.listingVersion}, not ${targetVersion}. This version is still in review, not yet submitted, or was rejected.`
+      };
+    }
+    if (targetVersion && !listing.listingVersion) {
+      return {
+        status: "published",
+        summary: `Published — the Edge Add-ons listing is live. (The live version could not be read from the listing page, so it was not confirmed to be ${targetVersion}.)`
+      };
+    }
+    return {
+      status: "published",
+      summary: `Published — the Edge Add-ons listing is live${listing.listingVersion ? ` at version ${listing.listingVersion}` : ""}.`
+    };
   }
   if (operation?.state === "operation-failed") {
     return { status: "operation-failed", summary: `Publish operation failed — ${operation.detail}` };
@@ -125,11 +142,20 @@ export async function checkEdgeStoreStatus(env = process.env, options = {}) {
     return {
       status: "unconfigured",
       storeUrl: null,
+      listingVersion: null,
       summary:
         "No store signal configured. Set the repository variable EDGE_CRX_ID (or EDGE_STORE_URL) from Partner Center's Extension identity section so the daily check can poll the listing."
     };
   }
-  return { storeUrl, listing, operation, ...resolveStatus({ listing, operation }) };
+  const targetVersion = env.EDGE_TARGET_VERSION?.trim() || null;
+  return {
+    storeUrl,
+    listing,
+    operation,
+    targetVersion,
+    listingVersion: listing?.listingVersion ?? null,
+    ...resolveStatus({ listing, operation, targetVersion })
+  };
 }
 
 async function main() {
@@ -140,7 +166,7 @@ async function main() {
   if (process.env.GITHUB_OUTPUT) {
     await appendFile(
       process.env.GITHUB_OUTPUT,
-      `status=${result.status}\nstore_url=${result.storeUrl ?? ""}\nsummary<<EOF\n${result.summary}\nEOF\n`
+      `status=${result.status}\nstore_url=${result.storeUrl ?? ""}\nlisting_version=${result.listingVersion ?? ""}\ntarget_version=${result.targetVersion ?? ""}\nsummary<<EOF\n${result.summary}\nEOF\n`
     );
   }
   if (process.env.GITHUB_STEP_SUMMARY) {
