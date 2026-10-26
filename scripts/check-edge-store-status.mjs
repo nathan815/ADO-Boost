@@ -144,7 +144,7 @@ export async function checkEdgeStoreStatus(env = process.env, options = {}) {
       storeUrl: null,
       listingVersion: null,
       summary:
-        "No store signal configured. Set the repository variable EDGE_CRX_ID (or EDGE_STORE_URL) from Partner Center's Extension identity section so the daily check can poll the listing."
+        "No store signal configured. Set EDGE_CRX_ID (repository variable, or a variable/secret in the edge-store environment) or EDGE_STORE_URL from Partner Center's Extension identity section so the daily check can poll the listing."
     };
   }
   const targetVersion = env.EDGE_TARGET_VERSION?.trim() || null;
