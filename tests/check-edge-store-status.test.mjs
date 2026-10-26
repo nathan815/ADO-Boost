@@ -70,6 +70,36 @@ describe("checkPublishOperation", () => {
   });
 });
 
+describe("per-version resolution", () => {
+  it("extracts the live version from the listing page", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(new Response('<title>ADO Boost</title><script>{"version":"0.4.1"}</script>', { status: 200 }));
+    await expect(checkListing("https://microsoftedge.microsoft.com/addons/detail/x", { fetch })).resolves.toMatchObject({
+      state: "published",
+      listingVersion: "0.4.1"
+    });
+  });
+
+  it("treats a live listing at an older version as not-published for the target version", () => {
+    expect(
+      resolveStatus({ listing: { state: "published", listingVersion: "0.4.1" }, targetVersion: "0.5.0" }).status
+    ).toBe("not-published");
+    expect(
+      resolveStatus({ listing: { state: "published", listingVersion: "0.5.0" }, targetVersion: "0.5.0" }).status
+    ).toBe("published");
+  });
+
+  it("passes EDGE_TARGET_VERSION through the environment check", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(new Response('<title>ADO Boost</title><script>{"version":"0.4.1"}</script>', { status: 200 }));
+    await expect(
+      checkEdgeStoreStatus({ EDGE_CRX_ID: crxId, EDGE_TARGET_VERSION: "0.5.0" }, { fetch })
+    ).resolves.toMatchObject({ status: "not-published", listingVersion: "0.4.1", targetVersion: "0.5.0" });
+  });
+});
+
 describe("resolveStatus / checkEdgeStoreStatus", () => {
   it("prefers a live listing over every other signal", () => {
     expect(
