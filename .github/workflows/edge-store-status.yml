@@ -13,8 +13,8 @@ on:
         default: false
         type: boolean
 
-# The listing check is public and needs no Edge credentials or the edge-store
-# environment, so scheduled runs never wait on an environment approval.
+# Use the edge-store environment to access its configuration. Scheduled runs
+# will wait for approval if the environment requires reviewers.
 permissions:
   contents: read
   issues: write
@@ -28,6 +28,7 @@ jobs:
     name: Check Edge Add-ons status for all tracked releases
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    environment: edge-store
 
     steps:
       - name: Check out repository
@@ -42,14 +43,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           FORCE_COMMENT: ${{ inputs.comment_if_unchanged || false }}
-          # Repository variables (Settings > Secrets and variables > Actions
-          # > Variables). EDGE_CRX_ID comes from Partner Center's Extension
-          # identity section; EDGE_STORE_URL, when set, takes precedence.
-          EDGE_STORE_URL: ${{ vars.EDGE_STORE_URL }}
-          EDGE_CRX_ID: ${{ vars.EDGE_CRX_ID }}
+          # Accept environment or repository configuration, preferring variables
+          # over secrets. EDGE_STORE_URL overrides the CRX ID.
+          EDGE_STORE_URL: ${{ vars.EDGE_STORE_URL || secrets.EDGE_STORE_URL }}
+          EDGE_CRX_ID: ${{ vars.EDGE_CRX_ID || secrets.EDGE_CRX_ID }}
           # Optional: also poll a publish operation created through the Edge
           # API. EDGE_SUBMISSION_OPERATION_ID is a repository variable; the
-          # client ID / API key are repository secrets used read-only here.
+          # client ID / API key come from the edge-store environment secrets.
           EDGE_PRODUCT_ID: ${{ vars.EDGE_PRODUCT_ID }}
           EDGE_SUBMISSION_OPERATION_ID: ${{ vars.EDGE_SUBMISSION_OPERATION_ID }}
           EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
@@ -114,7 +114,7 @@ jobs:
               fi
               if [ "$status" = "unconfigured" ]; then
                 echo
-                echo "To enable the listing check, add a repository variable named \`EDGE_CRX_ID\` (Settings > Secrets and variables > Actions > Variables) with the CRX ID from Partner Center's Extension identity section, or \`EDGE_STORE_URL\` with the full listing URL. Until then this check cannot tell \"In review\" from \"Published\"."
+                echo "To enable the listing check, set \`EDGE_CRX_ID\` to the CRX ID from Partner Center's Extension identity section - as a variable in the edge-store environment or at repository level (Settings > Secrets and variables > Actions) - or set \`EDGE_STORE_URL\` to the full listing URL. Until then this check cannot tell \"In review\" from \"Published\"."
               fi
             } > comment.md
             gh issue comment "$n" --body-file comment.md
