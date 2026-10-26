@@ -1,0 +1,102 @@
+# NOTE: staged here because the Muse GitHub App cannot write .github/workflows/*.
+# Move/rename this file to .github/workflows/edge-store-status.yml (GitHub web UI: Edit -> edit the file name) to activate it.
+
+name: Edge store status
+
+on:
+  schedule:
+    # Daily at 13:17 UTC (~9:17 AM ET in daylight time, 8:17 AM in standard
+    # time). Off the hour so the run is not delayed by peak scheduler load.
+    - cron: "17 13 * * *"
+  workflow_dispatch:
+    inputs:
+      comment_if_unchanged:
+        description: Post an issue comment even when the status has not changed
+        required: false
+        default: false
+        type: boolean
+
+# The listing check is public and needs no Edge credentials or the edge-store
+# environment, so scheduled runs never wait on an environment approval.
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: edge-store-status
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check Edge Add-ons status
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check store status
+        id: status
+        env:
+          # Repository variables (Settings > Secrets and variables > Actions
+          # > Variables). EDGE_CRX_ID comes from Partner Center's Extension
+          # identity section; EDGE_STORE_URL, when set, takes precedence.
+          EDGE_STORE_URL: ${{ vars.EDGE_STORE_URL }}
+          EDGE_CRX_ID: ${{ vars.EDGE_CRX_ID }}
+          # Optional: poll a publish operation created through the Edge API.
+          # EDGE_SUBMISSION_OPERATION_ID is a repository variable; the client
+          # ID / API key are repository secrets used read-only here.
+          EDGE_PRODUCT_ID: ${{ vars.EDGE_PRODUCT_ID }}
+          EDGE_SUBMISSION_OPERATION_ID: ${{ vars.EDGE_SUBMISSION_OPERATION_ID }}
+          EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
+        run: node scripts/check-edge-store-status.mjs
+
+      - name: Update tracking issue on change
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: "8"
+          STATUS: ${{ steps.status.outputs.status }}
+          STORE_URL: ${{ steps.status.outputs.store_url }}
+          SUMMARY: ${{ steps.status.outputs.summary }}
+          FORCE_COMMENT: ${{ inputs.comment_if_unchanged || false }}
+        run: |
+          state=$(gh issue view "$ISSUE_NUMBER" --json state --jq .state)
+          if [ "$state" = "CLOSED" ]; then
+            echo "Issue #$ISSUE_NUMBER is closed; not commenting."
+            exit 0
+          fi
+
+          last=$(gh issue view "$ISSUE_NUMBER" --json comments --jq '[.comments[].body | capture("edge-store-status:(?<s>[a-z-]+)").s] | last // "none"')
+          echo "Last reported status: $last; current status: $STATUS"
+          if [ "$last" = "$STATUS" ] && [ "$FORCE_COMMENT" != "true" ]; then
+            echo "Status unchanged; staying quiet."
+            exit 0
+          fi
+
+          checked_at=$(date -u +"%Y-%m-%d %H:%M UTC")
+          {
+            echo "<!-- edge-store-status:$STATUS -->"
+            echo "### Edge Add-ons status: $STATUS"
+            echo
+            echo "$SUMMARY"
+            echo
+            if [ -n "$STORE_URL" ]; then echo "- Listing: $STORE_URL"; fi
+            echo "- Product: ADO Boost 0.4.1 (initial submission, Oct 23, 2026)"
+            echo "- Checked: $checked_at by the daily [Edge store status workflow]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+            if [ "$STATUS" = "published" ]; then
+              echo
+              echo "Next steps from this issue's checklist: record the live listing URL above, install from Edge Add-ons, and verify the store extension ID against the companion allowlist. This issue stays open until those manual checks are done."
+            fi
+            if [ "$STATUS" = "unconfigured" ]; then
+              echo
+              echo "To enable the listing check, add a repository variable named \`EDGE_CRX_ID\` (Settings > Secrets and variables > Actions > Variables) with the CRX ID from Partner Center's Extension identity section, or \`EDGE_STORE_URL\` with the full listing URL. Until then this check cannot tell \"In review\" from \"Published\"."
+            fi
+          } > comment.md
+          gh issue comment "$ISSUE_NUMBER" --body-file comment.md
