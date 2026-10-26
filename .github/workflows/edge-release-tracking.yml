@@ -1,6 +1,3 @@
-# NOTE: staged here because the Muse GitHub App cannot write .github/workflows/*.
-# Move/rename this file to .github/workflows/edge-release-tracking.yml (GitHub web UI: Edit -> edit the file name) to activate it.
-
 name: Edge release tracking issue
 
 # Every published GitHub release gets its own Edge Add-ons tracking issue.
@@ -35,6 +32,7 @@ jobs:
       - name: Create the tracking issue if it does not exist yet
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
           RELEASE_URL: ${{ github.event.release.html_url }}
         run: |

@@ -1,6 +1,3 @@
-# NOTE: staged here because the Muse GitHub App cannot write .github/workflows/*.
-# Move/rename this file to .github/workflows/edge-store-status.yml (GitHub web UI: Edit -> edit the file name) to activate it.
-
 name: Edge store status
 
 on:
