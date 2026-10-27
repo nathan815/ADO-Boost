@@ -44,6 +44,14 @@ describe("checkListing", () => {
     });
   });
 
+  it("reports not-published when the store serves its generic shell with HTTP 200", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response("<html><title>Microsoft Edge Add-ons</title></html>", { status: 200 }));
+    await expect(checkListing("https://microsoftedge.microsoft.com/addons/detail/x", { fetch })).resolves.toMatchObject({
+      state: "not-published",
+      httpStatus: 200
+    });
+  });
+
   it("reports unknown when the request itself fails", async () => {
     const fetch = vi.fn().mockRejectedValue(new Error("network down"));
     await expect(checkListing("https://microsoftedge.microsoft.com/addons/detail/x", { fetch })).resolves.toMatchObject({

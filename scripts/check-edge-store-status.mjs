@@ -52,7 +52,10 @@ export async function checkListing(url, { fetch: request = fetch } = {}) {
   if (response.status === 200 && !notFound && body.includes("ADO Boost")) {
     return { state: "published", httpStatus: 200, listingVersion, detail: "Store listing is live and names ADO Boost." };
   }
-  if (response.status === 404 || notFound) {
+  // The store is a single-page app: an ID that is not live gets HTTP 200 and
+  // the generic "Microsoft Edge Add-ons" shell with no product name, not a 404.
+  const genericShell = response.status === 200 && /<title>\s*Microsoft Edge Add-ons\s*<\/title>/i.test(body);
+  if (response.status === 404 || notFound || genericShell) {
     return { state: "not-published", httpStatus: response.status, listingVersion: null, detail: "Store listing is not available yet." };
   }
   return { state: "unknown", httpStatus: response.status, detail: `Unexpected store response (HTTP ${response.status}).` };
