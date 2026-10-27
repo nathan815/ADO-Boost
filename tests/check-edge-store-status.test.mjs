@@ -29,19 +29,26 @@ describe("buildStoreUrl", () => {
 });
 
 describe("checkListing", () => {
-  it("reports published when the listing serves the extension name", async () => {
-    const fetch = vi.fn().mockResolvedValue(new Response("<title>ADO Boost - Microsoft Edge Add-ons</title>", { status: 200 }));
-    await expect(checkListing("https://microsoftedge.microsoft.com/addons/detail/x", { fetch })).resolves.toMatchObject({
+  const listingUrl = `https://microsoftedge.microsoft.com/addons/detail/ado-boost/${crxId}`;
+
+  it("queries the JSON endpoint and reports published with the live version", async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json({ name: "ADO Boost", crxId, version: "0.4.1" }));
+    await expect(checkListing(listingUrl, { fetch })).resolves.toMatchObject({
       state: "published",
-      httpStatus: 200
+      httpStatus: 200,
+      listingVersion: "0.4.1"
     });
+    expect(fetch.mock.calls[0][0]).toBe(`https://microsoftedge.microsoft.com/addons/getproductdetailsbycrxid/${crxId}`);
   });
 
   it("reports not-published on a 404", async () => {
-    const fetch = vi.fn().mockResolvedValue(new Response("missing", { status: 404 }));
-    await expect(checkListing("https://microsoftedge.microsoft.com/addons/detail/x", { fetch })).resolves.toMatchObject({
-      state: "not-published"
-    });
+    const fetch = vi.fn().mockResolvedValue(new Response("Status Code: 404; Not Found", { status: 404 }));
+    await expect(checkListing(listingUrl, { fetch })).resolves.toMatchObject({ state: "not-published" });
+  });
+
+  it("reports unknown for a 200 that is not a product", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response("<html>shell</html>", { status: 200 }));
+    await expect(checkListing(listingUrl, { fetch })).resolves.toMatchObject({ state: "unknown", httpStatus: 200 });
   });
 
   it("reports unknown when the request itself fails", async () => {
@@ -71,16 +78,6 @@ describe("checkPublishOperation", () => {
 });
 
 describe("per-version resolution", () => {
-  it("extracts the live version from the listing page", async () => {
-    const fetch = vi
-      .fn()
-      .mockResolvedValue(new Response('<title>ADO Boost</title><script>{"version":"0.4.1"}</script>', { status: 200 }));
-    await expect(checkListing("https://microsoftedge.microsoft.com/addons/detail/x", { fetch })).resolves.toMatchObject({
-      state: "published",
-      listingVersion: "0.4.1"
-    });
-  });
-
   it("treats a live listing at an older version as not-published for the target version", () => {
     expect(
       resolveStatus({ listing: { state: "published", listingVersion: "0.4.1" }, targetVersion: "0.5.0" }).status
@@ -91,9 +88,7 @@ describe("per-version resolution", () => {
   });
 
   it("passes EDGE_TARGET_VERSION through the environment check", async () => {
-    const fetch = vi
-      .fn()
-      .mockResolvedValue(new Response('<title>ADO Boost</title><script>{"version":"0.4.1"}</script>', { status: 200 }));
+    const fetch = vi.fn().mockResolvedValue(Response.json({ name: "ADO Boost", version: "0.4.1" }));
     await expect(
       checkEdgeStoreStatus({ EDGE_CRX_ID: crxId, EDGE_TARGET_VERSION: "0.5.0" }, { fetch })
     ).resolves.toMatchObject({ status: "not-published", listingVersion: "0.4.1", targetVersion: "0.5.0" });
