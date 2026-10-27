@@ -1,0 +1,121 @@
+name: Edge store status
+
+on:
+  schedule:
+    # Daily at 13:17 UTC (~9:17 AM ET in daylight time, 8:17 AM in standard
+    # time). Off the hour so the run is not delayed by peak scheduler load.
+    - cron: "17 13 * * *"
+  workflow_dispatch:
+    inputs:
+      comment_if_unchanged:
+        description: Post issue comments even when a status has not changed
+        required: false
+        default: false
+        type: boolean
+
+# Use the edge-store environment to access its configuration. Scheduled runs
+# will wait for approval if the environment requires reviewers.
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: edge-store-status
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check Edge Add-ons status for all tracked releases
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: edge-store
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check each tracked release and update its issue on change
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE_COMMENT: ${{ inputs.comment_if_unchanged || false }}
+          # Accept environment or repository configuration, preferring variables
+          # over secrets. EDGE_STORE_URL overrides the CRX ID.
+          EDGE_STORE_URL: ${{ vars.EDGE_STORE_URL || secrets.EDGE_STORE_URL }}
+          EDGE_CRX_ID: ${{ vars.EDGE_CRX_ID || secrets.EDGE_CRX_ID }}
+          # Optional: also poll a publish operation created through the Edge
+          # API. EDGE_SUBMISSION_OPERATION_ID is a repository variable; the
+          # client ID / API key come from the edge-store environment secrets.
+          EDGE_PRODUCT_ID: ${{ vars.EDGE_PRODUCT_ID }}
+          EDGE_SUBMISSION_OPERATION_ID: ${{ vars.EDGE_SUBMISSION_OPERATION_ID }}
+          EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
+        run: |
+          set -uo pipefail
+
+          # Tracked releases: the initial tracking issue (#8, version 0.4.1)
+          # plus every open issue labelled "edge-release". The Edge release
+          # tracking workflow creates one such issue per GitHub release, each
+          # carrying an "edge-tracking-version:X.Y.Z" marker in its body.
+          numbers=$( { echo "8"; gh issue list --label edge-release --state open --limit 100 --json number --jq '.[].number'; } | sort -un )
+          echo "Tracking issues: $numbers"
+
+          for n in $numbers; do
+            view=$(gh issue view "$n" --json state,title,body,comments) || continue
+            state=$(jq -r .state <<<"$view")
+            if [ "$state" != "OPEN" ]; then
+              echo "Issue #$n is $state; skipping."
+              continue
+            fi
+            body=$(jq -r .body <<<"$view")
+            title=$(jq -r .title <<<"$view")
+
+            version=$(printf '%s\n%s\n' "$body" "$title" | grep -oE 'edge-tracking-version:[0-9]+\.[0-9]+\.[0-9]+' | tail -1 | cut -d: -f2 || true)
+            if [ -z "$version" ]; then
+              version=$(printf '%s' "$title" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | tail -1 || true)
+            fi
+            if [ -z "$version" ] && [ "$n" = "8" ]; then version="0.4.1"; fi
+            echo "Issue #$n tracks version '${version:-unknown}'"
+
+            out=$(mktemp)
+            if ! EDGE_TARGET_VERSION="$version" GITHUB_OUTPUT="$out" GITHUB_STEP_SUMMARY="" node scripts/check-edge-store-status.mjs; then
+              echo "::warning::Status check failed for issue #$n; leaving it for the next run."
+              continue
+            fi
+            status=$(grep '^status=' "$out" | cut -d= -f2)
+            store_url=$(grep '^store_url=' "$out" | cut -d= -f2-)
+            listing_version=$(grep '^listing_version=' "$out" | cut -d= -f2)
+            summary=$(sed -n '/^summary<<EOF/,/^EOF/p' "$out" | sed '1d;$d')
+
+            last=$(jq -r '[.comments[].body | capture("edge-store-status:(?<s>[a-z-]+)").s] | last // "none"' <<<"$view")
+            echo "Issue #$n: last reported '$last', current '$status'"
+            if [ "$last" = "$status" ] && [ "$FORCE_COMMENT" != "true" ]; then
+              echo "Status unchanged; staying quiet on issue #$n."
+              continue
+            fi
+
+            checked_at=$(date -u +"%Y-%m-%d %H:%M UTC")
+            {
+              echo "<!-- edge-store-status:$status -->"
+              echo "### Edge Add-ons status for ${version:-this release}: $status"
+              echo
+              echo "$summary"
+              echo
+              if [ -n "$store_url" ]; then echo "- Listing: $store_url"; fi
+              if [ -n "$listing_version" ]; then echo "- Live listing version: $listing_version"; fi
+              echo "- Checked: $checked_at by the daily [Edge store status workflow]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+              if [ "$status" = "published" ]; then
+                echo
+                echo "Next steps: record the live listing URL, install from Edge Add-ons, and verify the store-installed extension ID against the companion allowlist. Close this issue once those manual checks for this version are done."
+              fi
+              if [ "$status" = "unconfigured" ]; then
+                echo
+                echo "To enable the listing check, set \`EDGE_CRX_ID\` to the CRX ID from Partner Center's Extension identity section - as a variable in the edge-store environment or at repository level (Settings > Secrets and variables > Actions) - or set \`EDGE_STORE_URL\` to the full listing URL. Until then this check cannot tell \"In review\" from \"Published\"."
+              fi
+            } > comment.md
+            gh issue comment "$n" --body-file comment.md
+          done
