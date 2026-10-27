@@ -9,8 +9,8 @@ import { pathToFileURL } from "node:url";
 // https://learn.microsoft.com/en-us/microsoft-edge/extensions/update/api/using-addons-api
 //
 // The one approval signal that is observable from CI is the public store
-// listing itself: it returns 404 / a not-found page while a product is in
-// review or rejected, and serves the listing once it is published. Hidden
+// listing itself: its JSON endpoint returns 404 while a product is in
+// review or rejected, and serves the product once it is published. Hidden
 // visibility still serves the listing at its direct URL, so this check needs
 // the listing URL or the CRX ID from Partner Center's "Extension identity"
 // section. A rejected submission is indistinguishable from one still in
@@ -38,25 +38,32 @@ export function buildStoreUrl({ storeUrl, crxId } = {}) {
   return null;
 }
 
-export async function checkListing(url, { fetch: request = fetch } = {}) {
+export async function checkListing(storeUrl, { fetch: request = fetch } = {}) {
+  // The listing page is a single-page app that serves the same shell for any ID,
+  // so query the store's JSON endpoint instead: 404 until the listing is live.
+  const crxId = new URL(storeUrl).pathname.split("/").filter(Boolean).pop();
   let response;
   try {
-    response = await request(url, { redirect: "follow", signal: AbortSignal.timeout(60_000) });
+    response = await request(`${storeOrigin}/addons/getproductdetailsbycrxid/${encodeURIComponent(crxId)}`, {
+      redirect: "follow",
+      signal: AbortSignal.timeout(60_000)
+    });
   } catch (error) {
     return { state: "unknown", httpStatus: null, detail: `Store listing request failed: ${error.message}` };
   }
-  const body = await response.text();
-  const notFound = /couldn'?t find|page not found|404/i.test(body);
-  const versionMatch = body.match(/"version"\s*:\s*"(\d+\.\d+\.\d+)"/) ?? body.match(/\bVersion\b[^0-9]{0,12}(\d+\.\d+\.\d+)/i);
-  const listingVersion = versionMatch?.[1] ?? null;
-  if (response.status === 200 && !notFound && body.includes("ADO Boost")) {
-    return { state: "published", httpStatus: 200, listingVersion, detail: "Store listing is live and names ADO Boost." };
+  if (response.status === 404) {
+    return { state: "not-published", httpStatus: 404, listingVersion: null, detail: "Store listing is not available yet." };
   }
-  // The store is a single-page app: an ID that is not live gets HTTP 200 and
-  // the generic "Microsoft Edge Add-ons" shell with no product name, not a 404.
-  const genericShell = response.status === 200 && /<title>\s*Microsoft Edge Add-ons\s*<\/title>/i.test(body);
-  if (response.status === 404 || notFound || genericShell) {
-    return { state: "not-published", httpStatus: response.status, listingVersion: null, detail: "Store listing is not available yet." };
+  if (response.status === 200) {
+    const product = await response.json().catch(() => null);
+    if (product?.name) {
+      return {
+        state: "published",
+        httpStatus: 200,
+        listingVersion: /^\d+\.\d+\.\d+/.test(product.version ?? "") ? product.version : null,
+        detail: `Store listing is live and names ${product.name}.`
+      };
+    }
   }
   return { state: "unknown", httpStatus: response.status, detail: `Unexpected store response (HTTP ${response.status}).` };
 }
